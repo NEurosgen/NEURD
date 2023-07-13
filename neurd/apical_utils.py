@@ -1743,24 +1743,23 @@ attributes_dict_h01 = dict(
     rotation_function_axon_alignment = hvu.data_interface.align_neuron_obj,
     unrotation_function_axon_alignment =  hvu.data_interface.unalign_neuron_obj,
 )
-modules_to_set = [apu]
 
+# modules_to_set = [apu]
+# data_type = "default"
+# algorithms = None
 
-data_type = "default"
-algorithms = None
+# modsetter = modu.ModuleDataTypeSetter(
+#     module = modules_to_set,
+#     algorithms = algorithms
+# )
 
-modsetter = modu.ModuleDataTypeSetter(
-    module = modules_to_set,
-    algorithms = algorithms
-)
+# set_global_parameters_and_attributes_by_data_type = modsetter.set_global_parameters_and_attributes_by_data_type
+# output_global_parameters_and_attributes_from_current_data_type = modsetter.output_global_parameters_and_attributes_from_current_data_type
 
-set_global_parameters_and_attributes_by_data_type = modsetter.set_global_parameters_and_attributes_by_data_type
-output_global_parameters_and_attributes_from_current_data_type = modsetter.output_global_parameters_and_attributes_from_current_data_type
-
-set_global_parameters_and_attributes_by_data_type(
-    data_type=data_type,
-    algorithms=algorithms
-)
+# set_global_parameters_and_attributes_by_data_type(
+#     data_type=data_type,
+#     algorithms=algorithms
+# )
 
 
 
