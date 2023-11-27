@@ -75,11 +75,15 @@ def cell_type_ax_dendr_stage(
     
     
     
+    
     #1) Branch Simplification
     bu.refine_width_array_to_match_skeletal_coordinates(
         neuron_obj_pre_filt,
         verbose = False
     )
+    
+    
+    
     
     # 2) Performs branch simplification so there should always be 2 or more child branches
     neuron_obj_pre_filt_after_simp = nsimp.branching_simplification(
@@ -98,6 +102,7 @@ def cell_type_ax_dendr_stage(
     )
     
     
+    
     # 4) Filter away a large cluster of dendrite if requested SKIPPED
 
     if filter_low_branch_cluster_dendrite:
@@ -114,6 +119,8 @@ def cell_type_ax_dendr_stage(
     else:
         neuron_obj_pre_class = neuron_obj_pre_filt_after_simp
         filtering_info_low_branch = {}
+        
+    
     
     
     # 3) match neuron to nucleus
@@ -141,6 +148,7 @@ def cell_type_ax_dendr_stage(
         print(f"nucleus_info = {nucleus_info}")
         print(f"winning_nucleus_id = {winning_nucleus_id}")
         
+    
         
     # 4) Add synapses to neuron 
     neuron_obj_attr = syu.add_synapses_to_neuron_obj(
@@ -155,8 +163,11 @@ def cell_type_ax_dendr_stage(
         add_error_synapses=False,
     )
 
+    
+    
     if plot_synapses:
         syu.plot_synapses(neuron_obj_attr)
+    
     
     
     
