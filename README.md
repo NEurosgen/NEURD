@@ -4,7 +4,7 @@
 
 NEURD: A mesh decomposition framework for automated proofreading and morphological analysis of neuronal EM reconstructions
 
-publication: https://www.biorxiv.org/content/10.1101/2023.03.14.532674v3
+publication: https://www.nature.com/articles/s41586-025-08660-5
 
 ## Setup: Installation inside docker env
 
@@ -87,6 +87,7 @@ All of the tutorials made for showing the decomposition/autoproofreading pipelin
    - Conversion Rate of Groups of Cells: Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Inh/neuron_pipeline_vp5_single_demo_inh.ipynb
 
 6. Visualizations :
+
    - Skeleton and Compartments of Auto Proofread Neuron: Applications/Tutorials/Visualizing_Auto_Proof_Neurons/Visualizing_Neuron_Skeletons_and_Compartments.ipynb
 
 7. Cell Type Classification :
