@@ -1,37 +1,22 @@
-from .version import __version__
-from datasci_tools import module_utils as modu
 from pathlib import Path
+
+from datasci_tools import module_utils as modu
+
+from .version import __version__
 
 default_data_type = "microns"
 
+
 def set_volume_params(
-    volume = default_data_type,
-    verbose = False,
-    verbose_loop = False):
-    
-    
-    directory = Path(f"{__file__}").parents[0] 
-    #print(f"Tried to set modules, directory = {directory}")
+    volume=default_data_type,
+    verbose=False,
+    verbose_loop=False,
+):
+    directory = Path(f"{__file__}").parents[0]
     modu.all_modules_set_global_parameters_and_attributes(
-        data_type = volume,
+        data_type=volume,
         directory=directory,
-        verbose = verbose,
-        verbose_loop = verbose_loop,
-        from_package = f"neurd"
+        verbose=verbose,
+        verbose_loop=verbose_loop,
+        from_package="neurd",
     )
-    
-import os
-from datasci_tools import package_utils as pku
-
-
-# pku.load_all_modules_in_package(
-#     package_directory = os.path.dirname(__file__),
-#     reload_after_load = True
-# )
-
-#set_volume_params()
-
-
-
-
-
