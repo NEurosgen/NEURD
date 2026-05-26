@@ -67,7 +67,7 @@ class DataInterface(ABC):
         if return_centers:
             return nuclues_ids,nucleus_centers
         else:
-            return nucleus_ids
+            return nuclues_ids
     def nuclei_classification_info_from_nucleus_id(
         self,
         nuclei,

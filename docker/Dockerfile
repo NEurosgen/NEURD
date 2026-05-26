@@ -18,3 +18,5 @@ RUN pip3 install \
 
 RUN pip3 install git+https://github.com/reimerlab/tamarind.git
 RUN pip3 install git+https://github.com/reimerlab/dotmotif/
+
+RUN pip3 install pytest pytest-mock

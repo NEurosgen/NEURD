@@ -2097,12 +2097,11 @@ def plot_cell_type_pre_post_attribute_hist(
                 n_samples = n_samples,
                 seed = seed,
             )
-            syn_df = ftu.add_on_delta_to_df(
-                syn_df,
-                ori_name_1='presyn_ori_rad',
-                ori_name_2='postsyn_ori_rad',
-                dir_name_1='presyn_dir_rad',
-                dir_name_2='postsyn_dir_rad',
+            syn_df["delta_ori_rad"] = nu.cdist(
+                syn_df['presyn_ori_rad'], syn_df['postsyn_ori_rad']
+            )
+            syn_df["delta_dir_rad"] = nu.cdist(
+                syn_df['presyn_dir_rad'], syn_df['postsyn_dir_rad']
             )
 
             dfs.append(syn_df)
@@ -2136,13 +2135,13 @@ def add_delta_ori_edge_features(
     edge_df,
     ):
 
-    sampled_edge_df = ftu.add_on_delta_to_df(
-                    edge_df,
-                    ori_name_1='presyn_ori_rad',
-                    ori_name_2='postsyn_ori_rad',
-                    dir_name_1='presyn_dir_rad',
-                    dir_name_2='postsyn_dir_rad',
-                )
+    sampled_edge_df = edge_df.copy()
+    sampled_edge_df["delta_ori_rad"] = nu.cdist(
+        sampled_edge_df['presyn_ori_rad'], sampled_edge_df['postsyn_ori_rad']
+    )
+    sampled_edge_df["delta_dir_rad"] = nu.cdist(
+        sampled_edge_df['presyn_dir_rad'], sampled_edge_df['postsyn_dir_rad']
+    )
 
     dummy_dict = dict(
         postsyn_compartment_coarse = "dendrite",
@@ -2581,8 +2580,6 @@ global_parameters_dict_h01 = dict()
 #--- from neurd_packages ---
 from . import apical_utils as apu
 from . import cell_type_utils as ctu
-from . import functional_tuning_utils as ftu
-from . import functional_tuning_utils as ftu 
 from . import h01_volume_utils as hvu
 from . import microns_volume_utils as mvu
 from . import neuron_visualizations as nviz

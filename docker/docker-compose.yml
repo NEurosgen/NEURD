@@ -1,10 +1,11 @@
-version: "2"
 services:
   notebook:
     image: celiib/neurd:v1
     build:
       context: .
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DISPLAY=$DISPLAY
       - XSOCK=/tmp/.X11-unix/X0
@@ -15,3 +16,14 @@ services:
       - ../Applications:/Applications
       #- ../examples:/examples
       #- /mnt:/mnt
+
+  test:
+    image: celiib/neurd:v1
+    build:
+      context: .
+    working_dir: /NEURD
+    volumes:
+      - ../:/NEURD
+    command: >
+      bash -c "pip install -q -e . &&
+               pytest tests/unit/ -v"

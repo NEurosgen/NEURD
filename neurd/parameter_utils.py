@@ -1,7 +1,8 @@
-from pathlib import Path
-import numpy as np
-from os import sys
+import sys
 import time
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 
 
@@ -183,22 +184,22 @@ class PackageParameters:
         self,
         data = None,
         filepath = None,
-        shared_data = None, # for any parameters shared acroos modules
+        shared_data = None, # for any parameters shared across modules
         ):
-        if isinstance(filepath,self.__class__):
-            self.data = copy.deepcopy(filepath._data)
-            self.filepath = filepath.filepath
+        if isinstance(data, self.__class__):
+            self.filepath = data.filepath
+            self._data = copy.deepcopy(data._data)
             return
-        
+
         self.filepath = filepath
         if data is None:
             if filepath is None:
                 data = {}
             else:
                 data = jsu.json_to_dict(filepath)
-            
-        self._data = {mod_name:Parameters(data)
-                      for mod_name,data in data.items()}
+
+        self._data = {mod_name: Parameters(mod_data)
+                      for mod_name, mod_data in data.items()}
         
         if shared_data is None:
             shared_data = {}
@@ -332,11 +333,14 @@ def jsonable_dict(data):
             if jsu.is_jsonable(v)}
 
 def clean_modules_dict(data):
-    for module,module_dict in data.items():
-        for param_type,param_dict in data.items():
-            for cat,cat_dict in param_dict.items():
-                param_dict[cat] = jsonable_dict(cat_dict)
-                        
+    """For each leaf category dict, drop non-JSON-serialisable entries.
+
+    Expected shape: ``{module: {att_type: {category: {param: value, ...}}}}``.
+    """
+    for module_dict in data.values():
+        for att_dict in module_dict.values():
+            for cat, cat_dict in att_dict.items():
+                att_dict[cat] = jsonable_dict(cat_dict)
     return data
 
 def add_global_name_to_dict(mydict):
