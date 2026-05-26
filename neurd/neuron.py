@@ -4,7 +4,6 @@ from copy import deepcopy as dc
 import networkx as nx
 from pathlib import Path
 from pykdtree.kdtree import KDTree
-from pykdtree.kdtree import KDTree 
 import sys
 import time
 from datasci_tools import numpy_dep as np

@@ -157,3 +157,19 @@ __pycache__/
 docs/_build/
 docs/_static/
 docs/_templates
+
+# Runtime artifacts written by tests / meshlab / soma extraction
+/temp/
+tests/temp/
+tests/Poisson_temp/
+tests/integration/temp/
+tests/integration/12345/
+tests/PR_*
+tests/_tmp_*
+tests/*.off
+tests/*.mls
+tests/*.pbz2
+tests/*.cgal
+tests/990_mesh*
+!tests/fixtures/**
+

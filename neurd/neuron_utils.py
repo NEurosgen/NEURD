@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from pathlib import Path
 from pykdtree.kdtree import KDTree
-from pykdtree.kdtree import KDTree 
 import time
 import trimesh
 from trimesh.ray import ray_pyembree
