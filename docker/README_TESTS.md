@@ -29,16 +29,16 @@ edits in `neurd/` take effect without rebuilding the image), then
 ## Run a specific test file / pattern
 
 ```bash
-docker compose run --rm test bash -c "pip install -q -e . && pytest tests/unit/leaves/test_volume_utils.py -v"
+docker compose run --rm test bash -c "pip install -q --no-deps -e . && pytest tests/unit/leaves/test_volume_utils.py -v"
 
 # or just the failing case:
-docker compose run --rm test bash -c "pip install -q -e . && pytest tests/unit/leaves -k cdist -v"
+docker compose run --rm test bash -c "pip install -q --no-deps -e . && pytest tests/unit/leaves -k cdist -v"
 ```
 
 ## Run integration tests
 
 ```bash
-docker compose run --rm test bash -c "pip install -q -e . && pytest tests/integration/ -v"
+docker compose run --rm test bash -c "pip install -q --no-deps -e . && pytest tests/integration/ -v"
 ```
 
 Integration tests need `tests/fixtures/864691135510518224*.{off,csv}` — those

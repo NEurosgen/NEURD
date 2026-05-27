@@ -24,6 +24,5 @@ services:
     working_dir: /NEURD
     volumes:
       - ../:/NEURD
-    command: >
-      bash -c "pip install -q -e . &&
-               pytest tests/unit/ -v"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["pip install -q --no-deps -e . && pytest tests/unit/ -v"]
