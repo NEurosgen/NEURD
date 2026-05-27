@@ -24,3 +24,6 @@ RUN uv pip install --system \
     git+https://github.com/reimerlab/dotmotif/
 
 RUN uv pip install --system pytest pytest-mock
+
+# Required by neurd.microns_volume_utils (top-level `import datajoint`).
+RUN uv pip install --system datajoint
