@@ -119,36 +119,6 @@ parameters = {
       },
     },
   },
-  'connectome_query_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'connectome_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
   'error_detection':
   {
     'global_parameters':
@@ -234,21 +204,6 @@ parameters = {
         'axon_width_threshold_thin_double_b_axon_inh':206.99999999999997,
         'axon_width_threshold_thick_double_b_axon_inh':206.99999999999997,
         'attempt_upstream_pair_singular_double_b_axon_inh':True,
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'motif_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
       },
     },
     'attributes':
@@ -361,36 +316,6 @@ parameters = {
       {
       },
       'split':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'proximity_analysis_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'proximity_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
       {
       },
     },
