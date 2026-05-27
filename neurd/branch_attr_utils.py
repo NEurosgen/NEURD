@@ -42,7 +42,7 @@ def calculate_upstream_downstream_dist_from_down_idx(
     
 def calculate_upstream_downstream_dist_from_up_idx(
     attr_obj,up_idx):
-    bau.calculate_upstream_downstream_dist_from_down_idx(attr_obj,1-up_idx)
+    calculate_upstream_downstream_dist_from_down_idx(attr_obj,1-up_idx)
 
     
 def calculate_branch_attr_soma_distances_on_limb(
@@ -87,14 +87,14 @@ def calculate_branch_attr_soma_distances_on_limb(
                     recompute_dists = False
                 if recompute_dists:
                     if calculate_endpoints_dist_if_empty:
-                        bau.calculate_endpoints_dist(branch_obj,attr_obj)
-                        bau.calculate_upstream_downstream_dist(limb_obj,branch_idx,attr_obj)
+                        calculate_endpoints_dist(branch_obj,attr_obj)
+                        calculate_upstream_downstream_dist(limb_obj,branch_idx,attr_obj)
                         #endpoint_dist = attr_obj.endpoints_dist[upstream_endpoint_idx]
                         #endpoint_dist = attr_obj.upstream_dist
                     else:
                         raise Exception("Endpoint distance was not calculated yet and calculate_endpoint_dist_if_empty not set")
                 #endpoint_dist = attr_obj.endpoints_dist[upstream_endpoint_idx]
-                bau.calculate_upstream_downstream_dist_from_up_idx(attr_obj,upstream_endpoint_idx)
+                calculate_upstream_downstream_dist_from_up_idx(attr_obj,upstream_endpoint_idx)
                 
                 
                 attr_obj.soma_distance = attr_obj.upstream_dist + upstream_dist
@@ -118,7 +118,7 @@ def calculate_neuron_soma_distance(
         st_loc = time.time()
         
         limb_obj = neuron_obj[limb_name]
-        bau.calculate_branch_attr_soma_distances_on_limb(
+        calculate_branch_attr_soma_distances_on_limb(
             limb_obj = limb_obj,
             branch_attr = branch_attr,
             verbose = False)
@@ -180,4 +180,3 @@ from mesh_tools import skeleton_utils as sk
 #--- from datasci_tools ---
 from datasci_tools import numpy_dep as np
 
-from . import branch_attr_utils as bau

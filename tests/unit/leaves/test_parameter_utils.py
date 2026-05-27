@@ -172,3 +172,24 @@ def test_package_parameters_update_round_trip_uses_copy_branch():
     pp1.update(pp2)
     assert pp1["mod_a"].x == 42
     assert pp1["mod_b"].y == 7
+
+
+# ---------------- attr_map / B3 ----------------
+
+
+def test_attr_map_strips_trailing_global_suffix():
+    """attr_map("foo_global") → resolves to "foo" in the internal dict."""
+    p = paru.Parameters(data={"foo": 42})
+    result = p.attr_map(["foo_global"])
+    assert result == {"foo_global": 42}
+
+
+def test_attr_map_does_not_strip_infix_global():
+    """Regression for B3: .replace(suf, '') removed suffix anywhere in the
+    string, so "foo_global_bar" would incorrectly match "foo_bar".
+    With .removesuffix it only strips from the end.
+    """
+    p = paru.Parameters(data={"foo_bar": 99})
+    result = p.attr_map(["foo_global_bar"])
+    # "foo_global_bar" should NOT resolve to "foo_bar" — suffix is not at end.
+    assert "foo_global_bar" not in result

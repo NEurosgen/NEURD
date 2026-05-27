@@ -139,7 +139,7 @@ def load_data(
     
     #2) Getting the means and standard deviations if not already computed
     if df_standardization is None:
-        df_standardization = gnneu.normalization_df(
+        df_standardization = normalization_df(
             data_df=data_df,
             gnn_task = gnn_task,
             label_name=label_name,
@@ -522,4 +522,3 @@ from datasci_tools import pandas_utils as pu
 from datasci_tools import system_utils as su
 from datasci_tools.tqdm_utils import tqdm
 
-from . import gnn_embedding_utils as gnneu

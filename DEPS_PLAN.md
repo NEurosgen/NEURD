@@ -127,27 +127,23 @@ setuptools/`use_2to3`).
 
 ## 6. Порядок выполнения
 
-### Фаза 1 — Чистка очевидного (1 сессия)
-1. Удалить из `requirements.txt`: `pymeshfix`, `ipython_genutils`, `ipython`.
-2. Заменить `pykdtree.kdtree.KDTree` → `scipy.spatial.KDTree` во всех модулях
-   (grep-list ниже).
-3. Удалить `pykdtree` из `requirements.txt`.
+### ✅ Фаза 1 — Чистка очевидного (ВЫПОЛНЕНО)
+1. ~~Удалить из `requirements.txt`: `pymeshfix`, `ipython_genutils`, `ipython`.~~ ✅
+2. ~~Заменить `pykdtree.kdtree.KDTree` → `scipy.spatial.KDTree` во всех модулях.~~ ✅
+3. ~~Удалить `pykdtree` из `requirements.txt`.~~ ✅
 
-**Зачем сейчас:** механические правки, риск минимальный, сразу видно
-эффект — сборка чище, минус нативный wheel.
+### ✅ Фаза 2 — Опциональность (ВЫПОЛНЕНО)
+1. ~~Переписать `setup.py` с использованием `extras_require`.~~ ✅
+2. ~~Разнести зависимости по группам `[connectome]`, `[viz]`, `[ml]`.~~ ✅ (`[motif]`/`[cloud]` — отложено, не критично)
+3. ~~Ленивизировать импорты тяжёлых опциональных deps.~~ ✅
+   - `datajoint`: 0 top-level imports (все lazy или удалены)
+   - `seaborn`: 0 top-level imports (все soft)
+   - `ipyvolume`: soft в `neuron_visualizations`
+4. Документация: в `setup.py` есть комментарии `pip install neurd[connectome]` etc.
 
-### Фаза 2 — Опциональность (1-2 сессии)
-1. Переписать `setup.py` с использованием `extras_require`.
-2. Разнести зависимости по группам `[connectome]`, `[viz]`, `[ml]`, `[motif]`,
-   `[cloud]`.
-3. **Ленивизировать импорты тяжёлых опциональных deps** там, где они тянутся
-   eagerly (мы уже начали — `branch_utils.py:1494`, `proximity_utils.py:378`,
-   `h01_volume_utils.py:570`). Пройтись по всем модулям, найти оставшиеся.
-4. Обновить документацию: «для базовой работы достаточно
-   `pip install neurd`, для коннектома — `pip install neurd[connectome]`».
-
-**Зачем сейчас:** unlock'ит базовую установку без MySQL/PyTorch/прочих
-тяжёлых вещей.
+Дополнительно в рамках Фазы 2:
+- Убраны self-imports во всех non-core модулях (20 осталось только в core clump).
+- Баг B3 в `parameter_utils.attr_map` исправлен (`.replace` → `.removesuffix`).
 
 ### Фаза 3 — Подъём Python (1 сессия + переборка Docker-образа)
 1. Найти/собрать базовый образ `mesh_tools` на Python 3.11+ (вместо
@@ -228,12 +224,14 @@ grep -rn "pykdtree.kdtree" --include="*.py" neurd/
 
 Заполнять по мере выполнения. Текущее состояние:
 
-| Метрика | Базовое (сейчас) | После Фазы 1 | После Фазы 2 | После Фазы 3 |
+| Метрика | Базовое | После Фазы 1 ✅ | После Фазы 2 ✅ | После Фазы 3 |
 |---|---|---|---|---|
-| Прямых deps в requirements.txt | 17 | 13 | 5-6 | 5-6 |
-| Опциональных групп | 0 | 0 | 4-5 | 4-5 |
+| Прямых deps в requirements.txt | 17 | 13 | **13** (сделано) | 13 |
+| Опциональных групп | 0 | 0 | **4** [connectome/viz/ml/all] | 4 |
+| top-level `datajoint` imports | ~5 | ~5 | **0** | 0 |
+| top-level `seaborn` imports | ~3 | ~3 | **0** (soft) | 0 |
+| Self-imports в non-core модулях | 65 | 65 | **20** (все non-core убраны) | 20 |
 | Native wheels (требуют компиляции) | ~3 | ~2 | ~2 | ~2 |
-| Время `pip install` базы | ? | ? | <30 сек | <30 сек |
 | Python version | 3.8 | 3.8 | 3.8 | **3.11+** |
 | Test-collection errors на голой системе | 0 (skip) | 0 | 0 | 0 |
 | Test-collection errors в Docker | 3 (cloudvolume) | 3 | возможно 0 | 0 |

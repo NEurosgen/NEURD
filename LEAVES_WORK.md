@@ -101,7 +101,7 @@
     `neurd/plotting/figures.py` без зависимости от `cell_type_utils`.
 
 ### [neurd/parameter_utils.py](neurd/parameter_utils.py) (879 → **853 LOC**)
-Основная работа этой сессии. Подробнее ниже.
+Основная работа первой сессии. Подробнее ниже.
 
 ---
 
@@ -143,10 +143,10 @@
 
 | ID | Описание | Почему ждёт |
 |---|---|---|
-| **B3** | `attr_map`: `key.replace(suf, "")` снимает суффикс ОТКУДА УГОДНО в строке (не только с конца) | сейчас не стреляет (все суффиксы в данных — только `_global` в конце), но бомба. Нужно поменять на `removesuffix`, добавить тест с ключом типа `"foo_global_bar"` |
+| **B3** | ~~`attr_map`: `key.replace(suf, "")` снимает суффикс ОТКУДА УГОДНО в строке~~ | **ИСПРАВЛЕНО** — `.replace(suf,"")` → `.removesuffix(suf)`. Тест `test_attr_map_does_not_strip_infix_global` добавлен. |
 | **B5** | `parameters_from_filepath`: `exec(f"import {module_name}; from {module_name} import {dict_name}")` + `sys.path.append(directory)` навсегда. Плюс `filename.replace(".py","")` ломается для `"my.py.config.py"` | замена на `importlib.util.spec_from_file_location` меняет порядок side-effect'ов; нужны smoke-тесты на реальном `.py`-конфиге из [neurd/parameter_configs/](neurd/parameter_configs/) |
 | **B6** | `set_parameters_for_directory_modules_from_obj`: shadowing переменной `k` между внешним и внутренним циклом; `exec(imp_str)` + `eval(k)` вместо `importlib.import_module`; цикл `for i in range(0,2)` — двойной импорт без комментария | это самая «горячая» функция модуля — она применяет конфиг к ВСЕМ модулям пакета (вызывается из `neurd.set_volume_params`). Любое изменение требует прогона интеграционного `tests/integration/test_autoproof_pipeline.py`, который сейчас не запускается локально |
-| **S1** | self-import `from . import parameter_utils as paru` в конце файла (используется в 3 местах: `paru.parameter_list_from_module`, `paru.modes_global_param_and_attributes_dict_all_modules`, `paru._parameter_dict_from_module_and_obj`) | можно делать сразу — заменить на прямые вызовы. Низкий риск. Стоит делать вместе с B6 |
+| **S1** | ~~self-import `from . import parameter_utils as paru`~~ | **ИСПРАВЛЕНО** — убран, 5 `paru.X()` → прямые вызовы. |
 | **S3** | `_injest_nested_dict(..., filter_away_suffixes=True)` — параметр принимается, но игнорируется | косметика, делать вместе с A1 |
 | **S6** | `PackageParameters.module_attr_map`: при отсутствующем `module_name` молча возвращает `{}` — опечатка в имени модуля = тихая работа на дефолтах | желательно warning или strict-mode, но это изменение поведения; обсуждать |
 | **S7** | `attr_map` возвращает `dict` или `list`, в зависимости от флагов — непоследовательный тип | надо обсудить желаемый контракт; либо всегда `dataclass`, либо namedtuple |
@@ -248,13 +248,13 @@
 | `volume_utils.py` | 5 | юнит, полный |
 | `microns_graph_query_utils.py` | 9 | юнит, полный |
 | `nature_paper_plotting.py` | 2 | smoke (skip без `datajoint`) |
-| `parameter_utils.py` | 14 | юнит, частичный |
+| `parameter_utils.py` | 16 | юнит, частичный (+2 тест для B3) |
 | `proximity_utils.py` | 4 | юнит, только DB-free часть |
 | `proximity_analysis_utils.py` | 8 | юнит, только DB-free часть |
-| **Итого** | **42** | |
+| **Итого** | **44** | |
 
 Пробелы в `parameter_utils.py`:
-- `attr_map` (центральный метод, имеет баг B3) — НЕ покрыт;
+- `attr_map` — частично покрыт (B3 исправлен и протестирован, 2 теста);
 - `modes_global_param_and_attributes_dict_from_module` — НЕ покрыт
   (хотя B1 поправлен — `_clean_modules_dict` теперь работает корректно);
 - `parameters_from_filepath` с реальным `.py`-конфигом — НЕ покрыт
@@ -274,10 +274,9 @@
 2. Только после этого браться за изменения с риском поведения.
 
 ### Шаг 2 (низкий риск, можно делать сразу после Шага 1):
-- **S1 + S3** в `parameter_utils.py` (убрать self-import, удалить
-  игнорируемый `filter_away_suffixes`).
-- **B3** в `parameter_utils.py` (`.replace` → `.removesuffix`) + тест с
-  ключом `"foo_global_bar"`.
+- ~~**S1**~~ — **сделано**.
+- ~~**B3**~~ — **сделано** (`.replace` → `.removesuffix` + 2 новых теста).
+- **S3** в `parameter_utils.py` — удалить игнорируемый `filter_away_suffixes`.
 - Дописать тесты на `modes_global_param_and_attributes_dict_from_module`
   и `category_param_from_module` (фейковый модуль с
   `global_parameters_dict_default`, `attributes_dict_default`).
@@ -288,12 +287,15 @@
   `exec`/`eval`, объединить две итерации `for i in range(0, 2)` в одну).
 
 ### Шаг 4 (другие листья §7.2):
-- **Proximity-block** (`proximity_utils`, `proximity_analysis_utils`,
-  всего ~2k LOC) — хороший следующий кандидат, чисто геометрия.
-- **GNN-block** (`gnn_embedding_utils`, `gnn_cell_typing_utils`,
-  ~1.4k LOC) — вынести `torch`/`torch_geometric` в
-  `extras_require["ml"]`, добавить юниты.
-- **Motif** (`motif_utils`, 1421 LOC) — после Proximity.
+- ~~**Proximity-block**~~ — **сделано** (self-imports, datajoint lazy, тесты).
+- ~~**Self-imports в non-core модулях**~~ — **сделано** (сессия 2026-05-27):
+  `branch_attr_utils`, `gnn_embedding_utils`, `neuron_geometry_utils`,
+  `neuron_graph_lite_utils`, `motif_utils`, `graph_filters`,
+  плюс ранее: `connectome_analysis_utils`, `connectome_query_utils`,
+  `width_utils`, `soma_splitting_utils`, `neuron_simplification`.
+- **GNN-block** (`gnn_embedding_utils`, `gnn_cell_typing_utils`, ~1.4k LOC) —
+  вынести `torch`/`torch_geometric` в `extras_require["ml"]`, добавить юниты.
+  Self-import уже убран; осталось только lazify torch-импорты.
 
 ### Шаг 5 (большая работа):
 - **A1**: `Parameters` → `pydantic.BaseModel`. После этого открывается
@@ -310,18 +312,45 @@
 
 Изменённые/новые файлы по итогам всей работы с листьями:
 ```
-M  neurd/connectome_utils.py            # B3 листьев: убраны вызовы ftu
-M  neurd/microns_graph_query_utils.py   # rewrite (no logic change)
-M  neurd/parameter_utils.py             # B1, B2, B4, B7, S2, S4, S5, S8, S11, A3
-M  neurd/volume_utils.py                # опечатка nucleus_ids
+M  neurd/connectome_utils.py            # убраны вызовы ftu
 D  neurd/functional_tuning_utils.py     # удалён
+M  neurd/microns_graph_query_utils.py   # rewrite (no logic change)
+M  neurd/parameter_utils.py             # B1-B3, S1-S2, S4-S5, S8, S11, A3
+M  neurd/volume_utils.py                # опечатка nucleus_ids
 
-A  tests/unit/leaves/__init__.py            # guard
+# Фаза 1+2 deps
+M  requirements.txt                     # -7 пакетов, 13 base deps
+M  setup.py                             # extras_require [connectome/viz/ml/all]
+M  neurd/microns_volume_utils.py        # datajoint lazy; self-import убран
+M  neurd/soma_extraction_utils.py       # datajoint import убран
+M  neurd/proximity_analysis_utils.py    # datajoint lazy; seaborn soft
+M  neurd/spine_utils.py                 # seaborn soft
+M  neurd/nature_paper_plotting.py       # seaborn soft; cell_type_utils lazy; self-import убран
+M  neurd/neuron_visualizations.py       # ipyvolume soft; self-import убран
+M  neurd/h01_volume_utils.py            # unused imports убраны
+
+# Self-imports убраны (сессии 2026-05-27)
+M  neurd/branch_attr_utils.py
+M  neurd/gnn_embedding_utils.py
+M  neurd/graph_filters.py
+M  neurd/motif_utils.py
+M  neurd/neuron_geometry_utils.py
+M  neurd/neuron_graph_lite_utils.py
+M  neurd/connectome_analysis_utils.py
+M  neurd/connectome_query_utils.py
+M  neurd/neuron_simplification.py
+M  neurd/soma_splitting_utils.py
+M  neurd/width_utils.py
+
+# Тесты
+A  tests/unit/leaves/__init__.py
 A  tests/unit/leaves/conftest.py
 A  tests/unit/leaves/test_volume_utils.py
 A  tests/unit/leaves/test_microns_graph_query_utils.py
 A  tests/unit/leaves/test_nature_paper_plotting.py
-A  tests/unit/leaves/test_parameter_utils.py
+A  tests/unit/leaves/test_parameter_utils.py      # 16 тестов, вкл. B3
+A  tests/unit/proximity/test_proximity_utils.py
+A  tests/unit/proximity/test_proximity_analysis_utils.py
 
 M  docker/Dockerfile                    # + pip install pytest pytest-mock
 M  docker/docker-compose.yml            # + test service, env_file optional

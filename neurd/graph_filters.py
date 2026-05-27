@@ -359,7 +359,7 @@ def graph_filter_adapter(G,
 
     if error_check:
         if attempt_upstream_pair_singular:
-            winning_node,error_branches = gf.upstream_pair_singular(limb_obj,G,**kwargs)
+            winning_node,error_branches = upstream_pair_singular(limb_obj,G,**kwargs)
             if verbose:
                 print(f"In attempt_upstream_pair_singular")
                 print(f"winning_node = {winning_node}")
@@ -431,7 +431,7 @@ def axon_webbing_filter(G,
     
     Ex: 
     from neurd import graph_filters as gf
-    gf.axon_webbing_filter(G,
+    axon_webbing_filter(G,
                                limb_obj,
                                verbose = True,
                                child_angle_max=40,
@@ -457,7 +457,7 @@ def axon_webbing_filter(G,
         web_above_threshold = web_above_threshold_ax_web_global
     
     # ----- 1) Motif checking --------
-#     motif = gf.wide_angle_t_motif(child_width_maximum = child_width_maximum,
+#     motif = wide_angle_t_motif(child_width_maximum = child_width_maximum,
 #                         parent_width_maximum = parent_width_maximum,
 #                         child_skeletal_threshold = child_skeletal_threshold,
 #                         child_angle_max = child_angle_max,)
@@ -514,7 +514,7 @@ def axon_webbing_filter(G,
             
         return not valid_web_result
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=axon_web_func,
@@ -544,7 +544,7 @@ def axon_spine_at_intersection_filter(G,
             Return all downstream nodes as errors
 
     Ex: 
-    gf.axon_spine_at_intersection_filter(G,
+    axon_spine_at_intersection_filter(G,
                                       limb_obj = filt_neuron.axon_limb,
                                     attempt_upstream_pair_singular = True,
                                     verbose = True,
@@ -585,7 +585,7 @@ def axon_spine_at_intersection_filter(G,
 
         return len(axon_spines_on_intersection) > 0
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=axon_spine_func,
@@ -615,7 +615,7 @@ def min_synapse_dist_to_branch_point_filter(G,
             Return all downstream nodes as errors
 
     Ex: 
-    gf.min_synapse_dist_to_branch_point_filter(G,
+    min_synapse_dist_to_branch_point_filter(G,
                                        limb_obj,
                                        verbose=True)
     """
@@ -654,7 +654,7 @@ def min_synapse_dist_to_branch_point_filter(G,
 
         return min_distance < min_synape_dist
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=min_synapse_dist_func,
@@ -690,7 +690,7 @@ def fork_divergence_filter(G,
             Return all downstream nodes as errors
 
     Ex: 
-    gf.axon_spine_at_intersection_filter(G,
+    axon_spine_at_intersection_filter(G,
                                       limb_obj = filt_neuron.axon_limb,
                                     attempt_upstream_pair_singular = True,
                                     verbose = True,
@@ -745,7 +745,7 @@ def fork_divergence_filter(G,
 
         return div <  divergence_threshold_mean
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=fork_div_func,
@@ -780,7 +780,7 @@ def fork_min_skeletal_distance_filter(G,
             Return all downstream nodes as errors
 
     Ex: 
-    gf.axon_spine_at_intersection_filter(G,
+    axon_spine_at_intersection_filter(G,
                                       limb_obj = filt_neuron.axon_limb,
                                     attempt_upstream_pair_singular = True,
                                     verbose = True,
@@ -833,7 +833,7 @@ def fork_min_skeletal_distance_filter(G,
 
         return div <  min_distance_threshold
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=fork_min_skeletal_distance_func,
@@ -911,7 +911,7 @@ def axon_double_back_filter(G,
 
         return len(double_back_branches) > 0
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=double_back_func,
@@ -935,7 +935,7 @@ def thick_t_filter(G,
     axon thick t wide angle children
     
     Example:
-    gf.thick_t_filter(G,limb_obj,verbose = True,
+    thick_t_filter(G,limb_obj,verbose = True,
                parent_width_maximum = 110,
               child_angle_max=150,
               )
@@ -953,7 +953,7 @@ def thick_t_filter(G,
         child_angle_max = child_angle_max_thick_t_global
     
     # ----- 1) Motif checking --------
-#     motif = gf.wide_angle_t_motif(child_width_minimum = min_child_width_max,
+#     motif = wide_angle_t_motif(child_width_minimum = min_child_width_max,
 #                         parent_width_maximum = parent_width_maximum,
 #                         child_skeletal_threshold = child_skeletal_threshold,
 #                         child_angle_max = child_angle_max,)
@@ -988,7 +988,7 @@ def thick_t_filter(G,
             print(f"parent width = {G.nodes[upstream_branch]['width_upstream']}")
         return True
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=thick_t_func,
@@ -1073,7 +1073,7 @@ def axon_double_back_inh_filter(G,
 
         return len(double_back_branches) > 0
     
-    return gf.graph_filter_adapter(G=G,
+    return graph_filter_adapter(G=G,
                          limb_obj=limb_obj,
                          motif=motif,
                          graph_filter_func=double_back_func,
@@ -1263,4 +1263,3 @@ from datasci_tools import module_utils as modu
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 
-from . import graph_filters as gf

@@ -44,7 +44,7 @@ def edges_from_str(
     return edges
 
 def nodes_from_str(string):
-    edges_str = mfu.edges_from_str(string,return_edge_str = False)
+    edges_str = edges_from_str(string,return_edge_str = False)
     return list(np.unique(np.hstack(edges_str)))
 
 def motif_nodes_from_motif(
@@ -87,7 +87,7 @@ def n_nodes_from_motif(
     verbose = False,
     ):
     
-    return mfu.motif_nodes_from_motif(
+    return motif_nodes_from_motif(
     motif,
     only_upper = only_upper,
     verbose = verbose,
@@ -174,7 +174,7 @@ def edges_from_motif_dict(
     G = vdi.G_auto_DiGraph
     motif_info = motif_dicts[20000]
 
-    edges = mfu.edges_from_motif_dict(
+    edges = edges_from_motif_dict(
         motif_info,
         return_dict=False,
         verbose = True,)
@@ -185,13 +185,13 @@ def edges_from_motif_dict(
     motif_nodes_from_motif
     """
 
-    node_mapping = mfu.nodes_from_motif_dict(motif_dict)
+    node_mapping = nodes_from_motif_dict(motif_dict)
     s = motif_dict[motif_key]
 
     if verbose:
         print(f"node_mapping = {node_mapping}")
 
-    edges_identifiers = mfu.edges_from_str(s)
+    edges_identifiers = edges_from_str(s)
     if verbose:
         print(f"# of edges found = {len(edges_identifiers)}")
     
@@ -205,7 +205,7 @@ def edges_from_motif_dict(
 
     if return_dict:
         from datasci_tools import regex_utils as reu
-        s_find = mfu.edges_from_str(s,return_edge_str=True)
+        s_find = edges_from_str(s,return_edge_str=True)
         
 #         return_dict = {reu.substr_from_match_obj(k):v for k,v in
 #                        zip(s_find,edges)}
@@ -237,7 +237,7 @@ def subgraph_from_motif_dict(
 
     if verbose:
         print(f"motif_dict = {motif_dict}")
-    edges,node_mapping = mfu.edges_from_motif_dict(
+    edges,node_mapping = edges_from_motif_dict(
         motif_dict,
         return_dict=False,
         verbose = verbose,
@@ -351,7 +351,7 @@ def motif_data(
     
     st = time.time()
     motif_data_dict = dict()
-    edges,node_mapping = mfu.edges_from_motif_dict(
+    edges,node_mapping = edges_from_motif_dict(
         motif_dict,
         verbose = verbose,
         return_dict = True,
@@ -485,12 +485,12 @@ def motif_G(
     
     """
     
-    sub_G = mfu.subgraph_from_motif_dict(
+    sub_G = subgraph_from_motif_dict(
         G,motif_dict,
         verbose=verbose,
         plot=plot)
     
-    sub_G = mfu.filter_G_attributes(
+    sub_G = filter_G_attributes(
         sub_G,
         **kwargs
     )
@@ -504,7 +504,7 @@ def motif_G(
     )
     
     try:
-        mfu.set_compartment_flat(sub_G)
+        set_compartment_flat(sub_G)
     except:
         pass
     
@@ -591,18 +591,18 @@ def str_from_G_motif(
     2) Gather the edge attributes
     
     Ex: 
-    mfu.set_compartment_flat(curr_G)
-    mfu.str_from_G_motif(
+    set_compartment_flat(curr_G)
+    str_from_G_motif(
         curr_G,
         node_attributes = ("gnn_cell_type_fine",),
         edge_attributes=["postsyn_compartment_flat",],
         )
     """
 
-    node_mapping = mfu.nodes_mapping_from_G(G)
+    node_mapping = nodes_mapping_from_G(G)
 
     if node_attributes is None:
-        node_attributes = mfu.node_attributes_from_G(G)
+        node_attributes = node_attributes_from_G(G)
         if verbose:
             print(f"node_attributes = {node_attributes}")
 
@@ -630,7 +630,7 @@ def str_from_G_motif(
             edge_attributes = []
 
         curr_motif = xu.get_graph_attr(G,"motif")
-        curr_edges = mfu.edges_from_str(curr_motif)
+        curr_edges = edges_from_str(curr_motif)
 
         for j,(id1,id2) in enumerate(curr_edges):
             edges_str += f"{id1}->{id2}"
@@ -669,8 +669,8 @@ def dotmotif_str_from_G_motif(
     2) Gather the edge attributes
     
     Ex: 
-    mfu.set_compartment_flat(curr_G)
-    mfu.str_from_G_motif(
+    set_compartment_flat(curr_G)
+    str_from_G_motif(
         curr_G,
         node_attributes = ("gnn_cell_type_fine",),
         edge_attributes=["postsyn_compartment_flat",],
@@ -684,13 +684,13 @@ def dotmotif_str_from_G_motif(
 
     G_str = ""
     
-    node_mapping = mfu.nodes_mapping_from_G(G)
+    node_mapping = nodes_mapping_from_G(G)
     
     if edge_attributes is None:
         edge_attributes = []
 
     curr_motif = xu.get_graph_attr(G,"motif")
-    curr_edges = mfu.edges_from_str(curr_motif)
+    curr_edges = edges_from_str(curr_motif)
 
     edges_str = ""
     for j,(id1,id2) in enumerate(curr_edges):
@@ -708,7 +708,7 @@ def dotmotif_str_from_G_motif(
     
 
     if node_attributes is None:
-        node_attributes = mfu.node_attributes_from_G(G)
+        node_attributes = node_attributes_from_G(G)
         if verbose:
             print(f"node_attributes for default = {node_attributes}")
 
@@ -747,7 +747,7 @@ def node_attributes_strs(
 
 
     if node_attributes is None:
-        node_attributes = mfu.node_attributes_from_G(G)
+        node_attributes = node_attributes_from_G(G)
         if verbose:
             print(f"node_attributes = {node_attributes}")
 
@@ -862,16 +862,16 @@ def unique_motif_reduction(
 
         if debug_time:
             st = time.time()
-        curr_motif_G = mfu.motif_G(
+        curr_motif_G = motif_G(
             G,
             m,
             plot = False,
             )
         
-        nodes_mapping = mfu.nodes_mapping_from_G(curr_motif_G)
-        reverse_mapping = {v:k for k,v in mfu.nodes_mapping_from_G(curr_motif_G).items()}
+        nodes_mapping = nodes_mapping_from_G(curr_motif_G)
+        reverse_mapping = {v:k for k,v in nodes_mapping_from_G(curr_motif_G).items()}
 
-        curr_node_strs = set(mfu.node_attributes_strs(
+        curr_node_strs = set(node_attributes_strs(
                 curr_motif_G,
                 verbose = False,
                 node_attributes = node_attributes,
@@ -911,7 +911,7 @@ def unique_motif_reduction(
 
         # c) If no match was found in the unique str
         if not found:
-            dotmotif_str = mfu.dotmotif_str_from_G_motif(
+            dotmotif_str = dotmotif_str_from_G_motif(
                 curr_motif_G,
                 edge_attributes=edge_attributes,
                 node_attributes=node_attributes,
@@ -1013,7 +1013,7 @@ def annotated_motif_df(
 
     G = vdi.G_auto_DiGraph
 
-    mfu.annotated_motif_df(
+    annotated_motif_df(
         motif = "A->B;B->A",
         G = vdi.G_auto_DiGraph,
         n_samples = None,
@@ -1055,7 +1055,7 @@ def annotated_motif_df(
 
     cell_type_list = []
     for i in tqdm(idx[:n]):
-        cell_type_list.append(mfu.motif_data(
+        cell_type_list.append(motif_data(
             G,
             motif_dict=motif_dicts[i],
 
@@ -1078,7 +1078,7 @@ def annotated_motif_df(
     motif_cell_type_df = pd.DataFrame.from_records(cell_type_list)
     
     if motif_reduction:
-        unique_df = mfu.unique_motif_reduction(
+        unique_df = unique_motif_reduction(
             G,
             motif_cell_type_df,
             node_attributes=node_attributes,
@@ -1115,7 +1115,7 @@ def annotated_motif_df(
         print(f"Total time for annotated df = {time.time() - global_time}")
         
     if filter_df:
-        unique_df = mfu.filter_motif_df(
+        unique_df = filter_motif_df(
             unique_df,
             verbose = verbose
         )
@@ -1172,7 +1172,7 @@ def filter_motif_df(
 
     G = vdi.G_auto_DiGraph
 
-    unique_df = mfu.annotated_motif_df(
+    unique_df = annotated_motif_df(
         motif = "A->B;B->A",
         G = vdi.G_auto_DiGraph,
         n_samples = None,
@@ -1180,7 +1180,7 @@ def filter_motif_df(
     )
     
     
-    mfu.filter_motif_df(
+    filter_motif_df(
         unique_df,
         min_gnn_probability = 0.5,
         edges_filters = [
@@ -1222,8 +1222,8 @@ def filter_motif_df(
 
     if not single_edge_motif:
         curr_str = df.iloc[0,:]["motif_str"]
-        edges_str = mfu.edges_from_str(curr_str,return_edge_str = True)
-        nodes_str = mfu.nodes_from_str(curr_str)
+        edges_str = edges_from_str(curr_str,return_edge_str = True)
+        nodes_str = nodes_from_str(curr_str)
         #print('inside motif str')
     else:
         nodes_str = ["presyn","postsyn"]
@@ -1259,7 +1259,7 @@ def filter_motif_df(
             print(f"   {k}")
 
     total_query = " and ".join(query_str)
-    filt_df = mfu.query_with_edge_col(df,total_query)
+    filt_df = query_with_edge_col(df,total_query)
     return filt_df
 
 
@@ -1309,13 +1309,13 @@ def visualize_graph_connections(
 
     #2) Get the node names for the motif
     node_names = [key[f'{k}_name']
-                  for k in mfu.nodes_from_str(motif_str)]
+                  for k in nodes_from_str(motif_str)]
     if verbose:
         print(f"node_names= {node_names}")
 
     #3) Get the synapse ids
     if restrict_to_synapse_ids:
-        edges = mfu.edges_from_str(motif_str,return_edge_str=True)
+        edges = edges_from_str(motif_str,return_edge_str=True)
         synapse_ids = [key[f"{k}_synapse_id"] for k in edges]
     else:
         synapse_ids = None
@@ -1418,5 +1418,4 @@ from datasci_tools.tqdm_utils import tqdm
 
 motif_Gs_for_n_nodes = xu.motif_Gs_for_n_nodes
 
-from . import motif_utils as mfu
 from datasci_tools import dotmotif_utils as dmu
