@@ -58,7 +58,6 @@ setup(
     # dependency_links = get_links(),
     # pip install neurd[connectome]  — datajoint-based connectome tables
     # pip install neurd[viz]         — seaborn + ipyvolume interactive 3D
-    # pip install neurd[ml]          — PyTorch + torch_geometric GNN models
     # pip install neurd[all]         — everything above
     extras_require={
         'connectome': [
@@ -69,19 +68,11 @@ setup(
             'seaborn>=0.12.2',
             'ipyvolume>=0.6.3',
         ],
-        'ml': [
-            'torch>=2.0.1',
-            'torch_geometric>=2.3.1',
-            'pytorch_tools>=0.1.9',
-        ],
         'all': [
             'datajoint>=0.12.9',
             'python-dotenv',
             'seaborn>=0.12.2',
             'ipyvolume>=0.6.3',
-            'torch>=2.0.1',
-            'torch_geometric>=2.3.1',
-            'pytorch_tools>=0.1.9',
         ],
     },
     
