@@ -2,7 +2,7 @@ from copy import deepcopy
 import datajoint as dj
 import os
 from pathlib import Path
-from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
 import random
 import time
 import trimesh

@@ -11,7 +11,7 @@ for compartments like axon, apical, basal...
 '''
 import copy
 import networkx as nx
-from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
 import time
 from datasci_tools import numpy_dep as np
 from datasci_tools import module_utils as modu

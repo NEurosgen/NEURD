@@ -1,28 +1,29 @@
-'''
+"""Proximity utilities.
 
-
-
-Notes on proximities: 
-- There are some undercounting of n_synapses in the proximity counting if a lot of synapses
-because the cancellation distance 5000, but the search for synapses is only 3000 so could have missed some
-in that cancellation range and search range
-
---> but the 
-
-
-
-
-
-'''
-import datajoint as dj
-import pandas as pd
-from pykdtree.kdtree import KDTree
+Notes on proximities:
+- There is some undercounting of n_synapses if a lot of synapses cluster:
+  the cancellation distance is 5000 nm, but the search for synapses is only
+  3000 nm, so synapses in the [3000, 5000] band can be missed.
+"""
 import time
+
+import pandas as pd
+from scipy.spatial import KDTree
+
+from datasci_tools import ipyvolume_utils as ipvu
+from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
-from datasci_tools import module_utils as modu
-from . import microns_volume_utils as mvu
+from datasci_tools import numpy_utils as nu
+from neuron_morphology_tools import neuron_nx_utils as nxu
+
+# Note: `mesh_tools.skeleton_utils` is imported lazily inside `proximity_pre_post`
+# because it transitively pulls in cloudvolume, which fails to import on
+# Python 3.8 (uses PEP 585 syntax). Keeping the import lazy lets us import this
+# module — and unit-test its pure helpers — without the full mesh stack.
+
 from . import h01_volume_utils as hvu
-import numpy as np
+from . import microns_volume_utils as mvu
+from . import neuron_visualizations as nviz
 
 def synapse_coordinates_from_df(df):
     return df[
@@ -102,7 +103,7 @@ def presyn_proximity_data(
         coordinates_nm = True,
         return_df=True)
     
-    synapse_pre_raw_coords = pxu.synapse_coordinates_from_df(synapse_pre_raw_df)
+    synapse_pre_raw_coords = synapse_coordinates_from_df(synapse_pre_raw_df)
     
     synapse_pre_proof_df = vdi.segment_id_to_synapse_table_optimized_proofread(
         segment_id,
@@ -110,7 +111,7 @@ def presyn_proximity_data(
         coordinates_nm = True,
         return_df=True)
     
-    synapse_pre_proof_coords = pxu.synapse_coordinates_from_df(synapse_pre_proof_df)
+    synapse_pre_proof_coords = synapse_coordinates_from_df(synapse_pre_proof_df)
 
 
     #2) Gets the mesh for later plotting
@@ -371,9 +372,11 @@ def proximity_pre_post(
     3) Run the contact finding loop and save off the 
     results
     
-    Example: 
-    pxu.example_proximity()
+    Example:
+    example_proximity()
     """
+    from mesh_tools import skeleton_utils as sk  # lazy: pulls cloudvolume
+
     segment_id = segment_id_pre
     split_index = split_index_pre
     segment_id_target = segment_id_post
@@ -381,7 +384,7 @@ def proximity_pre_post(
     
     global_time = time.time()
     if presyn_prox_data is None:
-        presyn_prox_data = pxu.presyn_proximity_data(
+        presyn_prox_data = presyn_proximity_data(
             segment_id = segment_id,
             split_index = split_index,
             plot = plot,
@@ -389,7 +392,7 @@ def proximity_pre_post(
         )
 
     if postsyn_prox_data is None:
-        postsyn_prox_data  = pxu.postsyn_proximity_data(
+        postsyn_prox_data  = postsyn_proximity_data(
         segment_id=segment_id_target,
         split_index=split_index_target,
         plot = plot,
@@ -756,14 +759,14 @@ def example_proximity(
     
     
 
-    presyn_prox_data = pxu.presyn_proximity_data(
+    presyn_prox_data = presyn_proximity_data(
         segment_id = segment_id_pre,
         split_index = split_index_pre,
         plot = plot,
         verbose = verbose
     )
 
-    return pxu.proximity_pre_post(
+    return proximity_pre_post(
         segment_id_pre = segment_id_pre,
         split_index_pre = split_index_pre,
 
@@ -921,25 +924,3 @@ global_parameters_dict_h01 = dict()
 #         )
 
 
-#--- from neuron_morphology_tools ---
-
-
-#--- from neurd_packages ---
-from . import h01_volume_utils as hvu
-from . import microns_volume_utils as mvu
-from . import neuron_visualizations as nviz
-
-#--- from neuron_morphology_tools ---
-from neuron_morphology_tools import neuron_nx_utils as nxu
-
-#--- from mesh_tools ---
-from mesh_tools import skeleton_utils as sk
-
-#--- from datasci_tools ---
-from datasci_tools import ipyvolume_utils as ipvu
-from datasci_tools import module_utils as modu 
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
-from datasci_tools import numpy_utils as nu
-
-from . import proximity_utils as pxu

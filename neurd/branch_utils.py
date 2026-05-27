@@ -1,6 +1,6 @@
 
 import copy
-from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
 import time
 from datasci_tools import numpy_dep as np
 from datasci_tools import module_utils as modu
@@ -1491,7 +1491,14 @@ def width_min(
         **kwargs
         )
     
-from mesh_tools import skeleton_utils as sk
+# `mesh_tools.skeleton_utils` transitively pulls cloudvolume, which can fail
+# to import on some Python/cloudvolume combos (e.g. Python 3.8 + PEP 585).
+# Treat it as a soft dependency: the module still imports, and functions that
+# really need `sk.*` will surface a clear error only when called.
+try:
+    from mesh_tools import skeleton_utils as sk
+except Exception:  # pragma: no cover
+    sk = None
 
 
 def vector_points(
@@ -1652,7 +1659,7 @@ from . import axon_utils as au
  
 
 #--- from mesh_tools ---
-from mesh_tools import skeleton_utils as sk
+# `skeleton_utils as sk` is imported once above with a soft fallback.
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---

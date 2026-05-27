@@ -85,7 +85,7 @@ def test_package_parameters_dict_property():
 
 
 def test_add_global_name_to_dict():
-    out = paru.add_global_name_to_dict({"a": 1, "b": 2})
+    out = paru._add_global_name_to_dict({"a": 1, "b": 2})
     assert out == {"a_global": 1, "b_global": 2}
 
 
@@ -101,16 +101,15 @@ def test_parameter_config_folder_can_return_path():
     assert isinstance(folder, Path)
 
 
-def test_this_directory_and_config_directory_exist():
-    assert os.path.isdir(paru.this_directory())
-    assert os.path.isdir(paru.config_directory())
+def test_this_directory_returns_package_root():
+    assert os.path.isdir(paru._this_directory())
 
 
 def test_jsonable_dict_drops_non_serialisable_values():
     class _NotJsonable:
         pass
 
-    out = paru.jsonable_dict({"a": 1, "b": _NotJsonable()})
+    out = paru._jsonable_dict({"a": 1, "b": _NotJsonable()})
     assert "a" in out
     assert "b" not in out
 
@@ -136,7 +135,7 @@ def test_clean_modules_dict_strips_non_jsonable_in_leaf_dicts():
             },
         }
     }
-    out = paru.clean_modules_dict(data)
+    out = paru._clean_modules_dict(data)
     # Shape preserved.
     assert set(out) == {"mod_a"}
     assert set(out["mod_a"]) == {"global_parameters", "attributes"}

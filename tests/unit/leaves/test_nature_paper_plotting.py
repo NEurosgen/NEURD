@@ -1,10 +1,17 @@
-"""Smoke tests for neurd.nature_paper_plotting (figure-generation helpers)."""
+"""Smoke tests for neurd.nature_paper_plotting (figure-generation helpers).
+
+Note: this module is nominally a leaf (no inbound NEURD imports), but its
+top-level ``from . import cell_type_utils`` pulls in the full
+``axon → h01 → microns → datajoint`` chain. Until that transitive coupling
+is broken, the tests require the same deps as the core.
+"""
 import pytest
 
 from tests.unit.leaves import skip_if_datasci_tools_unusable
 
 skip_if_datasci_tools_unusable()
 pytest.importorskip("seaborn")
+pytest.importorskip("datajoint")
 
 import pandas as pd
 

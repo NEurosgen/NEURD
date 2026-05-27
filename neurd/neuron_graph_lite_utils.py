@@ -761,7 +761,7 @@ def closest_node_idx_to_sample_idx(
     """
     limits_coords_by_axis = ctcu.axes_limits_coordinates(axes_limits,array_shape = array_shape)
 
-    from pykdtree.kdtree import KDTree
+    from scipy.spatial import KDTree
 
     xi,yi,zi = np.meshgrid(*limits_coords_by_axis,indexing="ij")
     limits_coords = np.vstack([k.ravel() for k in [xi,yi,zi]]).T
