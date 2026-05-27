@@ -25,26 +25,34 @@
 
 ## Инфраструктура тестов
 
-- Расположение: [tests/unit/leaves/](tests/unit/leaves/).
-- Гард [tests/unit/leaves/__init__.py](tests/unit/leaves/__init__.py)
-  — `skip_if_datasci_tools_unusable()`. Каждый тестовый файл его зовёт
-  на верхнем уровне до `from neurd import …`. Это нужно, потому что
-  `pytest.importorskip` ловит только `ImportError`, а
-  `datasci_tools.numpy_dep` падает с `AttributeError` на `numpy>=2`
-  (использует удалённый `numpy.float_`).
+**Текущее состояние (после Фазы 3, 2026-05-27): тесты прогоняются локально на
+Python 3.12 + numpy 2 без Docker. `pytest tests/unit/` → 45 passed, 4 skipped.**
+
+- Расположение: [tests/unit/](tests/unit/) — `leaves/`, `proximity/` и smoke-файлы
+  Фазы 3 в корне `unit/` (`test_env_compat.py`, `test_numpy_compat.py`,
+  `test_mesh_tools_compat.py`).
+- Гард [tests/unit/__init__.py](tests/unit/__init__.py)
+  `skip_if_datasci_tools_unusable()` теперь импортирует `neurd` **первым** —
+  это активирует numpy-shim и ipyvolume-stub из
+  [neurd/__init__.py](neurd/__init__.py) до пробы `datasci_tools.module_utils`.
+  До Фазы 3 guard падал на `AttributeError: np.float_` и весь suite skipped.
 - conftest = только `matplotlib.use("Agg")`.
-- **Локально тесты не прогоняются** — у `datasci_tools` (PyPI:
-  `datasci_stdlib_tools==1.0.1`) ломается на numpy 2.0; чинить пин на
-  numpy<2 + ставить весь стек авторских пакетов локально не получилось
-  (mesh_processing_tools требует `open3d==0.11.2`, которого нет).
-- **Канонический способ прогона — Docker.** См.
-  [docker/README_TESTS.md](docker/README_TESTS.md). Сервис `test` в
-  [docker/docker-compose.yml](docker/docker-compose.yml) монтирует репо в
-  `/NEURD`, делает `pip install -e .`, гонит `pytest tests/unit/`.
-- На момент написания этого файла образ ещё собирается у пользователя
-  (целевое состояние: все ~30+ тестов в `tests/unit/leaves/` зелёные).
-- Маппинг distribution-name → import-name (важно при попытках локальной
-  установки): `datasci_stdlib_tools`→`datasci_tools`,
+- Установка локально: [scripts/install_local.sh](scripts/install_local.sh)
+  (создаёт venv, ставит `mesh_processing_tools --no-deps` чтобы обойти пин
+  `open3d==0.11.2`, потом [requirements-local.txt](requirements-local.txt)).
+  Поддерживается Python 3.10–3.12 (3.13+ блокируется отсутствием open3d wheels).
+- **Docker удалён** в Фазе 3 — старый `celiib/mesh_tools:v4` (Python 3.8)
+  несовместим с новыми шимами; новый Dockerfile не делали, conda-env'а
+  достаточно. Если когда-нибудь понадобится CI, базироваться на
+  `python:3.12-slim` (рецепт из удалённого PHASE3_PLAN сохранён в git history).
+- Skipped в текущем прогоне (объяснимо, не регрессия):
+  - 2 теста `tests/unit/proximity/` — `pytest.importorskip("datajoint")`,
+    datajoint опциональный (`extras_require[connectome]`).
+  - 1 тест `test_ipyvolume_submodule_resolves_via_stub` — пропускается когда
+    реальный `ipyvolume` установлен (его тянет `meshparty` как dep).
+  - 1 — leftovers (см. `pytest -v`).
+- Маппинг distribution-name → import-name (важно для setup.py / requirements):
+  `datasci_stdlib_tools`→`datasci_tools`,
   `machine_learning_tools`→`machine_learning_tools`,
   `graph_nx_tools`→`graph_nx_tools`,
   `mesh_processing_tools`→`mesh_tools`,
@@ -352,9 +360,17 @@ A  tests/unit/leaves/test_parameter_utils.py      # 16 тестов, вкл. B3
 A  tests/unit/proximity/test_proximity_utils.py
 A  tests/unit/proximity/test_proximity_analysis_utils.py
 
-M  docker/Dockerfile                    # + pip install pytest pytest-mock
-M  docker/docker-compose.yml            # + test service, env_file optional
-A  docker/README_TESTS.md
+# Фаза 3 (2026-05-27, ветка refactor_dependens)
+M  neurd/__init__.py                    # numpy-shim + ipyvolume/cloudvolume stub-finder
+M  tests/unit/__init__.py               # guard импортирует neurd первым
+A  tests/unit/test_env_compat.py        # 5 тестов на шимы
+A  tests/unit/test_numpy_compat.py      # 4 теста на numpy 2
+A  tests/unit/test_mesh_tools_compat.py # 4 теста на mesh-стек
+A  requirements-local.txt               # современные пины под Python 3.12
+A  scripts/install_local.sh             # bootstrap venv 3.10–3.12
+M  requirements.txt                     # numpy≥2, trimesh≥4, meshparty≥2, +h5py/tqdm/scikit-learn
+M  README.md                            # секция Docker → Local install
+D  docker/                              # вся папка удалена (~24 файла)
 ```
 
 ---

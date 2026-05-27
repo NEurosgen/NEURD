@@ -91,21 +91,16 @@ machine_learning_tools, graph_nx_tools, code_structure_tools
 
 ---
 
-## 4. Что нужно поднимать по версиям (после Python 3.11)
+## 4. Поднятие версий (выполнено в Фазе 3)
 
-Эти правки требуют, чтобы базовый Python в Docker был 3.11+. Без этого
-смысла нет.
-
-| Сейчас | Куда | Что разблокирует |
+| Было | Стало | Заметка |
 |---|---|---|
-| `numpy<2` (через стек `datasci_tools.numpy_dep`) | `numpy>=2` | Убираем 80% deprecation-варнингов; единственное что нужно — починить `numpy.float_` в `datasci_tools` (одна строка), либо обойти моникпатчем у нас |
-| `pandas<2.2` (де-факто) | `pandas>=2.2` | Современный API (`pd.concat` без `append`), меньше FutureWarning'ов |
-| `trimesh==3.22.3` (жёсткий пин!) | `trimesh>=4` | Современный mesh API, меньше багов; но зависит от того, обновили ли `meshparty`/`mesh_tools` совместимость |
-| `cloudvolume` (любая текущая в образе) | свежая | Снимет PEP 585 ошибку даже на 3.8, но это не наш приоритет — лучше уйти от 3.8 |
-
-**Эффект бампа Python 3.11:** одна правка снимает 4 категории сегодняшних
-ошибок (PEP 585 cloudvolume, `numpy.float_`, `str | None`, старый
-setuptools/`use_2to3`).
+| `numpy<2` (через `datasci_tools.numpy_dep`) | **`numpy>=2,<3`** | Шим в `neurd/__init__.py` восстанавливает удалённые алиасы `float_`/`int_`/`complex_`. Не правим upstream. |
+| `pandas>=2.0.3` | **`pandas>=2`** | Базовый pin, тестируется на 2.x в actual env. |
+| `trimesh==3.22.3` (жёсткий пин!) | **`trimesh>=4`** | Современный mesh API; meshparty 2.0 совместим. |
+| `meshparty>=1.16.13` | **`meshparty>=2.0`** | Проверено в env (`meshparty 2.x`). |
+| Python 3.8 (Docker) | **Python 3.10–3.12 (local)** | install_local.sh форсит этот диапазон; 3.13+ блокируется отсутствием open3d wheels. |
+| `cloudvolume` (top-level в `mesh_tools`) | — | Покрыт stub-finder'ом, реальный пакет не нужен для сегментации. |
 
 ---
 
@@ -145,23 +140,29 @@ setuptools/`use_2to3`).
 - Убраны self-imports во всех non-core модулях (20 осталось только в core clump).
 - Баг B3 в `parameter_utils.attr_map` исправлен (`.replace` → `.removesuffix`).
 
-### Фаза 3 — Освобождение от `celiib/mesh_tools:v4` и локальный запуск
+### ✅ Фаза 3 — Освобождение от Docker и локальный запуск (ВЫПОЛНЕНО, 2026-05-27)
 
-Подробный план — в **[PHASE3_PLAN.md](PHASE3_PLAN.md)**.
+Цели достигнуты: тесты прогоняются локально на Python 3.12 + numpy 2 без Docker.
 
-Краткое содержание:
-1. `neurd/__init__.py`: numpy shim (`np.float_` → `np.float64` для numpy 2)
-2. `neurd/__init__.py`: stub для `ipyvolume`/`cloudvolume` (mesh_tools тянет их)
-3. `scripts/install_local.sh` + `requirements-local.txt` для virtualenv
-4. Новый `docker/Dockerfile` на `python:3.12-slim` (без `celiib/mesh_tools:v4`)
-5. Локальный `pytest tests/unit/` без Docker
+1. ✅ `neurd/__init__.py`: numpy shim (`np.float_` → `np.float64` для numpy 2)
+2. ✅ `neurd/__init__.py`: meta-path stub-finder для `ipyvolume`/`cloudvolume`
+   (покрывает submodule-импорты типа `from ipyvolume.moviemaker import MovieMaker`)
+3. ✅ `scripts/install_local.sh` + `requirements-local.txt` для virtualenv 3.10–3.12
+4. ✅ `requirements.txt` обновлён под numpy 2 / trimesh 4 / meshparty 2
+5. ✅ Локальный `pytest tests/unit/` — **45 passed, 4 skipped**
+6. ✅ Docker удалён целиком (вариант «сразу Шаг 5» из PHASE3_PLAN — пользователь
+   работает в conda, Docker как CI-инструмент не нужен)
 
-**Почему возможно:**
-- `mesh_processing_tools` — чистый Python (`py3-none-any`), ставится через `--no-deps`
-- `open3d==0.19.0` и `meshparty==2.0.3` уже есть на PyPI для Python 3.12
-- Пользователь уже имеет Python 3.12.3 локально
+**Smoke-тесты Фазы 3:**
+- [tests/unit/test_env_compat.py](tests/unit/test_env_compat.py) — 5 тестов на шимы
+- [tests/unit/test_numpy_compat.py](tests/unit/test_numpy_compat.py) — 4 теста на numpy 2
+- [tests/unit/test_mesh_tools_compat.py](tests/unit/test_mesh_tools_compat.py) — 4 теста на mesh-стек
 
-**Зачем:** тесты локально без Docker, независимость от чужого образа, Python 3.12.
+**Side-effect:** [tests/unit/__init__.py](tests/unit/__init__.py) guard теперь
+импортирует `neurd` первым (активирует шим), благодаря чему ранее skipped тесты
+из `leaves/` (33 шт.) запускаются локально и зелёные.
+
+Подробности и обоснования — в [PHASE3_PLAN.md](PHASE3_PLAN.md).
 
 ### Фаза 4 — Постепенный отказ от `datasci_tools` (растянуто)
 Для каждого модуля, который мы трогаем в рамках leaves/proximity/motif/...:
@@ -228,16 +229,16 @@ grep -rn "pykdtree.kdtree" --include="*.py" neurd/
 
 ## 8. Метрики «до/после»
 
-Заполнять по мере выполнения. Текущее состояние:
-
-| Метрика | Базовое | После Фазы 1 ✅ | После Фазы 2 ✅ | После Фазы 3 |
+| Метрика | Базовое | После Фазы 1 ✅ | После Фазы 2 ✅ | После Фазы 3 ✅ |
 |---|---|---|---|---|
-| Прямых deps в requirements.txt | 17 | 13 | **13** (сделано) | 13 |
-| Опциональных групп | 0 | 0 | **4** [connectome/viz/ml/all] | 4 |
-| top-level `datajoint` imports | ~5 | ~5 | **0** | 0 |
-| top-level `seaborn` imports | ~3 | ~3 | **0** (soft) | 0 |
-| Self-imports в non-core модулях | 65 | 65 | **20** (все non-core убраны) | 20 |
+| Прямых deps в requirements.txt | 17 | 13 | 13 | **16** (+ numpy/h5py/tqdm явно) |
+| Опциональных групп | 0 | 0 | 4 [connectome/viz/ml/all] | 4 |
+| top-level `datajoint` imports | ~5 | ~5 | 0 | 0 |
+| top-level `seaborn` imports | ~3 | ~3 | 0 (soft) | 0 |
+| Self-imports в non-core модулях | 65 | 65 | 20 (core only) | 20 |
 | Native wheels (требуют компиляции) | ~3 | ~2 | ~2 | ~2 |
-| Python version | 3.8 | 3.8 | 3.8 | **3.11+** |
-| Test-collection errors на голой системе | 0 (skip) | 0 | 0 | 0 |
-| Test-collection errors в Docker | 3 (cloudvolume) | 3 | возможно 0 | 0 |
+| Python version | 3.8 (Docker) | 3.8 | 3.8 | **3.10–3.12 (local)** |
+| numpy | <2 | <2 | <2 | **≥2** |
+| trimesh | ==3.22.3 | ==3.22.3 | ==3.22.3 | **≥4** |
+| Зависимость от `celiib/mesh_tools:v4` | ✅ обязательна | ✅ | ✅ | **❌ удалена** |
+| Локальный `pytest tests/unit/` | ❌ всё skip | ❌ skip | ❌ skip | **✅ 45 passed** |
