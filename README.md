@@ -6,46 +6,36 @@ NEURD: A mesh decomposition framework for automated proofreading and morphologic
 
 publication: https://www.nature.com/articles/s41586-025-08660-5
 
-## Setup: Installation inside docker env
+## Setup: Local install (Python 3.10–3.12)
 
-Note: _Current Docker environment does not currently work on Apple M series chips_
+This fork runs NEURD directly in a virtualenv or conda env — no Docker required.
 
----
-
-### Download Docker Image
+### Quick start
 
 ```bash
-docker pull celiib/neurd:v2
+# 1. Create env (any of: venv, conda, pyenv) on Python 3.10–3.12
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install everything
+bash scripts/install_local.sh
+
+# 3. Verify
+pytest tests/unit/
 ```
 
-### Run Docker Container (from CLI)
+The install script handles the one fiddly bit: `mesh_processing_tools` pins
+`open3d==0.11.2` in its metadata, but we use modern `open3d>=0.19`, so the
+script installs it with `--no-deps` and pulls dependencies from
+[requirements-local.txt](requirements-local.txt).
 
-```bash
+### Notes
 
-mkdir notebooks
-docker container run -it \
-    -p 8890:8888 \
-    -v ./notebooks:/notebooks \
-    celiib/neurd:v2
-```
-
-### Installing NEURD inside Docker Container
-
-go to http://localhost:8890/lab and open terminal
-
-```bash
-cd /
-git clone https://github.com/reimerlab/NEURD.git;
-pip3 install ./NEURD/;
-```
-
-### run integration test to verify environment setup
-
-```bash
-cd /NEURD
-# run the integration tests
-python3 -m unittest discover -s tests
-```
+- Python **3.13+** is not yet supported (no `open3d` wheels on PyPI).
+- On a fresh OS you may need: `apt install libgl1 libglib2.0-0 libgomp1`
+  (open3d runtime libs).
+- Optional extras for cloud / proofreading / GNN workflows are declared in
+  `setup.py` under `extras_require` (`[connectome]`, `[viz]`, `[ml]`).
 
 ## Documentation
 
