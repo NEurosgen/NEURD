@@ -247,36 +247,6 @@ parameters = {
       },
     },
   },
-  'connectome_query_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'connectome_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
   'error_detection':
   {
     'global_parameters':
@@ -442,22 +412,6 @@ parameters = {
     {
       'no_category':
       {
-      },
-    },
-  },
-  'motif_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-        
       },
     },
   },
@@ -642,36 +596,6 @@ parameters = {
         'apply_double_back_first':True,
         'double_back_threshold_at_first':110,
         'min_skeletal_length_limb':15000,
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'proximity_analysis_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
-      },
-    },
-    'attributes':
-    {
-      'no_category':
-      {
-      },
-    },
-  },
-  'proximity_utils':
-  {
-    'global_parameters':
-    {
-      'no_category':
-      {
       },
     },
     'attributes':

@@ -306,15 +306,17 @@ Python 3.12 + numpy 2 без Docker. `pytest tests/unit/` → 45 passed, 4 skipp
   модулями, имеющими взаимные `global_parameters_dict_*`-ссылки.
 
 ### Шаг 4 (другие листья §7.2):
-- ~~**Proximity-block**~~ — **сделано** (self-imports, datajoint lazy, тесты).
-- ~~**Self-imports в non-core модулях**~~ — **сделано** (сессия 2026-05-27):
-  `branch_attr_utils`, `gnn_embedding_utils`, `neuron_geometry_utils`,
-  `neuron_graph_lite_utils`, `motif_utils`, `graph_filters`,
-  плюс ранее: `connectome_analysis_utils`, `connectome_query_utils`,
-  `width_utils`, `soma_splitting_utils`, `neuron_simplification`.
-- **GNN-block** (`gnn_embedding_utils`, `gnn_cell_typing_utils`, ~1.4k LOC) —
-  вынести `torch`/`torch_geometric` в `extras_require["ml"]`, добавить юниты.
-  Self-import уже убран; осталось только lazify torch-импорты.
+- ~~**Proximity-block**~~ — **удалён целиком** (2026-05-27, не относится
+  к сегментации меша; ушли и тесты `tests/unit/proximity/`).
+- ~~**Self-imports в non-core модулях**~~ — **сделано** (сессия 2026-05-27).
+- ~~**GNN-block**~~ — **удалён целиком** (2026-05-27): `gnn_embedding_utils.py`,
+  `gnn_cell_typing_utils.py`, `Applications/Tutorials/GNN_*/`,
+  `extras_require['ml']` — всё убрано. GNN это классификация поверх
+  уже сегментированного нейрона, не сегментация.
+- ~~**Connectome+Motif**~~ — **удалены целиком** (2026-05-27):
+  `connectome_utils.py`, `connectome_analysis_utils.py`,
+  `connectome_query_utils.py`, `motif_utils.py`. Orphan-секции в
+  `parameter_configs/parameters_config_{default,h01}.py` очищены.
 
 ### Шаг 5 (большая работа):
 - **A1**: `Parameters` → `pydantic.BaseModel`. После этого открывается
