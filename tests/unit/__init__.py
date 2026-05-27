@@ -13,6 +13,7 @@ import pytest
 
 def _reason() -> Optional[str]:
     try:
+        import neurd  # noqa: F401  -- activates numpy/ipyvolume shims first
         import datasci_tools.module_utils  # noqa: F401
     except Exception as exc:  # pragma: no cover
         return f"datasci_tools unusable: {exc.__class__.__name__}: {exc}"

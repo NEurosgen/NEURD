@@ -145,17 +145,23 @@ setuptools/`use_2to3`).
 - Убраны self-imports во всех non-core модулях (20 осталось только в core clump).
 - Баг B3 в `parameter_utils.attr_map` исправлен (`.replace` → `.removesuffix`).
 
-### Фаза 3 — Подъём Python (1 сессия + переборка Docker-образа)
-1. Найти/собрать базовый образ `mesh_tools` на Python 3.11+ (вместо
-   `celiib/mesh_tools:v4`).
-2. Обновить наш `docker/Dockerfile`.
-3. Запустить тесты, посмотреть что прорывается.
-4. Если падает `datasci_tools.numpy_dep` на `np.float_` — добавить shim в
-   `neurd/__init__.py` (monkeypatch) или подать PR в datasci_tools.
-5. Удалить из тестов гарды для PEP 585 (`pytest.importorskip("datajoint")`
-   где они стояли только для блокирования цепочки cloudvolume).
+### Фаза 3 — Освобождение от `celiib/mesh_tools:v4` и локальный запуск
 
-**Зачем тогда:** разовый ход, после которого исчезают 4 типа ошибок.
+Подробный план — в **[PHASE3_PLAN.md](PHASE3_PLAN.md)**.
+
+Краткое содержание:
+1. `neurd/__init__.py`: numpy shim (`np.float_` → `np.float64` для numpy 2)
+2. `neurd/__init__.py`: stub для `ipyvolume`/`cloudvolume` (mesh_tools тянет их)
+3. `scripts/install_local.sh` + `requirements-local.txt` для virtualenv
+4. Новый `docker/Dockerfile` на `python:3.12-slim` (без `celiib/mesh_tools:v4`)
+5. Локальный `pytest tests/unit/` без Docker
+
+**Почему возможно:**
+- `mesh_processing_tools` — чистый Python (`py3-none-any`), ставится через `--no-deps`
+- `open3d==0.19.0` и `meshparty==2.0.3` уже есть на PyPI для Python 3.12
+- Пользователь уже имеет Python 3.12.3 локально
+
+**Зачем:** тесты локально без Docker, независимость от чужого образа, Python 3.12.
 
 ### Фаза 4 — Постепенный отказ от `datasci_tools` (растянуто)
 Для каждого модуля, который мы трогаем в рамках leaves/proximity/motif/...:
