@@ -136,7 +136,7 @@ class Parameters:
             success = False
             if k not in self._dict:
                 for suf in suffixes_to_ignore:
-                    new_name = k.replace(suf,"")
+                    new_name = k.removesuffix(suf)
                     if  new_name in self._dict:
                         att_dict[k] = self._dict[new_name]
                         success = True

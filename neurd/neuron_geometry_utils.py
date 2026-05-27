@@ -98,7 +98,7 @@ def vec_df_from_compartment(
     if verbose:
         print(f"{len(curr_df)} datapoints for {compartment}")
         
-    return ngu.add_xz_angles_to_df(curr_df,compartments=[compartment])
+    return add_xz_angles_to_df(curr_df,compartments=[compartment])
 
 
 def plot_compartment_vector_distribution(
@@ -130,7 +130,7 @@ def plot_compartment_vector_distribution(
     c) 
     """
     df_vec_min_limb = df.query(f"({compartment}_n_limbs >= {n_limbs_min})")
-    df_vec_curr = ngu.vec_df_from_compartment(df_vec_min_limb,compartment)
+    df_vec_curr = vec_df_from_compartment(df_vec_min_limb,compartment)
 
 
     names = [
@@ -261,4 +261,3 @@ from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import pandas_utils as pu
 
-from . import neuron_geometry_utils as ngu

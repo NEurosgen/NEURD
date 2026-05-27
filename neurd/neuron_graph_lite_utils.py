@@ -139,7 +139,7 @@ def save_G_with_attrs(G,segment_id,
     To save a Graph after processing
     
     Ex: 
-    ctcu.save_G_with_attrs(G,segment_id=segment_id,split_index=split_index)
+    save_G_with_attrs(G,segment_id=segment_id,split_index=split_index)
     """
     file_name = f"{segment_id}_{split_index}_neuron_graph"
     if len(file_append) > 0:
@@ -165,7 +165,7 @@ def attr_value_by_node(df,node_name,attr):
 def attr_value_soma(df,attr):
     """
     Ex: 
-    ctcu.attr_value_soma(df_idx,"n_synapses")
+    attr_value_soma(df_idx,"n_synapses")
     """
     return attr_value_by_node(df,soma_name,attr)
 
@@ -409,7 +409,7 @@ def symmetric_window(size=None,x=None,y=None,z=None):
     Purpose: To Create a dict that will act like a window: 
     
     Ex: 
-    ctcu.symmetric_window(x=100,y=200,z = 300)
+    symmetric_window(x=100,y=200,z = 300)
     """
     curr_dict = dict()
     for ax,ax_val in zip(['x','y','z'],[x,y,z]):
@@ -444,7 +444,7 @@ def filter_df_by_xyz_window(df,window=window_default,
     """
     To restrict the rows to only those located at certain points:
     
-    ctcu.filter_df_by_xyz_window(df,window = 50000,plot_xyz=True)
+    filter_df_by_xyz_window(df,window = 50000,plot_xyz=True)
     
     """
     if window is None:
@@ -588,7 +588,7 @@ def array_shape_from_radius(radius):
 
 def axes_limits_coordinates(axes_limits,array_shape=None,radius = None):
     if array_shape is None:
-        array_shape = ctcu.array_shape_from_radius(radius)
+        array_shape = array_shape_from_radius(radius)
         
     axes_limits_array = np.vstack([axes_limits[k] for k in ["x","y","z"]])
 
@@ -633,7 +633,7 @@ def idx_for_col(
     nbins = 40
 
     col = "y"
-    ctcu.idx_for_col(df.loc[100,col],col,
+    idx_for_col(df.loc[100,col],col,
                 axes_limits=axes_limits,
                 verbose = True)
     """
@@ -700,7 +700,7 @@ def idx_xyz_to_df(
     nbins = radius
 
     if axes_limits is None:
-        axes_limits = ctcu.axes_limits_from_df(
+        axes_limits = axes_limits_from_df(
             df,
             all_axes_same_scale = all_axes_same_scale,
             neg_positive_same_scale = neg_positive_same_scale,
@@ -709,7 +709,7 @@ def idx_xyz_to_df(
 
     def y_idx(row):
         col = "y"
-        return ctcu.idx_for_col(
+        return idx_for_col(
             row[col],
             col,
             axes_limits=axes_limits,
@@ -718,7 +718,7 @@ def idx_xyz_to_df(
 
     def x_idx(row):
         col = "x"
-        return ctcu.idx_for_col(
+        return idx_for_col(
             row[col],
             col,
             nbins=nbins,
@@ -727,7 +727,7 @@ def idx_xyz_to_df(
 
     def z_idx(row):
         col = "z"
-        return ctcu.idx_for_col(
+        return idx_for_col(
             row[col],
             col,
             nbins=nbins,
@@ -739,7 +739,7 @@ def idx_xyz_to_df(
     df["z_idx"] = pu.new_column_from_row_function(df,z_idx)
 
     if plot_idx:
-        ctcu.plot_df_xyz(
+        plot_df_xyz(
             df,
             branch_size = 1,
             soma_size = 4,
@@ -759,7 +759,7 @@ def closest_node_idx_to_sample_idx(
     point to a coordinate in the sampling
 
     """
-    limits_coords_by_axis = ctcu.axes_limits_coordinates(axes_limits,array_shape = array_shape)
+    limits_coords_by_axis = axes_limits_coordinates(axes_limits,array_shape = array_shape)
 
     from scipy.spatial import KDTree
 
@@ -799,7 +799,7 @@ def attr_activation_map(
     array_size = (edge_length,edge_length,edge_length)
 
     attr = "mesh_volume"
-    ctcu.attr_activation_map(df_idx,attr,array_shape = array_size,)
+    attr_activation_map(df_idx,attr,array_shape = array_size,)
     """
     
     if soma_at_end and not return_vector:
@@ -809,7 +809,7 @@ def attr_activation_map(
     placement_map = np.zeros(array_shape)
     
     if soma_at_end or exclude_soma_node:
-        df_branch = ctcu.soma_branch_df_split(df)[1]
+        df_branch = soma_branch_df_split(df)[1]
     else:
         df_branch = df
         
@@ -835,7 +835,7 @@ def attr_activation_map(
             
 #         print(f"len(df) = {len(df)}")
 #         print(f"len(attr_vals) = {len(attr_vals)}")
-        closest_branch_idx = ctcu.closest_node_idx_to_sample_idx(
+        closest_branch_idx = closest_node_idx_to_sample_idx(
             df_branch,
             axes_limits,
             array_shape,
@@ -849,7 +849,7 @@ def attr_activation_map(
     
     if soma_at_end:
         #print(len(curr_act_map))
-        curr_act_map = np.concatenate([curr_act_map,[ctcu.attr_value_soma(df,attr)]])
+        curr_act_map = np.concatenate([curr_act_map,[attr_value_soma(df,attr)]])
         #print(len(curr_act_map))
         
     
@@ -883,7 +883,7 @@ def feature_map_df(df_idx,
     into a dataframe with the vector unraveled
     """
     
-    f_maps = [ctcu.attr_activation_map(df_idx,
+    f_maps = [attr_activation_map(df_idx,
                                        attr,
                                        array_shape = array_shape,
                                       axes_limits = axes_limits,
@@ -954,4 +954,3 @@ try:
 except:
     tu = None
 
-from . import neuron_graph_lite_utils as ctcu
