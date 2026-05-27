@@ -3,6 +3,7 @@ plus a few of the smaller pure-Python helpers.
 """
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -335,3 +336,146 @@ def test_category_param_missing_category_returns_empty():
         foo_global=100,
     )
     assert paru.category_param_from_module(m, category="nonexistent") == {}
+
+
+# ---------------- B5: parameters_from_filepath (no exec/eval) ----------------
+
+
+def _write_config_py(tmp_path, body, name="my_params.py"):
+    fp = tmp_path / name
+    fp.write_text(body)
+    return fp
+
+
+def test_parameters_from_filepath_loads_dict_via_filepath(tmp_path):
+    """Loading a .py config by absolute filepath returns a PackageParameters
+    whose top-level keys are the modules in the config dict."""
+    fp = _write_config_py(
+        tmp_path,
+        "parameters = {'mod_a': {'x': 1, 'y_global': 2}, 'mod_b': {'z': 3}}\n",
+    )
+    pp = paru.parameters_from_filepath(filepath=str(fp))
+    assert isinstance(pp, paru.PackageParameters)
+    assert "mod_a" in pp
+    assert pp["mod_a"].x == 1
+    assert pp["mod_a"].y == 2  # _global suffix stripped by Parameters
+    assert pp["mod_b"].z == 3
+
+
+def test_parameters_from_filepath_return_dict_skips_packaging(tmp_path):
+    """``return_dict=True`` returns the raw dict unwrapped."""
+    fp = _write_config_py(tmp_path, "parameters = {'mod_a': {'x': 1}}\n")
+    out = paru.parameters_from_filepath(filepath=str(fp), return_dict=True)
+    assert out == {"mod_a": {"x": 1}}
+
+
+def test_parameters_from_filepath_filename_plus_directory(tmp_path):
+    """API still supports the (filename, directory) form (no filepath kwarg)."""
+    _write_config_py(tmp_path, "parameters = {'mod_a': {'k': 42}}\n", name="cfg.py")
+    pp = paru.parameters_from_filepath(
+        filename="cfg.py", directory=str(tmp_path), return_dict=True
+    )
+    assert pp == {"mod_a": {"k": 42}}
+
+
+def test_parameters_from_filepath_custom_dict_name(tmp_path):
+    """``dict_name`` selects which top-level binding in the file is loaded."""
+    fp = _write_config_py(
+        tmp_path,
+        "my_cfg = {'mod_a': {'k': 7}}\nparameters = {'wrong': {}}\n",
+    )
+    pp = paru.parameters_from_filepath(
+        filepath=str(fp), dict_name="my_cfg", return_dict=True
+    )
+    assert pp == {"mod_a": {"k": 7}}
+
+
+def test_parameters_from_filepath_passthrough_when_given_dict():
+    """If `filepath` itself is already a dict, it bypasses the loader."""
+    raw = {"mod_a": {"x": 1}}
+    pp = paru.parameters_from_filepath(filepath=raw, return_dict=True)
+    assert pp == raw
+
+
+def test_parameters_from_filepath_missing_dict_raises(tmp_path):
+    """If the requested binding does not exist in the file, AttributeError."""
+    fp = _write_config_py(tmp_path, "something_else = 1\n")
+    with pytest.raises(AttributeError):
+        paru.parameters_from_filepath(filepath=str(fp), dict_name="parameters")
+
+
+# ---------------- B6: set_parameters_for_directory_modules_from_obj ----------
+
+
+def test_set_parameters_for_directory_modules_from_obj_sets_attrs(tmp_path):
+    """End-to-end: build a fake package on disk, build a fake obj carrying a
+    PackageParameters, and verify each module's globals get patched."""
+    pkg = tmp_path / "fakepkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "mod_a.py").write_text(
+        "global_parameters_dict_default = {'alpha': 0}\n"
+        "alpha_global = 0\n"
+    )
+    (pkg / "mod_b.py").write_text(
+        "global_parameters_dict_default = {'beta': 0}\n"
+        "beta_global = 0\n"
+    )
+
+    sys.path.insert(0, str(tmp_path))
+    # Drop any cached imports from a previous test run.
+    for cached in [k for k in list(sys.modules) if k.startswith("fakepkg")]:
+        sys.modules.pop(cached)
+    try:
+        class _Obj:
+            parameters_obj = paru.PackageParameters(
+                data={"mod_a": {"alpha": 111}, "mod_b": {"beta": 222}}
+            )
+
+        paru.set_parameters_for_directory_modules_from_obj(
+            obj=_Obj(),
+            directory=str(pkg),
+            from_package="fakepkg",
+            modules=["mod_a", "mod_b"],
+        )
+
+        import fakepkg.mod_a as mod_a
+        import fakepkg.mod_b as mod_b
+        assert mod_a.alpha_global == 111
+        assert mod_b.beta_global == 222
+    finally:
+        sys.path.remove(str(tmp_path))
+        for cached in [k for k in list(sys.modules) if k.startswith("fakepkg")]:
+            sys.modules.pop(cached)
+
+
+def test_set_parameters_skips_modules_that_fail_to_import(tmp_path):
+    """A module name that does not resolve as importable is skipped silently
+    (not raised) — preserves the existing import-on-best-effort behaviour."""
+    pkg = tmp_path / "fakepkg2"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "real_mod.py").write_text(
+        "global_parameters_dict_default = {'k': 0}\nk_global = 0\n"
+    )
+
+    sys.path.insert(0, str(tmp_path))
+    for cached in [k for k in list(sys.modules) if k.startswith("fakepkg2")]:
+        sys.modules.pop(cached)
+    try:
+        class _Obj:
+            parameters_obj = paru.PackageParameters(data={"real_mod": {"k": 9}})
+
+        # "nonexistent_mod" should be skipped; "real_mod" should still get patched.
+        paru.set_parameters_for_directory_modules_from_obj(
+            obj=_Obj(),
+            directory=str(pkg),
+            from_package="fakepkg2",
+            modules=["nonexistent_mod", "real_mod"],
+        )
+        import fakepkg2.real_mod as real_mod
+        assert real_mod.k_global == 9
+    finally:
+        sys.path.remove(str(tmp_path))
+        for cached in [k for k in list(sys.modules) if k.startswith("fakepkg2")]:
+            sys.modules.pop(cached)

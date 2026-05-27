@@ -1,4 +1,6 @@
 import copy
+import importlib
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -554,30 +556,35 @@ def parameters_from_filepath(
     from a python file
     """
 
-    if isinstance(filepath,dict):
+    if isinstance(filepath, dict):
         return_value = filepath
     else:
         if filepath is not None:
             filepath = Path(filepath)
-            filename = filepath.stem
             directory = str(plu.parent_directory(filepath).absolute())
-            
-        module_name = filename.replace(".py","")
-        
-        if directory is None:
-            directory = parameter_config_folder()
+        else:
+            if directory is None:
+                directory = parameter_config_folder()
+            name = filename if filename.endswith(".py") else f"{filename}.py"
+            filepath = Path(directory) / name
 
+        # Preserve directory on sys.path so any sibling-imports inside the
+        # loaded config file still resolve (matches the previous exec-based
+        # behaviour).
         if directory not in sys.path:
             sys.path.append(directory)
 
-        exec(f"import {module_name}; from {module_name} import {dict_name}")
-        return_value = eval(dict_name)
-        
+        module_name = filepath.stem
+        spec = importlib.util.spec_from_file_location(module_name, str(filepath))
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load parameter config from {filepath}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return_value = getattr(mod, dict_name)
+
     if not return_dict:
-        return_value =  PackageParameters(
-            return_value
-        )
-        
+        return_value = PackageParameters(return_value)
+
     return return_value
 
 
@@ -688,39 +695,33 @@ def set_parameters_for_directory_modules_from_obj(
             p
         )
 
-    for i in range(0,2):
-        for k in modules:
+    for i in range(0, 2):
+        for mod_name in modules:
+            if verbose_loop:
+                print(f"--Working on module {mod_name}--")
+
+            full_name = f"{from_package}.{mod_name}" if from_package is not None else mod_name
             try:
-                if verbose_loop:
-                    print(f"--Working on module {k}--")
-
-                imp_str = f"import {k}"
-                if from_package is not None:
-                    imp_str = f"from {from_package} {imp_str}"
-                exec(imp_str)
-                if verbose_loop:
-                    print(f"Accomplished import")
+                module = importlib.import_module(full_name)
             except Exception as e:
-
                 if verbose_loop:
                     print(f"Failed import: {e} ")
                 continue
 
-            module = eval(k)
+            if verbose_loop:
+                print(f"Accomplished import")
+
             p_dict = _parameter_dict_from_module_and_obj(
-                module = module,
-                obj = obj,
-                parameters_obj_name = parameters_obj_name,
-                plus_unused = i == 1,
-                verbose = verbose_param,
+                module=module,
+                obj=obj,
+                parameters_obj_name=parameters_obj_name,
+                plus_unused=i == 1,
+                verbose=verbose_param,
                 error_on_no_attr=error_on_no_attr,
             )
-            
-            #print(f"{k} p_dict = {p_dict}")
-            
 
-            for k,v in p_dict.items():
-                setattr(module,k,v)
+            for attr_name, attr_value in p_dict.items():
+                setattr(module, attr_name, attr_value)
 
 
 def export_package_param_dict_to_file(
