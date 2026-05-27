@@ -13,7 +13,10 @@ import networkx as nx
 import pandas as pd
 from pathlib import Path
 from scipy.spatial import KDTree
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:  # pragma: no cover
+    sns = None
 import time
 import time 
 from datasci_tools import numpy_dep as np

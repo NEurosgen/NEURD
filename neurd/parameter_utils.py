@@ -459,7 +459,7 @@ def modes_global_param_and_attributes_dict_all_modules(
     3) update the larger dictionary
     """
 
-    modes = paru.modes_default
+    modes = modes_default
     final_dict = {k:dict() for k in modes}
 
     mod_objs = modu.load_modules_in_directory(
@@ -468,7 +468,7 @@ def modes_global_param_and_attributes_dict_all_modules(
     )
 
     for mod in mod_objs:
-        return_dict = paru.modes_global_param_and_attributes_dict_from_module(
+        return_dict = modes_global_param_and_attributes_dict_from_module(
         module = mod,
         verbose = verbose,
         clean_dict=clean_dict,
@@ -605,7 +605,7 @@ def _parameter_dict_from_module_and_obj(
 
     """
 
-    params_to_set = paru.parameter_list_from_module(module)
+    params_to_set = parameter_list_from_module(module)
 
     if parameters_obj_name is None:
         par_obj = obj
@@ -708,7 +708,7 @@ def set_parameters_for_directory_modules_from_obj(
                 continue
 
             module = eval(k)
-            p_dict = paru._parameter_dict_from_module_and_obj(
+            p_dict = _parameter_dict_from_module_and_obj(
                 module = module,
                 obj = obj,
                 parameters_obj_name = parameters_obj_name,
@@ -740,7 +740,7 @@ def export_package_param_dict_to_file(
     if package_directory is None:
         package_directory = str(Path(__file__).parents[0].absolute())
 
-    nest_dict = paru.modes_global_param_and_attributes_dict_all_modules(
+    nest_dict = modes_global_param_and_attributes_dict_all_modules(
         package_directory,
         clean_dict = clean_dict,
         )[mode]
@@ -850,4 +850,3 @@ def export_csv(
 
 
 
-from . import parameter_utils as paru
