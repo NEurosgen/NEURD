@@ -35,7 +35,7 @@ def limb_red_blue_dict_from_red_blue_splits(
 
     The valid and error points can be used as inputs for automatic mesh splitting algorithms in other pipelines (ex: Neuroglancer)
     """
-    limb_red_blue_dict = ssu.red_blue_split_dict_by_limb_from_red_blue_split_results(
+    limb_red_blue_dict = red_blue_split_dict_by_limb_from_red_blue_split_results(
         red_blue_split_results
     )
 
@@ -97,7 +97,7 @@ def plot_red_blue_split_suggestions_per_limb(
     
     cut_paths_dict = None
     if plot_cut_paths and split_results is not None:
-        cut_paths_dict = ssu.path_to_cut_and_coord_dict_from_split_suggestions(
+        cut_paths_dict = path_to_cut_and_coord_dict_from_split_suggestions(
             split_results
         )
     
@@ -238,7 +238,7 @@ def multi_soma_split_execution(
             split_results = neuron_obj.split_results
         except Exception as e:
             print(e)
-            _ = ssu.calculate_multi_soma_split_suggestions(
+            _ = calculate_multi_soma_split_suggestions(
                 neuron_obj,
                 store_in_obj = True,
             )
@@ -293,4 +293,3 @@ from datasci_tools import pipeline
 from . import neuron_utils as nru
 from . import proofreading_utils as pru
 
-from . import soma_splitting_utils as ssu

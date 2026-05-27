@@ -56,9 +56,33 @@ setup(
     include_package_data=True,
     install_requires=get_install_requires(), #external packages as dependencies
     # dependency_links = get_links(),
-    # if wanted to install with the extra requirements use pip install -e ".[interactive]"
+    # pip install neurd[connectome]  — datajoint-based connectome tables
+    # pip install neurd[viz]         — seaborn + ipyvolume interactive 3D
+    # pip install neurd[ml]          — PyTorch + torch_geometric GNN models
+    # pip install neurd[all]         — everything above
     extras_require={
-        #'interactive': ['matplotlib>=2.2.0', 'jupyter'],
+        'connectome': [
+            'datajoint>=0.12.9',
+            'python-dotenv',
+        ],
+        'viz': [
+            'seaborn>=0.12.2',
+            'ipyvolume>=0.6.3',
+        ],
+        'ml': [
+            'torch>=2.0.1',
+            'torch_geometric>=2.3.1',
+            'pytorch_tools>=0.1.9',
+        ],
+        'all': [
+            'datajoint>=0.12.9',
+            'python-dotenv',
+            'seaborn>=0.12.2',
+            'ipyvolume>=0.6.3',
+            'torch>=2.0.1',
+            'torch_geometric>=2.3.1',
+            'pytorch_tools>=0.1.9',
+        ],
     },
     
     # if have a python script that wants to be run from the command line

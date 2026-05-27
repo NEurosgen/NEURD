@@ -46,7 +46,7 @@ def soma_centers_from_node_query(query,
     3) return the queried table if requested
     
     Ex: 
-    conq.soma_centers_from_node_query(
+    soma_centers_from_node_query(
     query = "cell_type == 'inhibitory'",
     #G = G,
     node_df = node_df,
@@ -60,7 +60,7 @@ def soma_centers_from_node_query(query,
 
     sub_df = node_df.query(query)
 
-    sub_df_centers = conq.soma_centers_from_node_df(sub_df)
+    sub_df_centers = soma_centers_from_node_df(sub_df)
     if verbose:
         print(f"# of cells in query = {len(sub_df_centers)}")
 
@@ -85,7 +85,7 @@ def node_df_from_attribute_value(
             query = f"{attribute_type} == {attribute_value}"
 
         
-    return conq.node_df_from_query(query = query,
+    return node_df_from_query(query = query,
                                  G=G,
                                  node_df = node_df,
                                  **kwargs)
@@ -115,7 +115,7 @@ def excitatory_cells_node_df(
     **kwargs
     ):
     
-    return conq.node_df_from_attribute_value(
+    return node_df_from_attribute_value(
     attribute_type="cell_type",
     attribute_value = "excitatory",
     G=G,
@@ -129,7 +129,7 @@ def inhibitory_cells_node_df(
     **kwargs
     ):
     
-    return conq.node_df_from_attribute_value(
+    return node_df_from_attribute_value(
     attribute_type="cell_type",
     attribute_value = "inhibitory",
     G=G,
@@ -140,8 +140,8 @@ def inhibitory_cells_node_df(
 def n_excitatory_n_inhibitory_nodes(G=None,
                                    node_df = None,
                                    verbose = False):
-    n_excitatory = len(conq.excitatory_cells_node_df(G=G,node_df=node_df))
-    n_inhibitory = len(conq.inhibitory_cells_node_df(G=G,node_df=node_df))
+    n_excitatory = len(excitatory_cells_node_df(G=G,node_df=node_df))
+    n_inhibitory = len(inhibitory_cells_node_df(G=G,node_df=node_df))
     
     if verbose:
         print(f"n_excitatory = {n_excitatory},n_inhibitory = {n_inhibitory} ")
@@ -228,4 +228,3 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import pandas_utils as pu
 from datasci_tools import system_utils as su
 
-from . import connectome_query_utils as conq
