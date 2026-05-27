@@ -193,3 +193,145 @@ def test_attr_map_does_not_strip_infix_global():
     result = p.attr_map(["foo_global_bar"])
     # "foo_global_bar" should NOT resolve to "foo_bar" — suffix is not at end.
     assert "foo_global_bar" not in result
+
+
+# ---------------- modes_global_param_and_attributes_dict_from_module ----------------
+
+import types
+
+
+def _fake_module(**attrs):
+    """Build a fake module with the given top-level attributes."""
+    m = types.ModuleType("neurd.fake_mod")
+    for k, v in attrs.items():
+        setattr(m, k, v)
+    return m
+
+
+def test_modes_dict_basic_default_mode():
+    """Module with one global_parameters_dict and one attributes_dict
+    for the 'default' mode produces a single mode entry with one
+    'no_category' bucket per att type.
+    """
+    m = _fake_module(
+        global_parameters_dict_default={"k": 1},
+        attributes_dict_default={"x": "hi"},
+    )
+    out = paru.modes_global_param_and_attributes_dict_from_module(m, modes="default")
+    assert out == {
+        "default": {
+            "fake_mod": {
+                "global_parameters": {"no_category": {"k": 1}},
+                "attributes": {"no_category": {"x": "hi"}},
+            }
+        }
+    }
+
+
+def test_modes_dict_multi_category_splits_subdicts():
+    """When module has both base `_dict_default` and a category-suffixed
+    `_dict_default_celltype1`, they split into separate categories;
+    keys present in a category dict are stripped from no_category."""
+    m = _fake_module(
+        global_parameters_dict_default={"shared": 1, "a": 0},
+        global_parameters_dict_default_celltype1={"a": 2},
+    )
+    out = paru.modes_global_param_and_attributes_dict_from_module(m, modes="default")
+    cats = out["default"]["fake_mod"]["global_parameters"]
+    assert cats["celltype1"] == {"a": 2}
+    # "shared" is in base but not in celltype1 → kept in no_category;
+    # "a" is in celltype1 → removed from no_category leftover.
+    assert cats["no_category"] == {"shared": 1}
+
+
+def test_modes_dict_add_global_suffix_appends_suffix():
+    """`add_global_suffix=True` rewrites keys in global_parameters with
+    `_global` suffix, but does not touch `attributes`."""
+    m = _fake_module(
+        global_parameters_dict_default={"k": 1},
+        attributes_dict_default={"x": 2},
+    )
+    out = paru.modes_global_param_and_attributes_dict_from_module(
+        m, modes="default", add_global_suffix=True
+    )
+    fm = out["default"]["fake_mod"]
+    assert fm["global_parameters"]["no_category"] == {"k_global": 1}
+    assert fm["attributes"]["no_category"] == {"x": 2}  # untouched
+
+
+def test_modes_dict_empty_module_returns_empty():
+    """A module with no parameter dicts at all yields an empty mapping."""
+    m = _fake_module()
+    out = paru.modes_global_param_and_attributes_dict_from_module(m, modes="default")
+    assert out == {}
+
+
+def test_modes_dict_multiple_modes_filtered_independently():
+    """Each mode looks for its own `_dict_<mode>` suffix and is independent."""
+    m = _fake_module(
+        global_parameters_dict_default={"k": 1},
+        global_parameters_dict_h01={"k": 99},
+        attributes_dict_default={"x": "d"},
+        attributes_dict_h01={"x": "h"},
+    )
+    out = paru.modes_global_param_and_attributes_dict_from_module(
+        m, modes=["default", "h01"]
+    )
+    assert out["default"]["fake_mod"]["global_parameters"]["no_category"] == {"k": 1}
+    assert out["h01"]["fake_mod"]["global_parameters"]["no_category"] == {"k": 99}
+    assert out["default"]["fake_mod"]["attributes"]["no_category"] == {"x": "d"}
+    assert out["h01"]["fake_mod"]["attributes"]["no_category"] == {"x": "h"}
+
+
+def test_modes_dict_clean_dict_false_preserves_non_jsonable():
+    """`clean_dict=False` bypasses `_jsonable_dict` filtering on leaf cats."""
+    class _NotJsonable:
+        pass
+
+    sentinel = _NotJsonable()
+    m = _fake_module(global_parameters_dict_default={"a": 1, "b": sentinel})
+    out = paru.modes_global_param_and_attributes_dict_from_module(
+        m, modes="default", clean_dict=False
+    )
+    leaf = out["default"]["fake_mod"]["global_parameters"]["no_category"]
+    assert leaf == {"a": 1, "b": sentinel}
+
+
+# ---------------- category_param_from_module ----------------
+
+
+def test_category_param_default_category_resolves_global_attrs():
+    """Default category 'no_category' pulls keys from the base dict, applies
+    the `_global` suffix (since att_type is global_parameters), then resolves
+    each suffixed name to the module's top-level attribute."""
+    m = _fake_module(
+        global_parameters_dict_default={"foo": 1, "bar": 2},
+        foo_global=100,
+        bar_global=200,
+    )
+    assert paru.category_param_from_module(m) == {
+        "foo_global": 100,
+        "bar_global": 200,
+    }
+
+
+def test_category_param_specific_category_picks_only_overrides():
+    """Asking for a sub-category returns only the keys that the sub-category
+    overrides — not the unrelated keys from the base dict."""
+    m = _fake_module(
+        global_parameters_dict_default={"foo": 0, "shared": 5},
+        global_parameters_dict_default_special={"foo": 1},
+        foo_global=100,
+        shared_global=500,
+    )
+    assert paru.category_param_from_module(m, category="special") == {
+        "foo_global": 100,
+    }
+
+
+def test_category_param_missing_category_returns_empty():
+    m = _fake_module(
+        global_parameters_dict_default={"foo": 1},
+        foo_global=100,
+    )
+    assert paru.category_param_from_module(m, category="nonexistent") == {}

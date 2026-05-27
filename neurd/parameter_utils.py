@@ -35,7 +35,6 @@ suffixes_to_ignore_default = (
 
 def _injest_nested_dict(
     data,
-    filter_away_suffixes = True,
     suffixes_to_ignore = None,
     **kwargs):
     """
@@ -43,13 +42,13 @@ def _injest_nested_dict(
     """
     if suffixes_to_ignore is None:
         suffixes_to_ignore = suffixes_to_ignore_default
-        
+
     data = gu.flatten_nested_dict(data)
     data = gu.remove_dict_suffixes(
         data,
         suffixes = suffixes_to_ignore
     )
-    
+
     return data
     
 class Parameters:
