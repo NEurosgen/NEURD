@@ -284,15 +284,26 @@ Python 3.12 + numpy 2 без Docker. `pytest tests/unit/` → 45 passed, 4 skipp
 ### Шаг 2 (низкий риск, можно делать сразу после Шага 1):
 - ~~**S1**~~ — **сделано**.
 - ~~**B3**~~ — **сделано** (`.replace` → `.removesuffix` + 2 новых теста).
-- **S3** в `parameter_utils.py` — удалить игнорируемый `filter_away_suffixes`.
-- Дописать тесты на `modes_global_param_and_attributes_dict_from_module`
-  и `category_param_from_module` (фейковый модуль с
-  `global_parameters_dict_default`, `attributes_dict_default`).
+- ~~**S3**~~ — **сделано** (удалён `filter_away_suffixes` из `_injest_nested_dict`).
+- ~~Тесты на `modes_global_param_and_attributes_dict_from_module` и
+  `category_param_from_module`~~ — **сделано** (9 тестов с фейковым модулем).
 
-### Шаг 3 (средний риск, требует зелёного `test_autoproof_pipeline.py`):
-- **B5** (`parameters_from_filepath` без `exec`/`sys.path`).
-- **B6** (`set_parameters_for_directory_modules_from_obj` без
-  `exec`/`eval`, объединить две итерации `for i in range(0, 2)` в одну).
+### Шаг 3 (средний риск):
+- ~~**B5**~~ — **сделано** (`exec`/`eval` → `importlib.util.spec_from_file_location`,
+  +6 тестов с фейковым `.py`-конфигом в `tmp_path`).
+- ~~**B6 (часть `exec`/`eval`)**~~ — **сделано**
+  (`exec("from pkg import mod")` → `importlib.import_module(f"pkg.mod")`,
+  +2 end-to-end теста с фейк-пакетом на диске).
+- **B6 (часть про двойной проход `for i in range(0, 2)`)** — **отложено намеренно**.
+  Анализ (2026-05-27): второй проход с `plus_unused=True` фактически
+  затирает первый (`setattr` перезаписывает; K1 ⊆ K2; ни `params_to_find`,
+  ни `parameter_list_from_module` не зависят от того, что было настроено
+  в первой итерации). Однопроходный эквивалент существует, но автор мог
+  иметь в виду какой-то сценарий side-effect'ов через
+  `set_parameters_for_directory_modules_from_obj` → `set_volume_params`,
+  который без интеграционного теста (`test_autoproof_pipeline.py`) не
+  верифицируется. Trigger для возврата: написать equivalence-тест с 3+
+  модулями, имеющими взаимные `global_parameters_dict_*`-ссылки.
 
 ### Шаг 4 (другие листья §7.2):
 - ~~**Proximity-block**~~ — **сделано** (self-imports, datajoint lazy, тесты).
