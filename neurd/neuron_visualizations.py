@@ -1,9 +1,8 @@
 
 import copy
 from copy import deepcopy
-import ipyvolume as ipv
-import itertools
 from importlib import reload
+import itertools
 import matplotlib.pyplot as plt
 import networkx as nx
 import sys
@@ -11,7 +10,10 @@ import time
 import trimesh
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
-import ipyvolume as ipv
+try:
+    import ipyvolume as ipv
+except ImportError:  # pragma: no cover
+    ipv = None
 
 soma_color = "red"
 glia_color = "aqua"

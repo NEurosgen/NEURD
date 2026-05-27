@@ -25,7 +25,7 @@ def branch_idx_map_from_branches_to_delete_on_limb(
     
     Ex: 
     from neurd import neuron_simplification as nsimp
-    nsimp.branch_idx_map_from_branches_to_delete_on_limb(
+    branch_idx_map_from_branches_to_delete_on_limb(
         limb_obj,
         branches_to_delete = [0,1,5],
         verbose = True
@@ -65,7 +65,7 @@ def all_concept_network_data_updated(limb_obj):
     Purpose: To revise the all concept network data
     for a limb object, assuming after the concept network has been reset
     """
-    nsimp.reset_concept_network_branch_endpoints(limb_obj)
+    reset_concept_network_branch_endpoints(limb_obj)
     starting_node = nru.get_starting_node_from_limb_concept_network(limb_obj)
     all_concept_network_data_revised = limb_obj.all_concept_network_data.copy()
     all_concept_network_data_revised[0]["starting_node"] = starting_node
@@ -96,7 +96,7 @@ def delete_branches_from_limb(
     limb_obj = neuron_obj[limb_idx]
     
     #1) Find a mapping of old node names to new node names
-    node_map = nsimp.branch_idx_map_from_branches_to_delete_on_limb(
+    node_map = branch_idx_map_from_branches_to_delete_on_limb(
         limb_obj,
         branches_to_delete = branches_to_delete,
         verbose = verbose
@@ -118,7 +118,7 @@ def delete_branches_from_limb(
     if verbose:
         print(f"Current starting node BEFORE reset: {limb_obj.current_starting_node}")
         
-    limb_obj.all_concept_network_data = nsimp.all_concept_network_data_updated(limb_obj)
+    limb_obj.all_concept_network_data = all_concept_network_data_updated(limb_obj)
     limb_obj.set_concept_network_directional(starting_soma=0)
     
     if verbose:
@@ -157,7 +157,7 @@ def delete_branches_from_neuron(
             if verbose:
                 print(f"\n---Working on limb {limb_name}, deleting {branches_to_delete}")
         
-            nsimp.delete_branches_from_limb(
+            delete_branches_from_limb(
                 neuron_obj,
                 limb_name,
                 branches_to_delete=branches_to_delete,
@@ -416,7 +416,7 @@ def combine_path_branches(
     for limb_name,one_node_branches in downstream_path_limb_branch.items():
         if verbose:
             print(f"\n\n---Working on {limb_name}: one_node_branches = {one_node_branches} ")
-        new_limb,branches_to_delete = nsimp.combine_path_branches_on_limb(
+        new_limb,branches_to_delete = combine_path_branches_on_limb(
             limb_obj = neuron_obj[limb_name],
             one_downstream_node_branches = one_node_branches,
             verbose = verbose,
@@ -430,7 +430,7 @@ def combine_path_branches(
         print(f"limb_branch_to_delete= {limb_branch_to_delete}")
 
 
-    new_neuron_obj = nsimp.delete_branches_from_neuron(
+    new_neuron_obj = delete_branches_from_neuron(
         neuron_obj,
         limb_branch_dict = limb_branch_to_delete,
         plot_final_neuron = plot_final_neuron
@@ -533,7 +533,7 @@ def merge_floating_end_nodes_to_parent(
     
 
     if floating_end_nodes_limb_branch_dict is None:
-        floating_end_nodes_limb_branch_dict = nsimp.floating_end_nodes_limb_branch(
+        floating_end_nodes_limb_branch_dict = floating_end_nodes_limb_branch(
             neuron_obj,
             verbose = verbose,
             plot = plot_floating_end_nodes_limb_branch_dict)
@@ -577,7 +577,7 @@ def merge_floating_end_nodes_to_parent(
         print(f"branches_to_delete= {branches_to_delete}")
 
 
-    new_neuron_obj = nsimp.delete_branches_from_neuron(
+    new_neuron_obj = delete_branches_from_neuron(
         neuron_obj,
         limb_branch_dict = branches_to_delete,
         plot_final_neuron = plot_final_neuron,
@@ -625,7 +625,7 @@ def branching_simplification(
 
     if verbose:
         print(f"--- STARTING merge_floating_end_nodes_to_parent----")
-    new_neuron_obj = nsimp.merge_floating_end_nodes_to_parent(
+    new_neuron_obj = merge_floating_end_nodes_to_parent(
         neuron_obj,
         verbose = verbose_merging,
         plot_floating_end_nodes_limb_branch_dict = plot_floating_end_nodes_limb_branch_dict,
@@ -647,7 +647,7 @@ def branching_simplification(
     if return_before_combine_path_branches:
         return new_neuron_obj
     
-    n_obj_ret = nsimp.combine_path_branches(
+    n_obj_ret = combine_path_branches(
         new_neuron_obj,
         plot_downstream_path_limb_branch = plot_downstream_path_limb_branch,
         verbose = verbose_merging,
@@ -692,4 +692,3 @@ from . import neuron_visualizations as nviz
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 
-from . import neuron_simplification as nsimp

@@ -53,7 +53,7 @@ def calculate_new_width(branch,
 
     no_spines = True
     summary_measure = "mean"
-    current_width_array,current_width = wu.calculate_new_width(curr_branch_obj, 
+    current_width_array,current_width = calculate_new_width(curr_branch_obj, 
                                               skeleton_segment_size=skeleton_segment_size,
                                               width_segment_size=width_segment_size, 
                                               distance_by_mesh_center=distance_by_mesh_center,
@@ -83,7 +83,7 @@ def calculate_new_width(branch,
         distance_threshold = distance_threshold
         
     
-    ex_branch_skeleton_resized = wu.skeleton_resized_ordered(
+    ex_branch_skeleton_resized = skeleton_resized_ordered(
         skeleton=branch.skeleton,
         skeleton_segment_size=skeleton_segment_size,
         width_segment_size=width_segment_size)
@@ -490,7 +490,7 @@ def calculate_new_width_for_neuron_obj(neuron_obj,
                             already_computed=True
                 
                 if not already_computed:
-                    current_width_array,current_width = wu.calculate_new_width(curr_branch_obj, 
+                    current_width_array,current_width = calculate_new_width(curr_branch_obj, 
                                           skeleton_segment_size=skeleton_segment_size,
                                           width_segment_size=width_segment_size, 
                                           distance_by_mesh_center=distance_by_mesh_center,
@@ -521,7 +521,7 @@ def neuron_width_calculation_standard(
         st = time.time()
         if verbose:
             print(f"\n\n----Working on width: {w}-----")
-        wu.calculate_new_width_for_neuron_obj(
+        calculate_new_width_for_neuron_obj(
             neuron_obj,
             width_name=w,
             verbose = verbose,
@@ -546,4 +546,3 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 
-from . import width_utils as wu

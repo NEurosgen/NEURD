@@ -293,7 +293,7 @@ def plot_histogram_discrete_labels(
     
     
     if labels is None:
-        labels = cona.cell_type_fine_labels_global
+        labels = cell_type_fine_labels_global
 
     if synapse_type == "postsyn":
         discrete_label = "presyn_gnn_cell_type_fine"
@@ -323,7 +323,7 @@ def plot_histogram_discrete_labels(
 
     for rd in restrictions_dicts:
         if rd is not None:
-            restr_df,name = cona.restrict_edge_df_by_types_compartment(
+            restr_df,name = restrict_edge_df_by_types_compartment(
                 edge_df,
                 verbose = False,
                 synapse_type = synapse_type,
@@ -497,4 +497,3 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import pandas_utils as pu
 
-from . import connectome_analysis_utils as cona
