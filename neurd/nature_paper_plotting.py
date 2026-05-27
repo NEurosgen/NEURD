@@ -1,6 +1,9 @@
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:  # pragma: no cover
+    sns = None
 from datasci_tools import matplotlib_utils as mu
 
 exc_inh_combination_palette = {
@@ -62,6 +65,7 @@ def plot_edit_labels_subset(
     return ax
 
 def example_kde_plot(spine_df):
+    from . import cell_type_utils as ctu
     figsize = (10,10)
 
     keep_classes_exc = ["5P-ET","5P-NP",]
@@ -126,7 +130,7 @@ def example_kde_plot(spine_df):
     
 
 def example_histogram_nice(spine_df):
-    
+    from . import cell_type_utils as ctu
 
     spine_df_ct_rename = ctu.rename_cell_type_fine_column(
         spine_df,
@@ -183,11 +187,6 @@ def example_histogram_nice(spine_df):
     mu.set_legend_fontsizes(ax,fontsize = 15)
 
 
-#--- from neurd_packages ---
-from . import cell_type_utils as ctu
-
 #--- from datasci_tools ---
 from datasci_tools import matplotlib_utils as mu
 from datasci_tools import pandas_utils as pu
-
-from . import nature_paper_plotting as npp

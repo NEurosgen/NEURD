@@ -8,7 +8,6 @@ How this list was easily generated
 
 
 '''
-import datajoint as dj
 import matplotlib.pyplot as plt
 import networkx as nx
 from scipy.spatial import Delaunay
@@ -483,8 +482,8 @@ def add_node_attributes_to_proofread_graph(
     
     if add_visual_area:
         soma_points = np.array([[k["centroid_x"],k["centroid_y"],k["centroid_z"]] for k in neuron_data])
-        visual_area_labels = mru.EM_coordinates_to_visual_areas(soma_points)
-        layer_labels = mru.EM_coordinates_to_layer(soma_points)
+        visual_area_labels = EM_coordinates_to_visual_areas(soma_points)
+        layer_labels = EM_coordinates_to_layer(soma_points)
         if debug:
             print(f"soma_points.shape = {soma_points.shape}")
             print(f"visual_area_labels.shape = {visual_area_labels.shape}")
@@ -503,7 +502,7 @@ def add_node_attributes_to_proofread_graph(
     return G
 
 def neuron_soma_layer_height(neuron_obj,soma_name="S0"):
-    return mru.coordinates_to_layer_height(neuron_obj["S0"].mesh_center)
+    return coordinates_to_layer_height(neuron_obj["S0"].mesh_center)
 
 voxel_to_nm_scaling = np.array([4,4,40])
 def em_voxels_to_nm(data):
@@ -514,13 +513,13 @@ def nm_to_em_voxels(data):
 
 def visual_area_from_em_centroid_xyz(row):
     soma_points = np.array([row["centroid_x"],row["centroid_y"],row["centroid_z"]])
-    visual_area_labels = mru.EM_coordinates_to_visual_areas(soma_points)[0]
+    visual_area_labels = EM_coordinates_to_visual_areas(soma_points)[0]
     return visual_area_labels
 
 
 def layer_from_em_centroid_xyz(row):
     soma_points = np.array([row["centroid_x"],row["centroid_y"],row["centroid_z"]])
-    layer_labels = mru.EM_coordinates_to_layer(soma_points)[0]
+    layer_labels = EM_coordinates_to_layer(soma_points)[0]
     return layer_labels
 
 
@@ -561,7 +560,7 @@ def soma_distances_from_microns_volume_bbox_midpoint(neuron_obj,
                                                     return_dict=False)
     """
     soma_names = neuron_obj.get_soma_node_names()
-    soma_distances = {k:mru.distance_from_microns_volume_bbox_midpoint(neuron_obj[k].mesh_center)
+    soma_distances = {k:distance_from_microns_volume_bbox_midpoint(neuron_obj[k].mesh_center)
                      for k in soma_names}
     
     if return_dict:
@@ -575,6 +574,7 @@ def em_alignment_data_raw(
     """
 
     """
+    import datajoint as dj
     m65em = dj.create_virtual_module('minnie_em', 'microns_minnie_em_v2')
     max_alignment = np.max(m65em.EM().fetch("alignment"))
     curr_em_table = m65em.EM() & dict(alignment = max_alignment)
@@ -696,4 +696,3 @@ from . import volume_utils
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 
-from . import microns_volume_utils as mru

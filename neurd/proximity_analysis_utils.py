@@ -1,10 +1,12 @@
 """Analysis helpers for proximity / synapse-conversion tables."""
 import time
 
-import datajoint as dj
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:  # pragma: no cover
+    sns = None
 from scipy.spatial import KDTree
 
 from datasci_tools import matplotlib_utils as mu
@@ -380,6 +382,7 @@ def pairwise_presyn_proximity_onto_postsyn(
 
     #2) Filter the table for only certain presyns (like functional matches)
     if presyn_table_restriction is not None:
+        import datajoint as dj
         prox_postsyn_table = prox_postsyn_table & (dj.U('segment_id','split_index') & presyn_table_restriction)
 
     if verbose:

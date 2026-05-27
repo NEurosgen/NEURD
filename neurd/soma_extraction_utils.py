@@ -1,5 +1,4 @@
 from copy import deepcopy
-import datajoint as dj
 import os
 from pathlib import Path
 from scipy.spatial import KDTree
