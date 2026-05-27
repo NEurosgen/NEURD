@@ -1,9 +1,18 @@
+import copy
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from datasci_tools import data_struct_utils as dsu
+from datasci_tools import general_utils as gu
+from datasci_tools import json_utils as jsu
+from datasci_tools import module_utils as modu
+from datasci_tools import numpy_utils as nu
+from datasci_tools import package_utils as pku
+from datasci_tools import pandas_utils as pu
+from datasci_tools import pathlib_utils as plu
 
 
 modes_default = (
@@ -24,7 +33,7 @@ suffixes_to_ignore_default = (
 #---- code used to read in legacy parameters stored inside module into their own json file ----
 
 
-def injest_nested_dict(
+def _injest_nested_dict(
     data,
     filter_away_suffixes = True,
     suffixes_to_ignore = None,
@@ -55,34 +64,19 @@ class Parameters:
             
         if data is None:
             data = jsu.json_to_dict(filepath)
-        self._dict = injest_nested_dict(data,**kwargs)
+        self._dict = _injest_nested_dict(data,**kwargs)
         
     def json_dict(self):
-        return jsonable_dict(self._dict)
-    
-    # def __getattr__(self,k):
-    #     if k[:2] == "__":
-    #         raise AttributeError(k)
-    #     try:
-    #         return self._dict[k]
-    #     except:
-    #         return getattr(self._dict,k)
-        
-    # def __setattr__(self,k,v):
-    #     print(f"inside setattr small param")
-    #     if k in self._dict:
-    #         self._dict[k] = v
-    #     else:
-    #         self.__dict__[k] = v
-            
+        return _jsonable_dict(self._dict)
+
     def __getattr__(self,k):
-        if k[:2] == "__" or k == "_dict":
+        if k.startswith("__") or k == "_dict":
             raise AttributeError(k)
         try:
             return self._dict[k]
-        except:
+        except KeyError:
             return getattr(self._dict,k)
-        
+
     def __setattr__(self,k,v):
         if hasattr(self,"_dict") and k in self._dict:
             self._dict[k] = v
@@ -110,9 +104,9 @@ class Parameters:
     def __str__(self):
         try:
             return str(jsu.dict_to_json(self._dict))
-        except:
+        except (TypeError, ValueError):
             return str(self._dict)
-    
+
     def attr_map(
         self,
         attr_list=None,
@@ -178,7 +172,6 @@ class Parameters:
         
         return return_value
     
-import copy
 class PackageParameters:
     def __init__(
         self,
@@ -267,13 +260,13 @@ class PackageParameters:
                 self._data.update({k:Parameters(other_obj[k])})
             
     def __getattr__(self,k):
-        if k[:2] == "__" or k == "_data":
+        if k.startswith("__") or k == "_data":
             raise AttributeError(k)
         try:
             return self._data[k]
-        except:
+        except KeyError:
             return getattr(self._data,k)
-        
+
     def __setattr__(self,k,v):
         if hasattr(self,"_data") and k in self._data:
             self._data[k] = v
@@ -326,13 +319,13 @@ def parameter_list_from_module(
     return params_to_request   
         
 
-def jsonable_dict(data):
+def _jsonable_dict(data):
     if isinstance(data,dsu.DictType):
         data = data.asdict()
     return {k:v for k,v in data.items()
             if jsu.is_jsonable(v)}
 
-def clean_modules_dict(data):
+def _clean_modules_dict(data):
     """For each leaf category dict, drop non-JSON-serialisable entries.
 
     Expected shape: ``{module: {att_type: {category: {param: value, ...}}}}``.
@@ -340,10 +333,10 @@ def clean_modules_dict(data):
     for module_dict in data.values():
         for att_dict in module_dict.values():
             for cat, cat_dict in att_dict.items():
-                att_dict[cat] = jsonable_dict(cat_dict)
+                att_dict[cat] = _jsonable_dict(cat_dict)
     return data
 
-def add_global_name_to_dict(mydict):
+def _add_global_name_to_dict(mydict):
     return {f"{k}_global":v for k,v in 
         mydict.items() 
     }
@@ -389,7 +382,7 @@ def modes_global_param_and_attributes_dict_from_module(
             att_param_name = f"{att_type}_dict_{mode}"
 
             att_dicts = [k for k in dir(module)
-                                  if k[:len(att_param_name)] == att_param_name]
+                                  if k.startswith(att_param_name)]
             
             #print(f"att_param_name = {att_param_name}")
             #print(f"att_dicts = {att_dicts}")
@@ -426,20 +419,15 @@ def modes_global_param_and_attributes_dict_from_module(
                 
                 if add_global_suffix and att_type == 'global_parameters':
                     for cat_name in local_dict:
-                        local_dict[cat_name] = add_global_name_to_dict(local_dict[cat_name])
+                        local_dict[cat_name] = _add_global_name_to_dict(local_dict[cat_name])
                         
                 #print(f"\n\nlocal_dict[default_name] AFTER= {local_dict}")
                 
             elif len(att_dicts) == 1:
-                cat_name = default_name
-                local_dict[cat_name] = getattr(module,att_dicts[0])
-                
+                val = getattr(module, att_dicts[0])
                 if add_global_suffix and att_type == 'global_parameters':
-                    local_dict[cat_name] = add_global_name_to_dict(getattr(module,att_dicts[0]))
-                else:
-                    local_dict[cat_name] = getattr(module,att_dicts[0])
-            else:
-                pass
+                    val = _add_global_name_to_dict(val)
+                local_dict[default_name] = val
 
 
             if len(local_dict) > 0:
@@ -447,7 +435,7 @@ def modes_global_param_and_attributes_dict_from_module(
 
         if len(mode_dict[mod_name]) > 0:
             if clean_dict:
-                mode_dict = clean_modules_dict(mode_dict)
+                mode_dict = _clean_modules_dict(mode_dict)
             mode_jsons[mode] = mode_dict
             
     return mode_jsons
@@ -526,7 +514,7 @@ def global_param_and_attributes_dict_to_separate_mode_jsons(
         else:
             new_name = saved_name
 
-        if new_name[-5:] != ".json":
+        if not new_name.endswith(".json"):
             new_name = f"{new_name}.json"
 
         mode_dict = data[mode]
@@ -594,7 +582,7 @@ def parameters_from_filepath(
     return return_value
 
 
-def parameter_dict_from_module_and_obj(
+def _parameter_dict_from_module_and_obj(
     module,
     obj,
     parameters_obj_name = "parameters_obj",
@@ -662,16 +650,9 @@ def parameter_dict_from_module_and_obj(
 
     return param_dict
 
-def this_directory():
+def _this_directory():
     return str(Path(__file__).parents[0].absolute())
 
-config_directory_name = "parameter_configs"
-def config_directory():
-    return str((
-        Path(__file__).parents[0] / 
-        config_directory_name
-        ).absolute())
-    
 
 def set_parameters_for_directory_modules_from_obj(
     obj,
@@ -700,7 +681,7 @@ def set_parameters_for_directory_modules_from_obj(
     """
     
     if directory is None:
-        directory = this_directory()
+        directory = _this_directory()
 
     if modules is None:
         p = Path(directory)
@@ -727,7 +708,7 @@ def set_parameters_for_directory_modules_from_obj(
                 continue
 
             module = eval(k)
-            p_dict = paru.parameter_dict_from_module_and_obj(
+            p_dict = paru._parameter_dict_from_module_and_obj(
                 module = module,
                 obj = obj,
                 parameters_obj_name = parameters_obj_name,
@@ -808,7 +789,7 @@ def category_param_from_module(
         if category in v:
             curr_dict = v[category]
             if k == "global_parameters":
-                curr_dict = add_global_name_to_dict(
+                curr_dict = _add_global_name_to_dict(
                     curr_dict
                 )
             output_dict.update(curr_dict)
@@ -866,18 +847,6 @@ def export_csv(
     )
     
 
-
-
-
-#--- from python-tools
-from datasci_tools import package_utils as pku
-from datasci_tools import module_utils as modu
-from datasci_tools import data_struct_utils as dsu
-from datasci_tools import json_utils as jsu
-from datasci_tools import numpy_utils as nu
-from datasci_tools import general_utils as gu
-from datasci_tools import pathlib_utils as plu
-from datasci_tools import pandas_utils as pu
 
 
 

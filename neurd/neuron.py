@@ -3,7 +3,7 @@ import copy
 from copy import deepcopy as dc
 import networkx as nx
 from pathlib import Path
-from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
 import sys
 import time
 from datasci_tools import numpy_dep as np

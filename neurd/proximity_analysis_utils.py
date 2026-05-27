@@ -1,15 +1,23 @@
+"""Analysis helpers for proximity / synapse-conversion tables."""
+import time
 
 import datajoint as dj
 import matplotlib.pyplot as plt
 import pandas as pd
-from pykdtree.kdtree import KDTree
 import seaborn as sns
-import time
-from datasci_tools import numpy_dep as np
+from scipy.spatial import KDTree
 
-from datasci_tools import module_utils as modu
-from . import microns_volume_utils as mvu
+from datasci_tools import matplotlib_utils as mu
+from datasci_tools import networkx_utils as xu
+from datasci_tools import numpy_dep as np
+from datasci_tools import numpy_utils as nu
+from datasci_tools import pandas_utils as pu
+from datasci_tools.tqdm_utils import tqdm
+from neuron_morphology_tools import neuron_nx_utils as nxu
+
 from . import h01_volume_utils as hvu
+from . import microns_volume_utils as mvu
+from . import nature_paper_plotting as npp
 
 
 def conversion_rate_by_attribute_and_cell_type_pairs(
@@ -142,7 +150,7 @@ def example_basal_conversion_rate(df=None,**kwargs):
     apical_labels = ["apical_shaft","apical_tuft","apical","oblique","axon"]
 
     
-    pxa.conversion_rate_by_attribute_and_cell_type_pairs(
+    conversion_rate_by_attribute_and_cell_type_pairs(
         df = prox_ct_table.query(f"postsyn_compartment not in {apical_labels}"),
         attribute_n_intervals = 20,
         verbose = True,
@@ -536,7 +544,7 @@ def example_pairwise_postsyn_analysis():
     for segment_id,split_index in zip(curr_df["segment_id"].to_numpy(),
                                      curr_df["split_index"].to_numpy()):
         print(f"\n\n\n----- Working on {segment_id}_{split_index}")
-        pxa.pairwis_df = pairwise_presyn_proximity_onto_postsyn(
+        pairwise_df = pairwise_presyn_proximity_onto_postsyn(
             segment_id,
             split_index,
             plot_postsyn = False,
@@ -956,24 +964,3 @@ global_parameters_dict_h01 = dict()
 #         **kwargs,
 #         )
 
-#--- from neuron_morphology_tools ---
-
-
-#--- from neurd_packages ---
-from . import h01_volume_utils as hvu
-from . import microns_volume_utils as mvu
-from . import nature_paper_plotting as npp
-
-#--- from neuron_morphology_tools ---
-from neuron_morphology_tools import neuron_nx_utils as nxu
-
-#--- from datasci_tools ---
-from datasci_tools import matplotlib_utils as mu
-from datasci_tools import module_utils as modu 
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
-from datasci_tools import numpy_utils as nu
-from datasci_tools import pandas_utils as pu
-from datasci_tools.tqdm_utils import tqdm
-
-from . import proximity_analysis_utils as pxa

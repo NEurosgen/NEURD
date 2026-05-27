@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from meshparty import trimesh_io
 
 import networkx as nx
-from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
 import time
 import trimesh
 from datasci_tools import numpy_dep as np

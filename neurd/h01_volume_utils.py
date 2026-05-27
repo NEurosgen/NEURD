@@ -567,9 +567,14 @@ data_interface = DataInterface(
 
 #--- from neurd_packages ---
 from . import microns_volume_utils as mvu
-from . import neuron_visualizations as nviz
 from . import synapse_utils as syu
 from . import volume_utils
+
+# Note: `from . import neuron_visualizations as nviz` was removed — `nviz` was
+# only referenced inside docstrings (examples) and dead post-`return` code.
+# The unused import also pulled in `mesh_tools.skeleton_utils → meshparty →
+# cloudvolume`, which fails on Python 3.8 (PEP 585 syntax) and forced every
+# importer of `hvu` to depend on the full mesh stack.
 
 #--- from mesh_tools ---
 from mesh_tools import trimesh_utils as tu
