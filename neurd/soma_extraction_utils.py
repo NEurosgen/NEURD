@@ -67,9 +67,10 @@ def side_length_check(current_mesh,side_length_ratio_threshold=3):
 
 
 def largest_mesh_piece(msh):
-    mesh_splits_inner = msh.split(only_watertight=False)
+    mesh_splits_inner = list(msh.split(only_watertight=False))
     total_mesh_split_lengths_inner = [len(k.faces) for k in mesh_splits_inner]
-    ordered_mesh_splits_inner = mesh_splits_inner[np.flip(np.argsort(total_mesh_split_lengths_inner))]
+    sort_idx = np.flip(np.argsort(total_mesh_split_lengths_inner)).tolist()
+    ordered_mesh_splits_inner = [mesh_splits_inner[i] for i in sort_idx]
     return ordered_mesh_splits_inner[0]
 
 def soma_volume_ratio(current_mesh,
@@ -992,14 +993,15 @@ def extract_soma_center(
 
     #preforming the splits of the decimated mesh
 
-    mesh_splits = new_mesh.split(only_watertight=False)
+    mesh_splits = list(new_mesh.split(only_watertight=False))
 
     #get the largest mesh
     mesh_lengths = np.array([len(split.faces) for split in mesh_splits])
 
 
     total_mesh_split_lengths = [len(k.faces) for k in mesh_splits]
-    ordered_mesh_splits = mesh_splits[np.flip(np.argsort(total_mesh_split_lengths))]
+    sort_idx = np.flip(np.argsort(total_mesh_split_lengths)).tolist()
+    ordered_mesh_splits = [mesh_splits[i] for i in sort_idx]
     list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > large_mesh_threshold]
 
     print(f"Total found significant pieces before Poisson = {list_of_largest_mesh}")
@@ -1117,10 +1119,11 @@ def extract_soma_center(
 
 
             #splitting the Poisson into the largest pieces and ordering them
-            mesh_splits_inner = new_mesh_inner.split(only_watertight=False)
+            mesh_splits_inner = list(new_mesh_inner.split(only_watertight=False))
             if len(mesh_splits_inner) > 0:
                 total_mesh_split_lengths_inner = [len(k.faces) for k in mesh_splits_inner]
-                ordered_mesh_splits_inner = mesh_splits_inner[np.flip(np.argsort(total_mesh_split_lengths_inner))]
+                sort_idx_inner = np.flip(np.argsort(total_mesh_split_lengths_inner)).tolist()
+                ordered_mesh_splits_inner = [mesh_splits_inner[i] for i in sort_idx_inner]
 
                 list_of_largest_mesh_inner = [k for k in ordered_mesh_splits_inner if len(k.faces) > large_mesh_threshold_inner]
             else:
