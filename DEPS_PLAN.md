@@ -128,14 +128,15 @@ mesh_processing_tools    neuron_morphology_tools    code_structure_tools
 Эти баги обнаружены, но **не введены** рефакторингом — присутствовали до
 ветки. Документируем для будущих сессий.
 
-| ID | Где | Симптом | Причина |
-|---|---|---|---|
-| **PRE-1** | `neuron_searching.py:2306` | `NameError: 'fcu' is not defined` при `from neurd import spine_utils` на свежем интерпретаторе | `fcu = function_utils` импортируется на строке 2370 (ниже использования на 2306). Use-before-import. Работает только если что-то другое уже импортировало этот модуль до конца. Исправление: перенести `from datasci_tools import function_utils as fcu` в шапку модуля. **Без фикса ядро не импортируется чисто.** |
-| **PRE-2** | `datasci_tools/dj_utils.py:13` (upstream) | `TypeError: 'ModuleNotFoundError' object is not callable` когда `datajoint` не установлен | `raise e("Datajoint must be installed...")` — `e` это caught instance, не класс. Upstream-баг. Обходим тем, что не импортируем broken chain. |
+| ID | Где | Симптом | Причина | Статус |
+|---|---|---|---|---|
+| **PRE-1** | `neuron_searching.py:2306` | `NameError: 'fcu' is not defined` при `from neurd import spine_utils` на свежем интерпретаторе | `fcu = function_utils` импортировался на строке 2370 (ниже использования на 2306). Use-before-import. | ✅ Исправлено (Шаг A) — импорт поднят в шапку модуля. |
+| **PRE-2** | `datasci_tools/dj_utils.py:13` (upstream) | `TypeError: 'ModuleNotFoundError' object is not callable` когда `datajoint` не установлен | `raise e("Datajoint must be installed...")` — `e` это caught instance, не класс. Upstream-баг. | ✅ Обойдён — `dj_utils` лениво импортируется в `spine_utils.py` только в `dj`-ветках. Сам upstream-баг остаётся. |
+| **PRE-3** | `datasci_tools/dotmotif_utils.py:73` (upstream) | `TypeError: 'ModuleNotFoundError' object is not callable` когда `dotmotif` не установлен | Тот же паттерн `raise e(...)`. Вскрылся после фикса PRE-1. | ✅ Обойдён — `dotmotif_utils` лениво импортируется в `graph_filters.py` внутри `graph_filter_adapter`. |
 
-**PRE-1 — главный блокер** для дальнейшего расцепления core. Пока ядро не
-импортируется на голой системе, нельзя написать smoke-тесты на ядро, а без
-них нельзя трогать core clump.
+**PRE-1 был главным блокером** для расцепления core. Теперь ядро импортируется
+на голой системе (без `datajoint`/`dotmotif`/`caveclient`) — путь к smoke-тестам
+ядра открыт.
 
 ---
 
@@ -154,26 +155,46 @@ mesh_processing_tools    neuron_morphology_tools    code_structure_tools
 
 ## 6. Что осталось сделать
 
-### Шаг A — починить PRE-1 (низкий риск, высокая ценность)
-В `neuron_searching.py` поднять `from datasci_tools import function_utils as fcu`
-с строки 2370 в шапку модуля. Это разблокирует import `spine_utils`,
-`branch_utils` и большей части core clump на свежем интерпретаторе. Smoke-тест:
-`python -c "import neurd; from neurd import spine_utils"` → без traceback.
+### Шаг A — починить PRE-1 (низкий риск, высокая ценность) ✅
+В `neuron_searching.py` `from datasci_tools import function_utils as fcu` поднят
+со строки 2370 в шапку модуля. Smoke-тест
+`python -c "import neurd; from neurd import spine_utils"` → `OK`, без traceback.
 
-**Стоимость:** 10 минут. **Польза:** открывает дорогу к smoke-тестам ядра.
+Фикс PRE-1 вскрыл ещё два upstream `raise e(...)`-бага в той же цепочке импорта
+(PRE-2 `dj_utils`, PRE-3 `dotmotif_utils`), раньше замаскированных падением на `fcu`.
+Обойдены ленивыми импортами в местах единственного использования:
+- `graph_filters.py`: `dotmotif_utils as dmu` → внутрь `graph_filter_adapter` (~336).
+- `spine_utils.py`: `dj_utils as dju` → в обе ветки `if table_type == "dj":` (174, 186).
+
+После всех трёх: `pytest tests/unit/` → 62 passed, 1 skipped (было 2 skipped — один
+guard на доступность `datasci_tools` теперь проходит, т.к. ядро импортируется чисто).
+
+**Польза:** открыта дорога к smoke-тестам ядра — теперь можно браться за Шаг C/D.
+
+**Core smoke-тесты добавлены** (`tests/unit/test_core_imports.py`): параметризованный
+импорт всех 17 модулей core clump + `graph_filters`, плюс точечная проверка PRE-1
+(`neuron_searching.fcu` на module level). 19 тестов — регресс-гард на голой системе.
+`pytest tests/unit/` → 81 passed, 1 skipped.
 
 ### Шаг B — точечные удаления non-segmentation ✅
 `cave_client_utils.py`, `vdi_microns_cave.py`, `nature_paper_plotting.py` удалены.
 Lazy-импорт `nature_paper_plotting` в `spine_utils.py:6692` был уже закомментирован.
 `cave_client_utils` упомянут в docstring `vdi_default.py:398` — безопасно, не импорт.
 
-### Шаг C — расцепить cell_type_utils от ядра (средний риск)
-7 импортёров. Подход:
-1. Идентифицировать что конкретно ядро вызывает из `cell_type_utils`
-   (`grep -n "ctu\\." neurd/proofreading_utils.py neurd/spine_utils.py
-   neurd/neuron_pipeline_utils.py`).
-2. Если поверхность маленькая — заменить inline или lazy-импорт.
-3. Если большая — оставить как есть, идти в Шаг D.
+### Шаг C — расцепить cell_type_utils от ядра ⏸️ ОТЛОЖЕНО (переоценено 2026-05-28)
+Анализ показал, что план был основан на неверной предпосылке («7 импортёров»):
+- Реальных внешних импортёров **3**: `proofreading_utils`, `neuron_pipeline_utils`,
+  `spine_utils`. Поверхность — 6 call-sites, 2 различные сущности.
+- `cell_type_utils` тянет только лёгкое (matplotlib/pandas/sklearn) → **не блокер
+  импорта**. Lazy-import ничего не разблокирует.
+- `spine_utils` (3 места) — лишь `hue_order` в plotting-функции (косметика).
+- `proofreading_utils`/`neuron_pipeline_utils` — `e_i_classification_from_neuron_obj`
+  как **шаг конвейера**, чей результат питает классификацию аксона
+  (`inh_exc_class_to_use_for_axon`). Это настоящая связанность, а не «анализ сбоку».
+
+**Вывод:** удалять нельзя без изменения поведения pipeline; lazy-import не даёт пользы.
+Откладываем до тех пор, пока не появятся core smoke-тесты и не будет решено, выносить
+ли E/I-классификацию из конвейера осознанно.
 
 ### Шаг D — Phase 5: `Parameters` → pydantic (большая работа)
 - `parameter_utils.Parameters/PackageParameters` → `pydantic.BaseModel`.
@@ -205,6 +226,6 @@ Lazy-импорт `nature_paper_plotting` в `spine_utils.py:6692` был уже
 | Self-imports вне core | ~45 | **0** |
 | Self-imports в core clump | 20 | 17 (часть удалена с модулями) |
 | `celiib/mesh_tools:v4` Docker dep | ✅ обязательна | **❌ удалена** |
-| Локальный `pytest tests/unit/` | ❌ skip-all | **✅ 62 passed, 2 skipped** |
+| Локальный `pytest tests/unit/` | ❌ skip-all | **✅ 81 passed, 1 skipped** (вкл. 19 core-import smoke) |
 | Файлов в `neurd/*.py` | ~60 | **44** |
 | Прикладного кода удалено | — | **~16k LOC** |
