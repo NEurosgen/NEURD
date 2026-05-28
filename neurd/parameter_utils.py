@@ -1,6 +1,7 @@
 import copy
 import importlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -9,12 +10,36 @@ import pandas as pd
 
 from datasci_tools import data_struct_utils as dsu
 from datasci_tools import general_utils as gu
-from datasci_tools import json_utils as jsu
 from datasci_tools import module_utils as modu
 from datasci_tools import numpy_utils as nu
 from datasci_tools import package_utils as pku
 from datasci_tools import pandas_utils as pu
 from datasci_tools import pathlib_utils as plu
+
+_json_indent_default = 4
+
+
+def _json_to_dict(filepath):
+    with open(filepath) as f:
+        return json.load(f)
+
+
+def _is_jsonable(x):
+    try:
+        json.dumps(x)
+        return True
+    except (TypeError, OverflowError):
+        return False
+
+
+def _dict_to_json_file(data, filepath, indent=None):
+    filepath = str(Path(filepath).absolute())
+    if indent is None:
+        indent = _json_indent_default
+    if not filepath.endswith(".json"):
+        filepath += ".json"
+    with open(filepath, "w") as outfile:
+        json.dump(data, outfile, indent=indent)
 
 
 modes_default = (
@@ -64,7 +89,7 @@ class Parameters:
             data = data._dict.copy()
             
         if data is None:
-            data = jsu.json_to_dict(filepath)
+            data = _json_to_dict(filepath)
         self._dict = _injest_nested_dict(data,**kwargs)
         
     def json_dict(self):
@@ -104,7 +129,7 @@ class Parameters:
         
     def __str__(self):
         try:
-            return str(jsu.dict_to_json(self._dict))
+            return str(json.dumps(self._dict, indent=_json_indent_default))
         except (TypeError, ValueError):
             return str(self._dict)
 
@@ -190,7 +215,7 @@ class PackageParameters:
             if filepath is None:
                 data = {}
             else:
-                data = jsu.json_to_dict(filepath)
+                data = _json_to_dict(filepath)
 
         self._data = {mod_name: Parameters(mod_data)
                       for mod_name, mod_data in data.items()}
@@ -324,7 +349,7 @@ def _jsonable_dict(data):
     if isinstance(data,dsu.DictType):
         data = data.asdict()
     return {k:v for k,v in data.items()
-            if jsu.is_jsonable(v)}
+            if _is_jsonable(v)}
 
 def _clean_modules_dict(data):
     """For each leaf category dict, drop non-JSON-serialisable entries.
@@ -526,7 +551,7 @@ def global_param_and_attributes_dict_to_separate_mode_jsons(
         if verbose:
             print(f"Writing mode = {mode} to:\n   {str(total_path.absolute())}")
 
-        jsu.dict_to_json_file(
+        _dict_to_json_file(
             data = mode_dict,
             filepath = total_path,
             indent = indent,
