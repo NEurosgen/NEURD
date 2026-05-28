@@ -19,6 +19,7 @@ import networkx as nx
 import pandas as pd
 import re
 import sys
+from datasci_tools import function_utils as fcu
 from datasci_tools import numpy_dep as np
 
 comparison_distance_global = 1000
@@ -2367,7 +2368,6 @@ from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import function_utils as fcu
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu

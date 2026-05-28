@@ -332,7 +332,8 @@ def graph_filter_adapter(G,
     the function to get a true false
     4) If it is yes, then maybe run the upstream pair singular
 
-    """    
+    """
+    from datasci_tools import dotmotif_utils as dmu
     motif_matches = dmu.graph_matches(G,motif)
     
     if len(motif_matches) == 0:
@@ -1257,7 +1258,6 @@ min_double_back_threshold = ed.double_back_threshold_axon_thin
 min_double_back_threshold_inh = ed.double_back_threshold_axon_thick_inh
 
 #--- from datasci_tools ---
-from datasci_tools import dotmotif_utils as dmu
 from datasci_tools import general_utils as gu
 from datasci_tools import module_utils as modu
 from datasci_tools import networkx_utils as xu
