@@ -8,7 +8,24 @@ if not hasattr(_np, 'int_'):
     _np.int_ = _np.int64
 if not hasattr(_np, 'complex_'):
     _np.complex_ = _np.complex128
+# np.in1d was removed in numpy 2 (use np.isin). Restore on the numpy module so
+# direct `np.in1d` calls resolve to the isin replacement.
+if not hasattr(_np, 'in1d'):
+    _np.in1d = _np.isin
 del _np
+
+# datasci_tools.numpy_dep does `from numpy import *`, which in numpy 2 does NOT
+# bind `in1d` (removed from numpy.__all__), so setting it on the numpy module alone
+# is not enough. Set it directly on numpy_dep so callers like
+# numpy_utils.intersect_indices (uses ndep.in1d) work.
+try:
+    import numpy as _np_in1d
+    from datasci_tools import numpy_dep as _ndep_in1d
+    if not hasattr(_ndep_in1d, 'in1d'):
+        _ndep_in1d.in1d = _np_in1d.isin
+    del _np_in1d, _ndep_in1d
+except Exception:
+    pass
 
 # Stub optional visualization / cloud deps so that modules which do top-level
 # `import ipyvolume` / submodule imports (e.g. `from ipyvolume.moviemaker import
@@ -39,22 +56,162 @@ class _StubLoader(_Loader):
 class _StubFinder(_MPF):
     def find_spec(self, fullname, path, target=None):
         root = fullname.split('.', 1)[0]
-        if root in _STUBBED_ROOTS:
-            # Only stub if the real package is genuinely missing.
-            real = _ilutil.find_spec(root) if fullname == root else None
-            if fullname == root and real is not None and not isinstance(
-                _sys.modules.get(root), _StubModule
-            ):
-                return None
-            return _ilutil.spec_from_loader(fullname, _StubLoader(), is_package=True)
-        return None
+        if root not in _STUBBED_ROOTS:
+            return None
+        import importlib.util as _ilu_local
+        import importlib.machinery as _ilm_local
+        # Prefer the real package if it is actually installed. Use PathFinder (the
+        # sys.path-based finder) rather than importlib.util.find_spec, which would
+        # re-invoke meta_path — including this finder — and recurse.
+        if fullname == root and _ilm_local.PathFinder.find_spec(root) is not None:
+            return None
+        return _ilu_local.spec_from_loader(fullname, _StubLoader(), is_package=True)
 
 _sys.meta_path.append(_StubFinder())
 del _sys, _ilutil, _Loader, _MPF, _ModuleType
 
+# Register a pure-Python stand-in for the compiled CGAL extension
+# `cgal_Segmentation_Module` BEFORE mesh_tools.trimesh_utils is imported (it does
+# `import cgal_Segmentation_Module as csm` at module load). The original was built
+# inside the removed Docker image; the stub keeps the segmentation pipeline runnable
+# on a plain env. A genuinely installed extension wins (we only register if absent).
+import sys as _sys2
+import importlib.util as _ilu2
+if _ilu2.find_spec('cgal_Segmentation_Module') is None and \
+        'cgal_Segmentation_Module' not in _sys2.modules:
+    from . import _cgal_segmentation as _cgal_seg_stub
+    _sys2.modules['cgal_Segmentation_Module'] = _cgal_seg_stub
+    del _cgal_seg_stub
+del _ilu2, _sys2
+
+# The reimerlab dotmotif fork eagerly imports its Neo4jExecutor at `import dotmotif`,
+# which drags in heavy Neo4j-only deps (py2neo, tamarind, dask) that NEURD never uses —
+# its graph filters run on the NetworkX executor. Pre-register a stub Neo4jExecutor
+# module so dotmotif's `from .Neo4jExecutor import Neo4jExecutor` resolves to the stub and
+# skips that whole import chain. (Also sidesteps the upstream `raise e(...)` bug in
+# datasci_tools.dotmotif_utils that fires on the resulting ImportError.)
+import sys as _sys3
+from types import ModuleType as _MT3
+if 'dotmotif.executors.Neo4jExecutor' not in _sys3.modules:
+    _neo4j_stub = _MT3('dotmotif.executors.Neo4jExecutor')
+    _neo4j_stub.Neo4jExecutor = type('Neo4jExecutor', (object,), {})
+    _sys3.modules['dotmotif.executors.Neo4jExecutor'] = _neo4j_stub
+    del _neo4j_stub
+del _sys3, _MT3
+
 from pathlib import Path
 
 from datasci_tools import module_utils as modu
+
+# mesh_tools.meshlab.Poisson.initialize_script_filters() returns the Screened Poisson
+# parameters WITHOUT 'type' keys, so Scripter writes <xmlfilter>/<xmlparam> XML format
+# which MeshLabServer 2020.09 silently ignores (it only parses <filter>/<Param>).
+# Fix: replace with a version that has RichXxx type info so Scripter emits the correct
+# <filter>/<Param> format. Values are identical to the originals.
+try:
+    from mesh_tools.meshlab import Poisson as _Poisson
+
+    @classmethod  # type: ignore[misc]
+    def _poisson_script_filters_fixed(cls):
+        return {
+            'Remove Duplicate Vertices': {},
+            'Smooths normals on a point sets': {
+                'K': dict(type='RichInt', value='10'),
+                'useDist': dict(type='RichBool', value='false'),
+            },
+            'Surface Reconstruction: Screened Poisson': {
+                'cgDepth':       dict(type='RichInt',   value='0'),
+                'confidence':    dict(type='RichBool',  value='false'),
+                'depth':         dict(type='RichInt',   value='11'),
+                'fullDepth':     dict(type='RichInt',   value='6'),
+                'iters':         dict(type='RichInt',   value='8'),
+                'pointWeight':   dict(type='RichFloat', value='4'),
+                'preClean':      dict(type='RichBool',  value='false'),
+                'samplesPerNode':dict(type='RichFloat', value='1.5'),
+                'scale':         dict(type='RichFloat', value='1.1'),
+                'visibleLayer':  dict(type='RichBool',  value='false'),
+            },
+            'Remove Duplicate Vertices': {},
+            'Delete Current Mesh': {},
+        }
+
+    _Poisson.initialize_script_filters = _poisson_script_filters_fixed
+    del _Poisson, _poisson_script_filters_fixed
+except Exception:
+    pass
+
+# MeshLabServer 2020.09 OFF-exporter bug: after a vertex-deleting filter (e.g. the
+# interior-removal chain in remove_mesh_interior), it writes the compacted vertex
+# block (only surviving vertices) but leaves the face indices in the ORIGINAL
+# numbering. trimesh then reads a self-inconsistent mesh (faces index past the
+# vertex array) which later crashes in vertex_faces / split_by_vertices with
+# "axis 0 index N exceeds matrix dimension M". The surviving vertices are written
+# in ascending original-index order and are exactly the referenced set, so we can
+# renumber the faces self-contained: map each original index to its position in
+# sorted(unique(faces)). Self-guarding: only triggers when faces reference beyond
+# the vertex count, so well-formed output (incl. vertex-ADDING filters like Poisson)
+# is returned untouched.
+try:
+    import numpy as _np_ml
+    import trimesh as _trimesh_ml
+    from mesh_tools import trimesh_utils as _tu_ml
+    from mesh_tools.meshlab import Meshlab as _Meshlab
+
+    def _fetch_mesh_from_off_repaired(mesh_path):
+        _mesh_obj = Path(mesh_path).absolute()
+        if not _mesh_obj.exists():
+            raise FileNotFoundError('Mesh file missing')
+        if _mesh_obj.suffix != '.off':
+            raise TypeError('mesh path must be to an .off file')
+        _mesh = _tu_ml.load_mesh_no_processing(_mesh_obj)
+        _faces = _np_ml.asarray(_mesh.faces)
+        if len(_faces) and _faces.max() >= len(_mesh.vertices):
+            _uniq = _np_ml.unique(_faces)
+            if len(_uniq) == len(_mesh.vertices):
+                _new_faces = _np_ml.searchsorted(_uniq, _faces)
+                _mesh = _trimesh_ml.Trimesh(
+                    vertices=_np_ml.asarray(_mesh.vertices),
+                    faces=_new_faces,
+                    process=False,
+                )
+        return _mesh
+
+    _Meshlab.fetch_mesh_from_off = staticmethod(_fetch_mesh_from_off_repaired)
+    del _Meshlab, _fetch_mesh_from_off_repaired
+except Exception:
+    pass
+
+# Newer pykdtree strictly requires 2D data_pts, but upstream mesh_tools.skeleton_utils
+# builds KDTrees from 1D cumulative skeletal-distance arrays (e.g. in
+# coordinates_from_downstream_dist) -> "data_pts array should have exactly 2 dimensions".
+# Wrap skeleton_utils.KDTree so 1D inputs are reshaped to (N,1); 2D inputs pass through
+# unchanged, so all other (vertex-array) KDTree uses behave identically.
+try:
+    import numpy as _np_kd
+    from mesh_tools import skeleton_utils as _sku
+    _BaseKDTree_sk = _sku.KDTree
+
+    class _KDTree2DTolerant:
+        def __init__(self, data, *a, **k):
+            data = _np_kd.asarray(data)
+            self._ndim1 = data.ndim == 1
+            if self._ndim1:
+                data = _np_kd.ascontiguousarray(data.reshape(-1, 1), dtype=_np_kd.float64)
+            self._tree = _BaseKDTree_sk(data, *a, **k)
+
+        def query(self, pts, *a, **k):
+            pts = _np_kd.asarray(pts)
+            if self._ndim1 and pts.ndim == 1:
+                pts = _np_kd.ascontiguousarray(pts.reshape(-1, 1), dtype=_np_kd.float64)
+            return self._tree.query(pts, *a, **k)
+
+        def __getattr__(self, name):
+            return getattr(self._tree, name)
+
+    _sku.KDTree = _KDTree2DTolerant
+    del _sku
+except Exception:
+    pass
 
 from .version import __version__
 

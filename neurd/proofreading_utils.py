@@ -1136,7 +1136,15 @@ def multi_soma_split_suggestions(
                     if verbose:
                         print("***** there was no suggested cut for this limb even though it is still connnected***")
 
-                    
+                    # Degenerate soma-soma path: both somas attach to this limb at the
+                    # same starting node, so there is no within-limb edge between them to
+                    # cut (shortest_path returns a single node). Forming a default edge
+                    # would index soma_to_soma_path[-2]/[1] out of bounds. Skip this pair.
+                    if len(soma_to_soma_path) < 2:
+                        if verbose:
+                            print("--> somas share a starting node (path length < 2); no edge to cut, skipping")
+                        break
+
                     if default_cut_edge is not None:
                         if verbose:
                             print(f"--> So Setting the default_cut_edge to {default_cut_edge}")
