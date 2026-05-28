@@ -6688,9 +6688,9 @@ def plot_connetion_type_head_vs_spine_size_by_conn_type_kde(
     if ax is None:
         fig,ax = plt.subplots(1,1,figsize = figsize)
         
-    if palette is None:
-        from neurd import nature_paper_plotting as npp
-        palette = npp.exc_inh_combination_palette
+    # if palette is None:
+    #     from neurd import nature_paper_plotting as npp
+    #     palette = npp.exc_inh_combination_palette
     
     if hue_options is not None:
         edge_df_sp_filt_head = edge_df_sp_filt_head.query(f"{hue} in {nu.to_list(hue_options)}")
