@@ -35,7 +35,6 @@ apu.apical_classification(neuron_obj,
 '''
 import pandas as pd
 from datasci_tools import numpy_dep as np
-from datasci_tools import module_utils as modu
 from datasci_tools import general_utils as gu
 
 
@@ -1783,22 +1782,6 @@ attributes_dict_h01 = dict(
     unalign_neuron_obj =  hvu.data_interface.unalign_neuron_obj,
 )
 
-# modules_to_set = [apu]
-# data_type = "default"
-# algorithms = None
-
-# modsetter = modu.ModuleDataTypeSetter(
-#     module = modules_to_set,
-#     algorithms = algorithms
-# )
-
-# set_global_parameters_and_attributes_by_data_type = modsetter.set_global_parameters_and_attributes_by_data_type
-# output_global_parameters_and_attributes_from_current_data_type = modsetter.output_global_parameters_and_attributes_from_current_data_type
-
-# set_global_parameters_and_attributes_by_data_type(
-#     data_type=data_type,
-#     algorithms=algorithms
-# )
 
 
 #--- from neurd_packages ---
@@ -1816,7 +1799,6 @@ from . import synapse_utils as syu
 from datasci_tools import filtering_utils as flu
 from datasci_tools import general_utils as gu
 from datasci_tools import ipyvolume_utils as ipvu
-from datasci_tools import module_utils as modu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 

@@ -22,7 +22,6 @@ import time
 import trimesh
 from trimesh.ray import ray_pyembree
 from datasci_tools import numpy_dep as np
-from datasci_tools import module_utils as modu
 from datasci_tools import general_utils as gu
 from . import microns_volume_utils as mvu
 from . import h01_volume_utils as hvu
@@ -10252,20 +10251,6 @@ attributes_dict_h01 = dict(
     voxel_to_nm_scaling = hvu.voxel_to_nm_scaling
 )
 
-# data_type = "default"
-# algorithms = None
-# modules_to_set = [nru]
-
-# modsetter = modu.ModuleDataTypeSetter(
-#     module = modules_to_set,
-#     algorithms = algorithms
-# )
-
-# set_global_parameters_and_attributes_by_data_type = modsetter.set_global_parameters_and_attributes_by_data_type
-# set_global_parameters_and_attributes_by_data_type(data_type=data_type,
-#                                                    algorithms=algorithms)
-
-# output_global_parameters_and_attributes_from_current_data_type = modsetter.output_global_parameters_and_attributes_from_current_data_type
 
 
 #--- from neurd_packages ---
@@ -10296,7 +10281,6 @@ from mesh_tools import trimesh_utils as tu
 #--- from datasci_tools ---
 from datasci_tools import general_utils as gu
 from datasci_tools import matplotlib_utils as mu
-from datasci_tools import module_utils as modu
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu

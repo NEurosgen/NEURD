@@ -3,7 +3,6 @@ import copy
 from scipy.spatial import KDTree
 import time
 from datasci_tools import numpy_dep as np
-from datasci_tools import module_utils as modu
 from datasci_tools import general_utils as gu
 
 non_optional_features = [
@@ -1601,49 +1600,6 @@ attributes_dict_h01 = dict()
 
 
 
-# data_type = "default"
-# algorithms = None
-# modules_to_set = [bu]
-
-# def set_global_parameters_and_attributes_by_data_type(dt,
-#                                                      algorithms_list = None,
-#                                                       modules = None,
-#                                                      set_default_first = True,
-#                                                       verbose=False):
-#     if modules is None:
-#         modules = modules_to_set
-    
-#     modu.set_global_parameters_and_attributes_by_data_type(modules,dt,
-#                                                           algorithms=algorithms_list,
-#                                                           set_default_first = set_default_first,
-#                                                           verbose = verbose)
-    
-# set_global_parameters_and_attributes_by_data_type(data_type,
-#                                                    algorithms)
-
-# def output_global_parameters_and_attributes_from_current_data_type(
-#     modules = None,
-#     algorithms = None,
-#     verbose = True,
-#     lowercase = True,
-#     output_types = ("global_parameters"),
-#     include_default = True,
-#     algorithms_only = False,
-#     **kwargs):
-    
-#     if modules is None:
-#         modules = modules_to_set
-    
-#     return modu.output_global_parameters_and_attributes_from_current_data_type(
-#         modules,
-#         algorithms = algorithms,
-#         verbose = verbose,
-#         lowercase = lowercase,
-#         output_types = output_types,
-#         include_default = include_default,
-#         algorithms_only = algorithms_only,
-#         **kwargs,
-#         )
 
 
 #--- from neurd_packages ---
@@ -1665,7 +1621,6 @@ from mesh_tools import trimesh_utils as tu
 #--- from datasci_tools ---
 from datasci_tools import general_utils as gu
 from datasci_tools import ipyvolume_utils as ipvu
-from datasci_tools import module_utils as modu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 
