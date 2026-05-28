@@ -171,6 +171,7 @@ def false_positive_queries(
     if invert:
         return_queries = [f"not ({k})" for k in return_queries]
     if table_type == "dj":
+        from datasci_tools import dj_utils as dju
         return_queries  = [dju.dj_query_from_pandas_query(k) for k in return_queries]
 
     return return_queries
@@ -183,6 +184,7 @@ def spine_table_restriction_high_confidence(
     if include_default_restrictions:
         additional_queries = default_spine_restrictions.copy()
         if table_type == "dj":
+            from datasci_tools import dj_utils as dju
             additional_queries = [dju.dj_query_from_pandas_query(k) for k in additional_queries]
         return_value += additional_queries
         
@@ -7051,7 +7053,6 @@ from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import dj_utils as dju
 from datasci_tools import general_utils as gu
 from datasci_tools import matplotlib_utils as mu
 from datasci_tools import mesh_utils as meshu
