@@ -34,8 +34,8 @@ script installs it with `--no-deps` and pulls dependencies from
 - Python **3.13+** is not yet supported (no `open3d` wheels on PyPI).
 - On a fresh OS you may need: `apt install libgl1 libglib2.0-0 libgomp1`
   (open3d runtime libs).
-- Optional extras for cloud / proofreading / GNN workflows are declared in
-  `setup.py` under `extras_require` (`[connectome]`, `[viz]`, `[ml]`).
+- Optional extras for cloud / visualization workflows are declared in
+  `setup.py` under `extras_require` (`[connectome]`, `[viz]`).
 
 ## Documentation
 
@@ -61,27 +61,18 @@ All of the tutorials made for showing the decomposition/autoproofreading pipelin
    - Neuron Feature Tutorial: Applications/Tutorials/Neuron_Features/Neuron_Features_Tutorial.ipynb
      \*\*\* See Neuron_Feature_Documentation sheet below for detailed descriptions \*\*\*
 
-3. Proximities:
+3. SWC Output and Analysis:
 
-   - How to calculate proximities: Applications/Tutorials/Proximities/Tutorial_Proximities_vp2.ipynb
-   - SWC Output and Anlaysis with 3rd Party Software: Applications/Tutorials/SWC_Output_and_Analysis/SWC_output_and_morphopy_analysis.ipynb
+   - SWC Output and Analysis with 3rd Party Software: Applications/Tutorials/SWC_Output_and_Analysis/SWC_output_and_morphopy_analysis.ipynb
 
 4. Volume Data Interface (VDI) Override Implementations:
 
    - H01 (Human Dataset) VDI Override: Applications/Tutorials/VDI_override/Tutorial_Making_Vdi_Override_H01.ipynb
-   - MICrONS Caveclient VDI Override: Applications/Tutorials/VDI_microns_caveclient/vdi_microns_caveclient_demo.ipynb
    - Fake Data VDI Override: Applications/Tutorials/VDI_override/Tutorial_Making_Vdi_Override_Whale.ipynb
 
-5. Connectivity Analysis:
-
-   - Conversion Rate of Groups of Cells: Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Inh/neuron_pipeline_vp5_single_demo_inh.ipynb
-
-6. Visualizations :
+5. Visualizations:
 
    - Skeleton and Compartments of Auto Proofread Neuron: Applications/Tutorials/Visualizing_Auto_Proof_Neurons/Visualizing_Neuron_Skeletons_and_Compartments.ipynb
-
-7. Cell Type Classification :
-   - GNN modlel inference (Neuron and Limb based): Applications/Tutorials/GNN_Cell_Typing/GNN_Neuron_Cell_Typing_Tutorial.ipynb
 
 #### Documentation sheets:
 
