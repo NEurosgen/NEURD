@@ -221,11 +221,27 @@ modsetter-блоки и мёртвые двойные импорты `module_uti
 расцепление core clump, не упрощение стека. Низкий приоритет по принципам проекта.
 
 ### Шаг E — точечная Phase 4 (низкий приоритет)
-- `jsu = json_utils` (2 call-sites) → stdlib `json`.
-- `dsu.DictType` (1 call-site в `parameter_utils._jsonable_dict`) → inline check.
-- Эти замены дают символическую пользу — `datasci_tools` остаётся в зависимостях
-  пока есть хоть один импорт. Делать только мимоходом при работе с конкретным
-  модулем.
+
+**E1 (json_utils → stdlib json) ✅ СДЕЛАНО 2026-05-28.**
+Было 5 call-sites (не 2), все в `parameter_utils.py`. Заменены на stdlib `json` +
+три локальных хелпера (`_json_to_dict`, `_is_jsonable`, `_dict_to_json_file`),
+1:1 повторяющих поведение (включая `indent=4` и авто-суффикс `.json`).
+`json_utils` полностью удалён из neurd. 81 passed; функциональный round-trip
+(is_jsonable / запись+чтение json / `Parameters.__str__`) проверен.
+
+**E2 (dsu.DictType → dict) — НЕ рекомендуется / отложено.**
+Оказалось 8 использований (не 1): `DictType(...)` — это **конструктор**
+`global_parameters_dict_*` в soma_extraction/axon/preprocess/error_detection +
+isinstance-проверка в parameter_utils. Записи используют форму `key=(value,"type")`
+(напр. `nucleus_max=(None,"int unsigned")`, `skip_distance_poly_x=((80,200),"blob")`),
+которую DictType парсит в `value`+тип. Type-метаданные в neurd **никто не читает**
+(вестигиальны от удалённого datajoint-пути), но замена на `dict(...)` требует ручного
+«расплющивания» ~15-20 tuple-записей в 5 модулях. Риск ненулевой, а выгода — нулевая:
+`datasci_tools` остаётся (24 подмодуля). Есть эталонный снимок параметров
+(`/tmp/param_snapshot.pkl`) как оракул, если решим делать.
+
+Общий принцип: эти замены дают символическую пользу — `datasci_tools` остаётся
+в зависимостях, пока есть хоть один импорт. Делать только мимоходом.
 
 ---
 
