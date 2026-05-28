@@ -3,6 +3,7 @@ Purpose:
 
 """
 
+import shutil
 import unittest
 
 import neurd
@@ -19,7 +20,14 @@ from datasci_tools import pathlib_utils as plu
 from mesh_tools import trimesh_utils as tu
 
 from pathlib import Path
-import pathllib
+
+# Mesh-processing stages (decimation, soma extraction, decomposition, ...) shell out
+# to `xvfb-run meshlabserver`. Skip them gracefully when that tooling is absent so the
+# suite degrades to a clean skip instead of a hard failure on a machine without MeshLab.
+_MESH_TOOLS = all(shutil.which(b) for b in ("xvfb-run", "meshlabserver"))
+_requires_mesh_tools = unittest.skipUnless(
+    _MESH_TOOLS, "requires `xvfb-run` + `meshlabserver` on PATH"
+)
 
 
 class TestAutoproofPipeline(unittest.TestCase):
@@ -36,7 +44,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         
         self.__class__.products = pipeline.PipelineProducts()
         
-        self.assertTrue(pathlib.Path(self.synapse_filepath).exists())
+        self.assertTrue(Path(self.synapse_filepath).exists())
         
         
     def test_2_vdi_fetch_mesh(self):
@@ -48,6 +56,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         self.assertIsNotNone(self.__class__.mesh)
         
     # --- Step 1: Decimation --
+    @_requires_mesh_tools
     def test_3_decimation(self):
         self.__class__.mesh_decimated = tu.decimate(
             self.__class__.mesh,
@@ -56,6 +65,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         
         self.assertIsNotNone(self.__class__.mesh_decimated)
         
+    @_requires_mesh_tools
     def test_4_soma_extraction(self):
         self.__class__.soma_products = sm.soma_indentification(
             self.__class__.mesh,
@@ -71,6 +81,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         self.assertIsNotNone(self.__class__.soma_products)
         
     
+    @_requires_mesh_tools
     def test_5_decomposition(self):
         self.__class__.neuron_obj = neuron.Neuron(
             mesh = self.__class__.mesh,
@@ -87,6 +98,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         self.assertIsNotNone(self.__class__.neuron_obj)
         
         
+    @_requires_mesh_tools
     def test_6_saving_off_and_reloading_neuron(self):
         vdi.save_neuron_obj(
             self.__class__.neuron_obj,
@@ -100,6 +112,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         self.assertIsNotNone(self.__class__.neuron_obj)
         
         
+    @_requires_mesh_tools
     def test_7_multi_soma_split(self):
         multi_soma_split_parameters = dict()
         
@@ -117,6 +130,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         
         self.assertEqual(len(self.__class__.neuron_list),2)
         
+    @_requires_mesh_tools
     def test_8_cell_typing(self):
         self.__class__.neuron_obj_axon = npu.cell_type_ax_dendr_stage(
             self.__class__.n1,
@@ -126,6 +140,7 @@ class TestAutoproofPipeline(unittest.TestCase):
         
         self.assertIsNotNone(self.__class__.neuron_obj_axon)
         
+    @_requires_mesh_tools
     def test_9_autoproof(self):
         self.__class__.neuron_obj_proof = npu.auto_proof_stage(
             self.__class__.neuron_obj_axon,

@@ -34,6 +34,10 @@ script installs it with `--no-deps` and pulls dependencies from
 - Python **3.13+** is not yet supported (no `open3d` wheels on PyPI).
 - On a fresh OS you may need: `apt install libgl1 libglib2.0-0 libgomp1`
   (open3d runtime libs).
+- The mesh-processing pipeline (decimation, soma extraction, decomposition) shells
+  out to `xvfb-run meshlabserver`, so running it needs MeshLab + `xvfb`
+  (`apt install meshlab xvfb`). The import/unit tests do **not** require these;
+  the integration test (`tests/integration/`) skips mesh stages gracefully if absent.
 - Optional extras for cloud / visualization workflows are declared in
   `setup.py` under `extras_require` (`[connectome]`, `[viz]`).
 
