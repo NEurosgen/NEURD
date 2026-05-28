@@ -1,248 +1,210 @@
 # План работы с зависимостями NEURD
 
-Документ для будущих заходов: какие зависимости трогать, в каком порядке,
+Документ для следующих сессий: какие зависимости трогать, в каком порядке,
 с каким риском. Цель — упростить стек **в контексте задачи сегментации меша
-нейрона**, отказавшись от того, что нужно только для облачных пайплайнов
-коннектома (MICrONS-style).
+нейрона**, отказавшись от всего, что нужно только для post-сегментационного
+анализа.
 
-Дополняет [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md) и [LEAVES_WORK.md](LEAVES_WORK.md).
+См. также: [LEAVES_WORK.md](LEAVES_WORK.md) — рабочее состояние модулей и
+тестов.
 
 ---
 
 ## 0. Контекст и принципы
 
 ### Глобальная цель
-- **Поправить код ядра для упрощения сегментации меша нейрона.**
+**Оставить в фреймворке только то, что нужно для сегментации меша нейрона.**
+
 - Облачное скачивание данных (`cloudvolume`, `caveclient`, `datajoint`-сервер)
-  **не в фокусе** — функционал можно потерять в обмен на меньшую сложность.
-- ~~Анализ коннектома (проксимити, мотифы, GNN-классификация) — нужен в
-  меньшей степени; держим работающим, но не оптимизируем под него.~~
-  **Обновлено 2026-05-27:** connectome / proximity / motif / GNN **удалены
-  целиком** как не относящиеся к сегментации меша. Туториалы в
-  `Applications/Tutorials/{Proximities,GNN_*,Auto_Proof_Pipeline}/` могут
-  ссылаться на удалённые модули — это принято.
+  — **не в фокусе**, функционал можно потерять в обмен на меньшую сложность.
+- Post-сегментационный анализ (connectome, motif, proximity, GNN-классификация)
+  — **удалён целиком в 2026-05-27**.
 
-### Принципы выбора
+### Принципы
 1. **Удаление > опциональность > замена > обновление.**
-   В первую очередь убираем то, что не нужно. Только потом — рефакторим.
-2. **Pure-pipeline всегда должен импортироваться.** Никакой тяжёлый
-   опциональный модуль не должен тащить нас при импорте «листа».
+   Сначала убираем то, что не нужно. Только потом рефакторим.
+2. **Pure-pipeline всегда должен импортироваться** без cloud/viz/ML-пакетов.
 3. **Никаких изменений без тестов на затронутом модуле.**
-4. **Не трогать upstream-пакеты автора** (`datasci_tools`, `mesh_tools` и т.д.)
-   — наш форк, у нас нет контроля над их PyPI-релизами. Работаем через
-   обёртки/моки/локальные правки в `neurd/`.
+4. **Не трогать upstream-пакеты автора** (`datasci_tools`, `mesh_tools`,
+   `meshparty`, `neuron_morphology_tools`). У нас нет контроля над PyPI-релизами;
+   работаем через шимы/обёртки в `neurd/`.
+5. **Core clump не трогать без интеграционных тестов.** Это `neuron_utils`,
+   `proofreading_utils`, `error_detection`, `spine_utils`, `axon_utils`,
+   `apical_utils`, `preprocess_neuron`, `neuron_visualizations`,
+   `soma_extraction_utils`, `concept_network_utils`, `branch_utils`,
+   `limb_utils`, `neuron_searching`, `neuron_statistics`, `classification_utils`,
+   `cell_type_utils`, `synapse_utils`.
 
 ---
 
-## 1. Что выкидываем целиком
+## 1. Что уже сделано (Фазы 1–4)
 
-Эти зависимости можно убрать без потери функциональности, нужной для
-сегментации меша.
+### Фаза 1 — базовая чистка ✅
+- Из `requirements.txt` убраны `pymeshfix`, `ipython`, `ipython_genutils`, `pykdtree`.
+- `pykdtree.KDTree` → `scipy.spatial.KDTree` в 12 модулях.
 
-| Пакет | Где упомянут | Почему можно убрать | Стоимость |
+### Фаза 2 — опциональность ✅
+- `setup.py`: `extras_require = {connectome, viz, all}`.
+- Top-level импортов `datajoint`/`seaborn` нет нигде.
+- `ipyvolume` — soft import.
+- Self-imports убраны во всех non-core модулях.
+
+### Фаза 3 — Docker → локальный Python 3.12 ✅
+- `neurd/__init__.py`: numpy-shim (`float_`/`int_`/`complex_` для numpy 2)
+  + meta-path stub-finder для `ipyvolume`/`cloudvolume`
+  (покрывает submodule-импорты).
+- `requirements.txt`: numpy≥2, trimesh≥4, meshparty≥2, +h5py/tqdm/scikit-learn.
+- `requirements-local.txt` + `scripts/install_local.sh` для venv 3.10–3.12.
+- README: секция Docker → Local install.
+- Папка `docker/` удалена целиком.
+- `tests/unit/__init__.py` guard импортирует `neurd` первым (активирует шим).
+
+### Фаза 4 — массовые удаления non-segmentation ✅
+- **GNN** удалён: `gnn_embedding_utils.py` (524), `gnn_cell_typing_utils.py` (909),
+  `Applications/Tutorials/GNN_*/`, `extras_require['ml']`.
+- **Connectome** удалён: `connectome_utils.py` (2606), `connectome_analysis_utils.py`
+  (499), `connectome_query_utils.py` (230).
+- **Motif** удалён: `motif_utils.py` (1420).
+- **Proximity** удалён: `proximity_utils.py` (926), `proximity_analysis_utils.py`
+  (969), а с ними и `tests/unit/proximity/` (~400 LOC).
+- `functional_tuning_utils.py` удалён ранее (тонкие обёртки над `nu.cdist`).
+- Orphan-секции в `parameter_configs/parameters_config_{default,h01}.py` вычищены.
+
+**Суммарно убрано из репо: ~16k LOC прикладного кода + ~400 LOC тестов.**
+
+### parameter_utils.py — детальный рефакторинг ✅
+- B1/B2/B4/B7: баги фикс + регресс-тесты.
+- B3: `.replace(suf,"")` → `.removesuffix(suf)` (не снимал суффикс из середины).
+- B5/B6: `exec`/`eval` → `importlib.util.spec_from_file_location` и
+  `importlib.import_module`. +8 тестов с фейковым `.py`-конфигом / фейк-пакетом.
+- S1/S3/S4/S5/S8/S11: косметика + self-import.
+
+**Известный отложенный smell в B6:** двойной проход `for i in range(0, 2)` —
+второй проход с `plus_unused=True` затирает первый. По анализу однопроходный
+эквивалент работает идентично, но без интеграционного теста на
+`set_volume_params`-цепочку лучше не трогать.
+
+---
+
+## 2. Текущее состояние стека
+
+### Базовые зависимости (`requirements.txt`)
+```
+numpy>=2,<3       scipy           pandas>=2       networkx>=3
+matplotlib>=3.7   h5py            tqdm            scikit-learn>=1.3
+trimesh>=4        meshparty>=2.0
+
+# Авторские (форк-зависимые)
+datasci-stdlib-tools     machine-learning-tools     graph-nx-tools
+mesh_processing_tools    neuron_morphology_tools    code_structure_tools
+```
+
+### `extras_require`
+- `[connectome]` — `datajoint`, `python-dotenv` (для опциональных `vdi_*` адаптеров)
+- `[viz]` — `seaborn`, `ipyvolume`
+- `[all]` — всё вышеперечисленное
+
+### Локальный запуск
+- Python **3.10–3.12** (3.13+ блокирован отсутствием open3d-wheels)
+- `bash scripts/install_local.sh` создаёт venv и ставит всё
+- `pytest tests/unit/` → 62 passed, 2 skipped (под Python 3.12, numpy 2.4.6)
+
+---
+
+## 3. Что осталось не-сегментационного, но всё ещё в репо
+
+| Модуль | LOC | Связь с ядром | Что с ним делать |
 |---|---|---|---|
-| `pymeshfix>=0.16.2` | `requirements.txt` | **Нигде не импортируется** в `neurd/*.py` (grep'нуто). Тянется транзитивно через `meshparty`. Из прямых зависимостей убирать безопасно. | 5 минут |
-| `ipython_genutils` | `requirements.txt` | Deprecated с 2017. Не используется в коде. | 5 минут |
-| `ipython` | `requirements.txt` | Нужен только для Jupyter-окружения, не для самого пакета. Перенести в notebooks-extras или вообще удалить из прямых. | 5 минут |
-| `pykdtree>=1.3.7` | `proximity_*`, `neuron_utils`, `error_detection`, ещё ~3 модуля | Замена однострочная: `from scipy.spatial import KDTree`. Современный scipy на тех же бенчмарках сопоставим/быстрее. Минус один native wheel. | 1-2 часа + тесты |
-
-**Эффект:** -4 прямых зависимости, **-1 native build dependency** (pykdtree
-требует C-extension).
+| `cell_type_utils.py` | 1934 | **7 импортёров вкл. `proofreading_utils`, `spine_utils`** | Сидит в core clump. Удалять нельзя без работы с ядром. Рассмотреть после Phase 5. |
+| ~~`cave_client_utils.py`~~ | удалён | — | — |
+| ~~`nature_paper_plotting.py`~~ | удалён | — | — |
+| ~~`vdi_microns_cave.py`~~ | удалён | — | — |
+| `microns_volume_utils.py`, `h01_volume_utils.py` | small | Адаптеры под конкретные датасеты MICrONS / H01 | Часть пользовательского API. Оставляем. |
 
 ---
 
-## 2. Что выносим в `extras_require`
+## 4. Известные pre-existing проблемы
 
-Эти зависимости нужны для отдельных подсистем NEURD, но не для базового
-mesh-pipeline. Должны быть опциональными.
+Эти баги обнаружены, но **не введены** рефакторингом — присутствовали до
+ветки. Документируем для будущих сессий.
 
-| Зависимость | Подсистема | extras-имя |
-|---|---|---|
-| `datajoint>=0.12.9` | коннектом-таблицы, `proximity_*`, `connectome_*` | `[connectome]` |
-| `seaborn>=0.12.2` | визуализация для статьи (`nature_paper_plotting.py`, `connectome_analysis`) | `[viz]` или `[paper]` |
-| `torch`, `torch_geometric`, `pytorch_tools` | GNN-классификация (`gnn_*.py`) | `[ml]` |
-| `dotmotif` (через git+url) | motif-анализ | `[motif]` |
-| `tamarind` (через git+url) | motif-анализ | `[motif]` |
-| `python-dotenv` | загрузка `.env` в `vdi_*` | `[connectome]` |
-| `caveclient`, `cloud-volume` (сейчас в Dockerfile) | загрузка данных из облака MICrONS | `[cloud]` |
-| `ipyvolume>=0.6.3` | интерактивная 3D-визуализация в Jupyter | `[viz]` |
+| ID | Где | Симптом | Причина |
+|---|---|---|---|
+| **PRE-1** | `neuron_searching.py:2306` | `NameError: 'fcu' is not defined` при `from neurd import spine_utils` на свежем интерпретаторе | `fcu = function_utils` импортируется на строке 2370 (ниже использования на 2306). Use-before-import. Работает только если что-то другое уже импортировало этот модуль до конца. Исправление: перенести `from datasci_tools import function_utils as fcu` в шапку модуля. **Без фикса ядро не импортируется чисто.** |
+| **PRE-2** | `datasci_tools/dj_utils.py:13` (upstream) | `TypeError: 'ModuleNotFoundError' object is not callable` когда `datajoint` не установлен | `raise e("Datajoint must be installed...")` — `e` это caught instance, не класс. Upstream-баг. Обходим тем, что не импортируем broken chain. |
 
-Что должно остаться в **базовом** `requirements.txt`:
-```
-numpy, scipy, pandas, networkx, matplotlib, trimesh, meshparty
-datasci_stdlib_tools, mesh_processing_tools, neuron_morphology_tools,
-machine_learning_tools, graph_nx_tools, code_structure_tools
-```
-
-То есть только то, без чего mesh-pipeline не запустится.
-
-**Стоимость:** ~1-2 часа на правку `setup.py` + ленивые импорты в местах,
-где сейчас зависимости тянутся eagerly. **Минус 8 пакетов из обязательных**.
-
-**Эффект:** базовый `pip install neurd` ставит ~10 пакетов вместо ~20+.
-Чистая Docker-сборка становится быстрее в несколько раз.
+**PRE-1 — главный блокер** для дальнейшего расцепления core. Пока ядро не
+импортируется на голой системе, нельзя написать smoke-тесты на ядро, а без
+них нельзя трогать core clump.
 
 ---
 
-## 3. Что заменяем на современное
+## 5. Чего НЕ трогаем
 
-| Что | На что | Где | Стоимость | Риск |
-|---|---|---|---|---|
-| `pykdtree.kdtree.KDTree` | `scipy.spatial.KDTree` | ~6 модулей (gre'p покажет) | 1-2 ч | низкий |
-| `from os import sys` | `import sys` | уже сделано в `parameter_utils` | 0 | 0 |
-| `k[:N] == ...` сравнения | `str.startswith` / `endswith` | уже сделано в `parameter_utils`; стоит пройтись по всем модулям | 30 мин | 0 |
-| `exec(f"import {module_name}")` | `importlib.import_module` | `parameter_utils.parameters_from_filepath` и `set_parameters_for_directory_modules_from_obj` (см. B5/B6 в LEAVES_WORK.md) | 2-3 ч | средний — затрагивает `sys.path` |
-
----
-
-## 4. Поднятие версий (выполнено в Фазе 3)
-
-| Было | Стало | Заметка |
-|---|---|---|
-| `numpy<2` (через `datasci_tools.numpy_dep`) | **`numpy>=2,<3`** | Шим в `neurd/__init__.py` восстанавливает удалённые алиасы `float_`/`int_`/`complex_`. Не правим upstream. |
-| `pandas>=2.0.3` | **`pandas>=2`** | Базовый pin, тестируется на 2.x в actual env. |
-| `trimesh==3.22.3` (жёсткий пин!) | **`trimesh>=4`** | Современный mesh API; meshparty 2.0 совместим. |
-| `meshparty>=1.16.13` | **`meshparty>=2.0`** | Проверено в env (`meshparty 2.x`). |
-| Python 3.8 (Docker) | **Python 3.10–3.12 (local)** | install_local.sh форсит этот диапазон; 3.13+ блокируется отсутствием open3d wheels. |
-| `cloudvolume` (top-level в `mesh_tools`) | — | Покрыт stub-finder'ом, реальный пакет не нужен для сегментации. |
-
----
-
-## 5. Чего не трогаем
-
-Это нужно держать на виду, чтобы случайно не врываться без плана.
-
-| Пакет | Почему не трогаем |
+| Пакет/модуль | Почему |
 |---|---|
-| `meshparty` | Ядро mesh-pipeline. Allen-Institute, активно используется, заменять нечем без потери функциональности. **Кандидат на ленивизацию импорта, не на удаление.** |
-| `mesh_tools` (`mesh_processing_tools`) | Пакет автора, обёртка над `meshparty`. То же самое. |
-| `datasci_tools` | Главный источник хрупкости (см. §6 в LEAVES_WORK.md), но **трогать только постепенно, в рамках работы над каждым отдельным модулем**. Не делать «удалить целиком» одной задачей. |
-| `networkx` | Современная, стабильная, ничего не сломано. |
-| `scipy` | То же. |
-| `matplotlib` | Базовый, используется почти везде, замена бессмысленна. |
-| `neuron_morphology_tools` | Пакет автора, нужен для skeleton-операций ядра. |
+| `meshparty` | Ядро mesh-pipeline (Allen Institute). Замены нет. |
+| `mesh_processing_tools` (= `mesh_tools`) | Авторская обёртка над meshparty. То же. |
+| `neuron_morphology_tools` | Skeleton-операции ядра. |
+| `networkx`, `scipy`, `matplotlib`, `trimesh` | Современные, стабильные. |
+| `datasci_tools` | Большой источник хрупкости, **но трогать только в рамках конкретного модуля**, не «удалить целиком» одной задачей. См. §6 ниже. |
+| Core clump | Список в §0. Нужны интеграционные тесты. |
 
 ---
 
-## 6. Порядок выполнения
+## 6. Что осталось сделать
 
-### ✅ Фаза 1 — Чистка очевидного (ВЫПОЛНЕНО)
-1. ~~Удалить из `requirements.txt`: `pymeshfix`, `ipython_genutils`, `ipython`.~~ ✅
-2. ~~Заменить `pykdtree.kdtree.KDTree` → `scipy.spatial.KDTree` во всех модулях.~~ ✅
-3. ~~Удалить `pykdtree` из `requirements.txt`.~~ ✅
+### Шаг A — починить PRE-1 (низкий риск, высокая ценность)
+В `neuron_searching.py` поднять `from datasci_tools import function_utils as fcu`
+с строки 2370 в шапку модуля. Это разблокирует import `spine_utils`,
+`branch_utils` и большей части core clump на свежем интерпретаторе. Smoke-тест:
+`python -c "import neurd; from neurd import spine_utils"` → без traceback.
 
-### ✅ Фаза 2 — Опциональность (ВЫПОЛНЕНО)
-1. ~~Переписать `setup.py` с использованием `extras_require`.~~ ✅
-2. ~~Разнести зависимости по группам `[connectome]`, `[viz]`, `[ml]`.~~ ✅ (`[motif]`/`[cloud]` — отложено, не критично)
-3. ~~Ленивизировать импорты тяжёлых опциональных deps.~~ ✅
-   - `datajoint`: 0 top-level imports (все lazy или удалены)
-   - `seaborn`: 0 top-level imports (все soft)
-   - `ipyvolume`: soft в `neuron_visualizations`
-4. Документация: в `setup.py` есть комментарии `pip install neurd[connectome]` etc.
+**Стоимость:** 10 минут. **Польза:** открывает дорогу к smoke-тестам ядра.
 
-Дополнительно в рамках Фазы 2:
-- Убраны self-imports во всех non-core модулях (20 осталось только в core clump).
-- Баг B3 в `parameter_utils.attr_map` исправлен (`.replace` → `.removesuffix`).
+### Шаг B — точечные удаления non-segmentation ✅
+`cave_client_utils.py`, `vdi_microns_cave.py`, `nature_paper_plotting.py` удалены.
+Lazy-импорт `nature_paper_plotting` в `spine_utils.py:6692` был уже закомментирован.
+`cave_client_utils` упомянут в docstring `vdi_default.py:398` — безопасно, не импорт.
 
-### ✅ Фаза 3 — Освобождение от Docker и локальный запуск (ВЫПОЛНЕНО, 2026-05-27)
+### Шаг C — расцепить cell_type_utils от ядра (средний риск)
+7 импортёров. Подход:
+1. Идентифицировать что конкретно ядро вызывает из `cell_type_utils`
+   (`grep -n "ctu\\." neurd/proofreading_utils.py neurd/spine_utils.py
+   neurd/neuron_pipeline_utils.py`).
+2. Если поверхность маленькая — заменить inline или lazy-импорт.
+3. Если большая — оставить как есть, идти в Шаг D.
 
-Цели достигнуты: тесты прогоняются локально на Python 3.12 + numpy 2 без Docker.
+### Шаг D — Phase 5: `Parameters` → pydantic (большая работа)
+- `parameter_utils.Parameters/PackageParameters` → `pydantic.BaseModel`.
+- Это убирает `datasci_tools.module_utils` (27 call-sites, A2-проблема) —
+  главный механизм глобального состояния NEURD.
+- После: можно браться за `set_volume_params` и расцеплять core clump.
+- **Требует** PRE-1 фикса + smoke-тестов на ядре.
 
-1. ✅ `neurd/__init__.py`: numpy shim (`np.float_` → `np.float64` для numpy 2)
-2. ✅ `neurd/__init__.py`: meta-path stub-finder для `ipyvolume`/`cloudvolume`
-   (покрывает submodule-импорты типа `from ipyvolume.moviemaker import MovieMaker`)
-3. ✅ `scripts/install_local.sh` + `requirements-local.txt` для virtualenv 3.10–3.12
-4. ✅ `requirements.txt` обновлён под numpy 2 / trimesh 4 / meshparty 2
-5. ✅ Локальный `pytest tests/unit/` — **45 passed, 4 skipped**
-6. ✅ Docker удалён целиком (вариант «сразу Шаг 5» из PHASE3_PLAN — пользователь
-   работает в conda, Docker как CI-инструмент не нужен)
-
-**Smoke-тесты Фазы 3:**
-- [tests/unit/test_env_compat.py](tests/unit/test_env_compat.py) — 5 тестов на шимы
-- [tests/unit/test_numpy_compat.py](tests/unit/test_numpy_compat.py) — 4 теста на numpy 2
-- [tests/unit/test_mesh_tools_compat.py](tests/unit/test_mesh_tools_compat.py) — 4 теста на mesh-стек
-
-**Side-effect:** [tests/unit/__init__.py](tests/unit/__init__.py) guard теперь
-импортирует `neurd` первым (активирует шим), благодаря чему ранее skipped тесты
-из `leaves/` (33 шт.) запускаются локально и зелёные.
-
-Подробности и обоснования — в [PHASE3_PLAN.md](PHASE3_PLAN.md).
-
-### Фаза 4 — Постепенный отказ от `datasci_tools` (растянуто)
-Для каждого модуля, который мы трогаем в рамках leaves/proximity/motif/...:
-- Заменять `nu.cdiff` → inline math (мы уже сделали в `connectome_utils`).
-- Заменять `jsu.json_to_dict` → `json.load`.
-- Заменять `xu.adjacency_matrix` → `nx.adjacency_matrix`.
-- Заменять `gu.flatten_nested_dict` → локальный helper.
-- Etc.
-
-Не делать отдельной «удалить datasci_tools» задачей. Через 10-15 модулей
-зависимость станет тонкой.
-
-**Финальный шаг (когда возможно):** удалить `set_parameters_for_directory_modules_from_obj`
-+ `modu.all_modules_set_global_parameters_and_attributes` (A2 в LEAVES_WORK.md).
-Заменить на pydantic-`Parameters` + явное применение конфига. **Это
-большой ход** — делается после того, как ядро стабилизировано тестами.
-
-### Фаза 5 — Замена `ipyvolume` на `pyvista` (опционально, недели работы)
-Делается **только если** будем активно работать с визуализацией. Иначе
-старый `ipyvolume` будет работать ещё годы. Польза — современный VTK-стек,
-лучшая интеграция с jupyter/web.
+### Шаг E — точечная Phase 4 (низкий приоритет)
+- `jsu = json_utils` (2 call-sites) → stdlib `json`.
+- `dsu.DictType` (1 call-site в `parameter_utils._jsonable_dict`) → inline check.
+- Эти замены дают символическую пользу — `datasci_tools` остаётся в зависимостях
+  пока есть хоть один импорт. Делать только мимоходом при работе с конкретным
+  модулем.
 
 ---
 
-## 7. Конкретные действия для Фазы 1 (готовое к выполнению)
+## 7. Метрики
 
-### Чистка requirements.txt
-```diff
-- pymeshfix>=0.16.2
-- pykdtree>=1.3.7
-  ipython
-- ipython_genutils
-```
-
-### Замена `pykdtree` → `scipy.spatial.KDTree`
-Grep-инвентаризация:
-```bash
-grep -rn "pykdtree.kdtree" --include="*.py" neurd/
-```
-
-На момент написания: использовалось в `proximity_utils.py`,
-`proximity_analysis_utils.py`, `neuron_utils.py`, `preprocess_neuron.py`,
-`error_detection.py`, `neuron_graph_lite_utils.py`, `soma_extraction_utils.py`,
-`spine_utils.py`, `neuron.py`. ~10 файлов.
-
-Замена sed-style:
-```bash
-# во всех файлах ../neurd/*.py:
-# from pykdtree.kdtree import KDTree → from scipy.spatial import KDTree
-```
-
-**Совместимость API:** в обоих API `KDTree(points).query(query_points)`
-работает идентично для базового случая. Различия: pykdtree возвращает
-`(dists, idx)`; scipy тоже `(dists, idx)`. Гранулярных различий нет в
-типовых паттернах NEURD — все вызовы `KDTree(coords).query(other_coords)`
-или `query_pairs(radius)` совместимы.
-
-**Тесты:** на каждый модуль, который трогаем — smoke-тест что
-`KDTree(np.random.rand(100,3)).query(np.random.rand(10,3))` возвращает
-ожидаемые формы. Если есть существующие тесты на этих модулях
-(`proximity_utils` уже имеет 4 теста) — прогнать после замены.
-
----
-
-## 8. Метрики «до/после»
-
-| Метрика | Базовое | После Фазы 1 ✅ | После Фазы 2 ✅ | После Фазы 3 ✅ |
-|---|---|---|---|---|
-| Прямых deps в requirements.txt | 17 | 13 | 13 | **16** (+ numpy/h5py/tqdm явно) |
-| Опциональных групп | 0 | 0 | 4 [connectome/viz/ml/all] | 4 |
-| top-level `datajoint` imports | ~5 | ~5 | 0 | 0 |
-| top-level `seaborn` imports | ~3 | ~3 | 0 (soft) | 0 |
-| Self-imports в non-core модулях | 65 | 65 | 20 (core only) | 20 |
-| Native wheels (требуют компиляции) | ~3 | ~2 | ~2 | ~2 |
-| Python version | 3.8 (Docker) | 3.8 | 3.8 | **3.10–3.12 (local)** |
-| numpy | <2 | <2 | <2 | **≥2** |
-| trimesh | ==3.22.3 | ==3.22.3 | ==3.22.3 | **≥4** |
-| Зависимость от `celiib/mesh_tools:v4` | ✅ обязательна | ✅ | ✅ | **❌ удалена** |
-| Локальный `pytest tests/unit/` | ❌ всё skip | ❌ skip | ❌ skip | **✅ 45 passed** |
+| Метрика | До | Сейчас |
+|---|---|---|
+| Python version | 3.8 (Docker) | **3.10–3.12 (local)** |
+| Прямых deps в requirements.txt | 17 | 16 (явные, включая numpy/h5py/tqdm) |
+| Опциональных групп | 0 | 3 [connectome/viz/all] |
+| numpy | <2 | **≥2** |
+| trimesh | ==3.22.3 | **≥4** |
+| meshparty | >=1.16.13 | **≥2.0** |
+| Top-level `datajoint`/`seaborn` imports | ~8 | **0** |
+| Self-imports вне core | ~45 | **0** |
+| Self-imports в core clump | 20 | 17 (часть удалена с модулями) |
+| `celiib/mesh_tools:v4` Docker dep | ✅ обязательна | **❌ удалена** |
+| Локальный `pytest tests/unit/` | ❌ skip-all | **✅ 62 passed, 2 skipped** |
+| Файлов в `neurd/*.py` | ~60 | **44** |
+| Прикладного кода удалено | — | **~16k LOC** |
