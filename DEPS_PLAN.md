@@ -196,12 +196,29 @@ Lazy-импорт `nature_paper_plotting` в `spine_utils.py:6692` был уже
 Откладываем до тех пор, пока не появятся core smoke-тесты и не будет решено, выносить
 ли E/I-классификацию из конвейера осознанно.
 
-### Шаг D — Phase 5: `Parameters` → pydantic (большая работа)
-- `parameter_utils.Parameters/PackageParameters` → `pydantic.BaseModel`.
-- Это убирает `datasci_tools.module_utils` (27 call-sites, A2-проблема) —
-  главный механизм глобального состояния NEURD.
-- После: можно браться за `set_volume_params` и расцеплять core clump.
-- **Требует** PRE-1 фикса + smoke-тестов на ядре.
+### Шаг D — Phase 5: `Parameters` → pydantic (ПЕРЕОЦЕНЕНО 2026-05-28)
+
+**Премисса плана оказалась устаревшей.** Анализ показал:
+- `Parameters/PackageParameters` — это **локальные классы NEURD** (parameter_utils.py),
+  внутри `module_utils` не используют. Перевод в pydantic — отдельная задача.
+- «27 call-sites module_utils» — почти всё **закомментированный мёртвый код**.
+  Живых вызовов `modu.` было **4**: `all_modules_set_global_parameters_and_attributes`
+  (в `__init__.set_volume_params`), `load_modules_in_directory`, `module_name_no_prefix`×2
+  (в parameter_utils).
+- **`datasci_tools` остаётся в зависимостях независимо** — используется через 24
+  подмодуля (`numpy_dep` 55×, `general_utils` 31×, `numpy_utils` 27×…). Удаление
+  `module_utils` НЕ сокращает зависимости.
+
+**Сделано (Шаг D, часть 1 — чистка мёртвого кода):** удалены закомментированные
+modsetter-блоки и мёртвые двойные импорты `module_utils as modu` из 15 core-модулей
+(~675 строк). `modu.` теперь живёт только в `__init__.py` (1) и `parameter_utils.py` (3).
+Регресс-гард — core import smoke-тесты. `pytest` → 81 passed, 1 skipped.
+
+**Остаток Шага D (если делать):** реальный механизм глобального состояния — это
+`all_modules_set_global_parameters_and_attributes` (читает `*_dict_<mode>` модулей и
+мутирует их глобалы по `data_type`). Заменить его локальным лоадером + явным конфигом
+(опц. pydantic) — большая архитектурная работа БЕЗ сокращения зависимостей; ценность —
+расцепление core clump, не упрощение стека. Низкий приоритет по принципам проекта.
 
 ### Шаг E — точечная Phase 4 (низкий приоритет)
 - `jsu = json_utils` (2 call-sites) → stdlib `json`.
