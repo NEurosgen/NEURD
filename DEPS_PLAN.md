@@ -95,6 +95,29 @@ simplification / spine head-neck-shaft packaging) не нужны.
 
 ---
 
+## Фаза 8 — характеризационный тест + регрессии декомпозиции (2026-05-29)
+
+Добавлен [tests/integration/test_segmentation_pipeline.py](tests/integration/test_segmentation_pipeline.py):
+реальная декомпозиция fixture-меша → контракт `mesh → Neuron(somas + limbs/branches[.mesh+.skeleton])`.
+**4 passed (~11 мин, реальный `xvfb-run meshlabserver`).**
+
+Тест вскрыл 4 регрессии от удалений Фаз 5–7 (все исправлены в этом же коммите):
+
+| # | Симптом | Причина | Фикс |
+|---|---|---|---|
+| 1 | `AttributeError: glia_nuclei_faces_from_mesh` | ф-ция удалена в `ee336ed`, но вызов жив в `neuron.py:2246` | восстановлена в `soma_extraction_utils.py` (чистая, только `tu.*`) |
+| 2 | `ValueError: expected 6, got 5` (создание сомы) | `soma_synapses` убрали из `zip`, но `curr_synapses` остался в распаковке | убран dangling `curr_synapses` (`neuron.py:2516`) |
+| 3 | `axon_length not found` / `KeyError: n_boutons` | `nru.axon_*` удалены (Фаза 5), но используются в `neuron_stats` | выкинуты `axon_length/axon_area/n_boutons` из stats + `stats_to_ignore` |
+| 4 | `NameError: nst is not defined` | self-вызовы `nst.<local>` без in-function self-import | заменены на прямые вызовы (по конвенции «без self-import») |
+
+Также: `segmentation_pipeline` больше не зовёт `calculate_decomposition_products`
+(stats-шаг, не нужен для контракта; зеркалит `process_all_neurons`). Скелеты лежат
+на объекте уже после декомпозиции.
+
+**Вывод:** slim-пайплайн `mesh → Neuron` теперь воспроизводимо зелёный end-to-end.
+
+---
+
 ## Чего НЕ трогаем
 
 - Upstream-пакеты (`datasci_tools`, `mesh_tools`, `meshparty`) — только обёртки/шимы в `neurd/`.
