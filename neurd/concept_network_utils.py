@@ -98,52 +98,11 @@ def branches_within_distance_downstream(limb_obj,
                                    include_branch_idx = include_branch_idx)
 
 #find all end nodes within a downstream threshold
-def endnode_branches_of_branches_within_distance_downtream(
-    limb_obj,
-    branch_idx,
-    skip_distance=2000,
-    return_skipped_branches=False,
-    **kwargs
-    ):
-    """
-    Purpose: To get the branches that are a certain distance
-    away from a branch but to only return the furthermost branches
-    
-    Ex: 
-    limb_obj = neuron_obj[0]
-    branch_idx = 223
-
-    cnu.endnode_branches_of_branches_within_distance_downtream(limb_obj,
-                                                          branch_idx,
-                                                          0)
-    
-    """
-    downstream_branches = cnu.branches_within_distance_downstream(
-        limb_obj,
-        branch_idx,
-        skip_distance
-    )
-    G = limb_obj.concept_network_directional
-    G_sub = G.subgraph(downstream_branches)
-
-    end_nodes = xu.end_nodes_of_digraph(G_sub)
-    
-    if return_skipped_branches:
-        skipped_branches = np.setdiff1d(downstream_branches,end_nodes)
-        return end_nodes,skipped_branches
-    else:
-        return end_nodes
 
 
 def branches_with_parent_branching(limb_obj):
     return xu.nodes_with_parent_branching(limb_obj.concept_network_directional)
 
-def branches_with_parent_non_branching(limb_obj):
-    """
-    Purpose: To see if a branch had a parent node
-    that branched off into multiple branches
-    """
-    return xu.nodes_with_parent_non_branching(limb_obj.concept_network_directional)
 
 
 
@@ -459,25 +418,6 @@ def nodes_downstream(limb_obj,
                          nodes_to_exclude = nodes_to_exclude,
                                     nodes_to_include=nodes_to_include,)
 
-def nodes_upstream(limb_obj,
-                             branch_idx,
-                             distance = np.inf,
-                          include_branch_in_dist = False,
-                         only_non_branching = False,
-                         include_branch_idx = False,
-                         verbose = False,
-                         nodes_to_exclude = None,
-                          nodes_to_include = None):
-    return nodes_upstream_downstream(limb_obj,
-                             branch_idx,
-                             direction="upstream",
-                             distance = distance,
-                        include_branch_in_dist = include_branch_in_dist,
-                         only_non_branching = only_non_branching,
-                         include_branch_idx = include_branch_idx,
-                         verbose = verbose,
-                         nodes_to_exclude = nodes_to_exclude,
-                                    nodes_to_include=nodes_to_include,)
                     
                      
         
@@ -1197,28 +1137,6 @@ def synapse_density_upstream_downstream(limb_obj,
      **kwargs)
 
 
-def synapse_density_downstream(limb_obj,
-    branch_idx,
-    distance = np.inf,
-    only_non_branching=True,
-    include_branch_in_dist = True,
-    include_branch_idx = True,
-    verbose = False,
-    synapse_density_type= "synapse_density",
-    nodes_to_exclude = None,
-                              **kwargs):
-    
-    return synapse_density_upstream_downstream(limb_obj,
-    branch_idx,
-    direction="downstream",
-    distance = distance,
-    only_non_branching=only_non_branching,
-    include_branch_in_dist = include_branch_in_dist,
-    include_branch_idx = include_branch_idx,
-    verbose = verbose,
-    synapse_density_type=synapse_density_type,
-    nodes_to_exclude = nodes_to_exclude,
-    **kwargs)
 
 def downstream_nodes(limb_obj,
                     branch_idx):
@@ -1234,196 +1152,18 @@ def all_downtream_branches(limb_obj,
                           branch_idx):
     return xu.all_downstream_nodes(limb_obj.concept_network_directional,branch_idx)
 
-def all_downtream_branches_including_branch(limb_obj,
-                          branch_idx):
-    return xu.all_downstream_nodes_including_node(limb_obj.concept_network_directional,branch_idx)
 
 def all_upstream_branches(limb_obj,
                           branch_idx):
     return xu.all_upstream_nodes(limb_obj.concept_network_directional,branch_idx)
 
-def all_upstream_branches_including_branch(limb_obj,
-                          branch_idx):
-    return xu.all_upstream_nodes_including_node(limb_obj.concept_network_directional,branch_idx)
 
 
 
 
-def skeleton_downstream_restricted(limb_obj,
-                                  branch_idx,
-                                   downstream_skeletal_length,
-                                  downstream_nodes=None,
-                                  nodes_to_exclude=None,
-                                plot_downstream_skeleton = False,
-                                plot_restricted_skeleton = False,
-                                verbose = False,
-                                  ):
-    """
-    Purpose: To get restricted downstream skeleton 
-    starting from the upstream node
-    and going a certain distance
-
-    Application: will help select a part of skeleton
-    that we want to find the width around (for axon identification purposes)
-
-    Psuedocode: 
-    1) Get the downstream skeleton
-    2) Get the upstream coordinate and restrict the skeleton to
-    a certain distance away from the upstream coordinate
-    3) Calculate the new width based on the skeleton and the meshes
-
-    """
-    #1) Get the downstream skeleton
-    if downstream_nodes is not None:
-        nodes_to_exclude = np.setdiff1d(list(limb_obj.get_branch_names()),downstream_nodes)
-
-    if verbose:
-        print(f"nodes_to_exclude = {nodes_to_exclude}")
 
 
-    downstream_sk = cnu.skeleton_downstream(limb_obj,
-                           branch_idx=branch_idx,
-                           distance=downstream_skeletal_length,
-                           only_non_branching=False,
-                           nodes_to_exclude=nodes_to_exclude,
-                           plot_skeleton=False)
 
-    upstream_coordinate = nru.upstream_endpoint(limb_obj,branch_idx)
-    if verbose:
-        print(f"upstream_coordinate = {upstream_coordinate}")
-
-
-    restr_sk = sk.restrict_skeleton_to_distance_from_coordinate(downstream_sk,
-               coordinate = upstream_coordinate,
-               distance_threshold=downstream_skeletal_length)
-
-
-    return restr_sk
-
-
-def width_downstream_restricted(limb_obj,
-                               branch_idx,
-                               downstream_skeletal_length,
-                               downstream_nodes = None,
-                               plot_restricted_skeleton = False,
-                                remove_spines_from_mesh = True,
-                                verbose = False,
-                                **kwargs):
-    """
-    Purpose: To find the width around a 
-    skeleton starting from a certain branch
-    and uptream coordinate
-    
-    Ex: 
-    
-    from neurd import concept_network_utils as cnu
-    
-    cnu.width_downstream_restricted(
-    limb_obj = neuron_obj_exc_syn_sp[0],
-    branch_idx = 21,
-    downstream_skeletal_length = 30_000,
-    downstream_nodes = [21,26,30,35],
-    nodes_to_exclude=None,
-    plot_restricted_skeleton = True,
-    remove_spines_from_mesh = True,
-    verbose = True)
-
-    """
-
-    #1) Get the downstream skeleton
-    if downstream_nodes is not None:
-        nodes_to_exclude = np.setdiff1d(list(limb_obj.get_branch_names()),downstream_nodes)
-    if verbose:
-        print(f"nodes_to_exclude = {nodes_to_exclude}")
-
-    old_width = cnu.width_downstream(limb_obj,
-                                    branch_idx,
-                                    distance=downstream_skeletal_length,
-                                    nodes_to_exclude=nodes_to_exclude,
-                                    #width_func=nst.width_new,
-                                     width_func=nst.width_basic,
-                                    )
-
-    if verbose:
-        print(f"old_width = {old_width}")
-
-
-    restr_sk = cnu.skeleton_downstream_restricted(    
-        limb_obj = limb_obj,
-        branch_idx = branch_idx,
-        downstream_skeletal_length = downstream_skeletal_length,
-        downstream_nodes = downstream_nodes,
-        plot_restricted_skeleton=False,
-        **kwargs
-    )
-
-    ref_mesh = limb_obj.mesh
-    if remove_spines_from_mesh:
-        spine_meshes = limb_obj.spines
-
-        if verbose:
-            print(f"ref_mesh before spine remove = {ref_mesh}")
-
-        if len(spine_meshes) > 0:
-            ref_mesh = tu.subtract_mesh(ref_mesh,tu.combine_meshes(spine_meshes),
-                                       error_for_exact_match=False)
-
-        if verbose:
-            print(f"ref_mesh after spine_remove = {ref_mesh}")
-
-
-    new_width = wu.new_width_from_mesh_skeleton(restr_sk,
-                                ref_mesh,
-                                backup_width=old_width,
-                                verbose = False,
-                                   )
-    if verbose:
-        print(f"new_width = {new_width}")
-
-    return new_width
-
-def G_weighted_from_limb(limb_obj,
-                                      weight_name = "weight",
-                                    upstream_attribute_for_weight = "skeletal_length",
-                                      node_properties = None):
-    """
-    Purpose: Convert the concept_network_directional
-    to a graph with weighted edges being 
-    the length of the upstream edge
-
-    Pseudocode: 
-    1) Copy the concept network directional
-    2) Add the edge weight property
-    3) Add any node properties requested
-    
-    Ex: 
-    G = cnu.G_weighted_from_limb(limb_obj,
-                                  weight_name = "weight",
-                                upstream_attribute_for_weight = "skeletal_length",
-                                  node_properties = [nst.width_new])
-
-    from datasci_tools import numpy_utils as nu
-    nu.turn_off_scientific_notation()
-    xu.get_node_attributes(G,"width_new",24)
-    xu.get_edges_with_weights(G)
-
-    """
-
-    G = xu.copy_G_without_data(limb_obj.concept_network_directional)
-
-    for (n1,n2) in G.edges():
-        G[n1][n2][weight_name] = nst.get_stat(limb_obj[n1],upstream_attribute_for_weight)
-
-    if node_properties is not None:
-        for n_prop in node_properties:
-            for n in G.nodes():
-                if type(n_prop) == str:
-                    curr_name = n_prop
-                else:
-                    curr_name = str(n_prop.__name__)
-
-                G.nodes[n][curr_name] = nst.get_stat(limb_obj[n],n_prop)
-    return G
 def all_downstream_branches_from_branches(limb_obj,
                                          branches,
                                          include_original_branches=False,
@@ -1528,55 +1268,6 @@ def feature_over_branches(
     else:
         return branches_val
     
-def weighted_feature_over_branches(
-    limb_obj,
-    branches,
-    direction = None,#downstream or upstream
-    include_original_branches_in_direction = False,
-    # argument for computing the feature
-    feature_name=None,
-    feature_function=None,
-    combining_function=None,
-    default_value = 0,
-    verbose = False,
-    **kwargs):
-    """
-    Purpose: To find the average value over a list of branches
-
-    Pseudocode: 
-    1) Find features over branches with skeletal length
-    4) Do a weighted average based on skeletal length
-    
-    Ex: 
-    weighted_feature_over_branches(limb_obj = n_obj_2[6],
-                                branches = [24,2],
-                               direction="upstream",
-                               verbose = True,
-                               feature_function=ns.width
-    )
-    """
-    branches_val,sk_len = cnu.feature_over_branches(
-    limb_obj,
-    branches,
-    direction = direction,#downstream or upstream
-    include_original_branches_in_direction = include_original_branches_in_direction,
-    # argument for computing the feature
-    feature_name=feature_name,
-    feature_function=feature_function,
-    combining_function=combining_function,
-    return_skeletal_length = True,
-    verbose = verbose,
-    **kwargs)
-    
-    if len(sk_len) == 0:
-        return_value = default_value
-    else:
-        return_value = nu.weighted_average(branches_val,sk_len)
-
-    if verbose:
-        print(f"Weighted value = {return_value}")
-
-    return return_value
 
 def sum_feature_over_branches(
     limb_obj,
@@ -1632,115 +1323,7 @@ def all_downstream_nodes(limb_obj,branch_idx):
     return xu.all_downstream_nodes(limb_obj.concept_network_directional,
                                    branch_idx)
 
-def upstream_branches_in_branches_list(limb_obj,
-                                       branches):
-    """
-    Purpose: To return branch idxs where 
-    other branch idxs are in the downstream 
-    nodes of a current branch idx
 
-    Pseudocode: 
-    For each branch idx
-    1) Get all the downstream nodes
-    2) Add it to the upstream list if intersect exists
-    """
-
-
-    upstream_nodes = []
-    for b in branches:
-        try:
-            all_down = cnu.all_downstream_nodes(limb_obj,b)
-        except:
-            continue
-        if len(np.intersect1d(all_down,branches)) > 0:
-            upstream_nodes.append(b)
-
-    return upstream_nodes
-
-def downstream_nodes_with_skip_distance(
-    limb_obj,
-    branch_idx,
-    skip_distance = 0,
-    skip_nodes = None,
-    return_skipped=False,
-    verbose = False,
-    max_iterations = 1000,
-    ):
-    """
-    Purpose: Find the branches that are immediately downstream of a parent node
-    (where branches between a certain threshold are skipped, according to skip distance)
-    * could skip multiple branches in a row if all below skip distance
-    
-    Pseudocode:
-    0. Initialize a skipped_nodes,downstream_nodes
-    1. Add current node to list of parent nodes
-    Iterate through parent nodes until list is empty
-        a. get all the downstream nodes
-        b. if any of the nodes have a skeletal length less than the skip_distance, add to skip_list and parent nodes
-        b2. For any nodes above the skip_distance, add to downstream nodes
-    """
-
-    
-    G = limb_obj.concept_network_directional
-    
-    parent_nodes = []
-    processed_nodes = set()
-    downstream_nodes = set()
-    
-    def node_distance(n):
-        return limb_obj[n].skeletal_length
-    
-    parent_nodes.append(branch_idx)
-    counter = 0
-    while len(parent_nodes) > 0:
-        p = parent_nodes.pop(0)
-        processed_nodes.add(p)
-        if verbose:
-            print(f"-- Working on parent {p} --")
-            
-        # children of parent
-        children = list(G[p].keys())
-
-        if verbose:
-            print(f"children = {children}")
-        if len(children) == 0:
-            continue
-        for c in children:
-            if skip_nodes is None:
-                node_dist = node_distance(c)
-                skip_value = node_dist < skip_distance
-                skip_reason = "(dist = {node_dist})"
-            else:
-                skip_value = c in skip_nodes
-                skip_reason = f"(due to argument skip_nodes = {skip_nodes})"
-                
-            #print(f"skip_reason = {skip_reason}")
-            if not skip_value:
-                if verbose:
-                    print(f"   child {c}: adding to downstream nodes {skip_reason}")
-                downstream_nodes.add(c)
-            else:
-                if verbose:
-                    print(f"   child {c}: skipped and added to parent list {skip_reason}")
-                if c in processed_nodes:
-                    raise Exception("child already in processed nodes")
-                parent_nodes.append(c)
-        counter += 1
-        if counter > max_iterations:
-            raise Exception("Max iterations in downstream nodes loop reached")
-    
-    processed_nodes.remove(branch_idx)
-    if skip_nodes is None:
-        skip_nodes = list(processed_nodes)
-    downstream_nodes = list(downstream_nodes)
-    
-    if verbose:
-        print(f"\n -- Results --\nfor branch {branch_idx} with skip_distance = {skip_distance}:")
-        print(f"downstream_nodes = {downstream_nodes}\nskipped_nodes = {skip_nodes}")
-
-    if return_skipped:
-        return downstream_nodes,skip_nodes
-    return downstream_nodes
 
 #--- from neurd_packages ---
 from . import neuron_statistics as nst
