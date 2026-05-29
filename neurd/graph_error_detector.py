@@ -22,9 +22,8 @@ from . import (
     neuron_searching as ns,
     concept_network_utils as cnu,
     limb_utils as lu,
-    branch_utils as bu,
     error_detection as ed,
-    graph_error_detector as ged,
+
     
     #neuron_utils as nru,
 )
@@ -231,68 +230,7 @@ Final output:
 
 
 ## ---- Classes for preprocessing graph --
-from dataclasses import dataclass, field,asdict
-
-# @dataclass
-# class NeuronGraphFilterConfig:
-#     # what branches to search over
-#     limb_branch_dict_func: Callable[..., Any] = None
-#     # short_thick_endnodes params
-#     filter_short_thick_endnodes: bool = False
-#     # too_close_limb_branch params
-#     min_distance_from_soma_mesh: int = 0
-#     plot_soma_restr: bool = False
-#     # spines params
-#     min_skeletal_length_endpoints: int = 0
-#     plot_endpoints_filtered:bool = False
-
-
-# from typing import Union, List,Callable,Any
-# import numpy as np
-
-# #ListOrArray: TypeAlias = Union[List[int], np.ndarray]
-
-# @dataclass
-# class LimbGraphFilterConfig:
-#     """
-#     Attributes:
-#     -----------
-#     branches_to_process: list
-#         The nodes that will be checked as a parent (derived from limb branch dict)
-#     short_thick_endpoint_nodes: list
-#         Nodes that were computed using the au.short_thick_branches_limb_branch_dict
-#         but only if the filter_short_thick_endnodes flag was set
-    
-#     """
-#     branches_to_process: Union[List[int], np.ndarray] = None
-#     short_thick_endpoint_nodes: Union[List[int], np.ndarray]=None
-#     too_close_to_soma_nodes: Union[List[int], np.ndarray] = None
-#     spine_nodes: Union[List[int], np.ndarray] = None
-
-#     # -- limb scope parameters -- 
-#     min_upstream_skeletal_distance:float = 0
-
-# inf = 10000000
-# @dataclass
-# class BranchGraphFilterConfig:
-#     # -- branch scope preprocessing parameters --
-#     skip_distance:float = 0
-#     min_degree_to_resolve:int = 1
-    
-#     max_degree_to_resolve_absolute:int = inf
-    
-#     width_func: Callable[..., Any] = au.axon_width
-#     upstream_width_max:float = inf
-
-#     max_degree_to_resolve:int = inf
-#     max_degree_to_resolve_width_threshold:float = inf
-#     max_degree_to_resolve_wide:int = inf
-
-#     width_max:float = inf
-
-#     axon_dependent:bool = False
-
-#     width_min:float = 0
+from dataclasses import dataclass, field
 
 @dataclass
 class NeuronGraphScreenerConfig:
@@ -1356,10 +1294,4 @@ class NeuronGraphErrorDetector:
     error_limb_branch = __call__
   
         
-from . import (
-    graph_error_detector_dendrite as gedd,
-    neuron_visualizations as nviz,
-    neuron_utils as nru,
-)
-    
-#from . import graph_filters_refactored as gf
+
