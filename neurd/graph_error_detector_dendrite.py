@@ -926,7 +926,6 @@ class InhDendriteDoubleBackErrorDetector(ged.LimbBranchErrorDetector):
         )
     
 from . import (
-    graph_error_detector_dendrite as gedd,
     neuron_visualizations as nviz,
     neuron_utils as nru,
 )

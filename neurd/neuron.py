@@ -1,22 +1,21 @@
 
-import copy 
 from copy import deepcopy as dc
 import networkx as nx
-from pathlib import Path
 from scipy.spatial import KDTree
 import sys
 import time
 from datasci_tools import numpy_dep as np
 
-#neuron module specific imports
-#to be used for the soma_vertex nullification
+from . import neuron_utils as nru
+from . import neuron_statistics as nst
+
 
 
 
 current_module = sys.modules[__name__]
 
 
-from .documentation_utils import tag
+
 
 branch_mesh_attributes = ["spines","boutons"]
 object_attributes = ["synapses","spines_obj"]
@@ -29,25 +28,10 @@ computed_attribute_list = [
     "labels","boutons_cdfs","web_cdf","web","head_neck_shaft_idx"] + branch_mesh_attributes + object_attributes
 
 
-def export_skeleton(self,subgraph_nodes=None):
-    """
-    
-    """
-    if subgraph is None:
-        total_graph = self.neuron_graph
-    else:
-        pass
-        # do some subgraphing
-        #total_graph = self.neuron_graph.subgraph([])
-    
-    #proce
 
 
-def export_mesh_labels(self):
-    """
-    
-    """
-    pass
+
+
 
 
 def convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity):
@@ -166,13 +150,7 @@ class Branch:
                 
             self.width_array_skeletal_lengths = dc_check(skeleton,"width_array_skeletal_lengths")
                 
-            #copying over of the synapse data
-            syn_types = ["synapses"]#list(syu.synapse_types.values())
-            for s_id in syn_types:
-                setattr(self,s_id,dc_check(skeleton,s_id))
-                if getattr(self,s_id) is None:
-                    setattr(self,s_id,[])
-                
+            
             self.spines_obj = dc_check(skeleton,"spines_obj")
             if self.spines_obj is None:
                 self.spines_obj = []
@@ -294,10 +272,7 @@ class Branch:
         self.skeleton = sk.order_skeleton(
                         self.skeleton,
         )
-        
-    @property
-    def compartment(self):
-        return apu.compartment_from_branch(self)
+
         
     @property
     def endpoint_upstream(self):
@@ -352,10 +327,7 @@ class Branch:
     def mesh_center_z(self):
         return self.mesh_center[2]
     
-    @property
-    def width_overall(self):
-        return nst.width_new(self)
-    
+
     @property
     def endpoint_upstream_x(self):
         return self.endpoint_upstream[0]
@@ -557,9 +529,7 @@ class Branch:
     def skeletal_length_eligible(self):
         return sk.calculate_skeleton_distance(self.skeleton) 
     
-    @property
-    def max_skeleton_endpoint_dist(self):
-        return nst.max_skeleton_endpoint_dist(self) 
+
     
     '''
     def compute_spines_volume(self,
@@ -682,37 +652,7 @@ class Branch:
             
         return self._endpoints_nodes
 
-    @property
-    def n_synapses(self):
-        return syu.n_synapses(self)
-    
-    @property
-    def synapse_density(self):
-        return syu.synapse_density(self)
-    
-    @property
-    def synapses_pre(self):
-        return syu.synapses_pre(self)
-    
-    @property
-    def n_synapses_pre(self):
-        return syu.n_synapses_pre(self)
-    
-    @property
-    def n_synapses_post(self):
-        return syu.n_synapses_post(self)
-    
-    @property
-    def synapses_post(self):
-        return syu.synapses_post(self)
-    
-    @property
-    def synapse_density_pre(self):
-        return syu.synapse_density_pre(self)
-    
-    @property
-    def synapse_density_post(self):
-        return syu.synapse_density_post(self)
+   
     
     @property
     def axon_compartment(self):
@@ -721,46 +661,7 @@ class Branch:
         else:
             return "dendrite"
         
-    # ------- 7/21: The synapse head/neck/shaft ----
-    @property
-    def synapses_head(self):
-        return syu.synapses_head(self)
-    
-    @property
-    def synapses_neck(self):
-        return syu.synapses_neck(self)
-    
-    @property
-    def synapses_shaft(self):
-        return syu.synapses_shaft(self)
-    
-    @property
-    def synapses_spine(self):
-        return syu.synapses_spine(self)
-    
-    @property
-    def synapses_no_head(self):
-        return syu.synapses_no_head(self)
-    
-    @property
-    def n_synapses_head(self):
-        return syu.n_synapses_head(self)
-    
-    @property
-    def n_synapses_neck(self):
-        return syu.n_synapses_neck(self)
-    
-    @property
-    def n_synapses_shaft(self):
-        return syu.n_synapses_shaft(self)
-    
-    @property
-    def n_synapses_spine(self):
-        return syu.n_synapses_spine(self)
-    
-    @property
-    def n_synapses_no_head(self):
-        return syu.n_synapses_no_head(self)
+   
     
 
 class Limb:
@@ -1151,33 +1052,7 @@ class Limb:
     def spines_obj(self):
         return nru.feature_list_over_object(self,"spines_obj")
     
-    @property
-    def n_synapses(self):
-        return syu.n_synapses(self)
     
-    @property
-    def synapses_pre(self):
-        return syu.synapses_pre(self)
-    
-    @property
-    def n_synapses_pre(self):
-        return syu.n_synapses_pre(self)
-    
-    @property
-    def n_synapses_post(self):
-        return syu.n_synapses_post(self)
-    
-    @property
-    def synapses_post(self):
-        return syu.synapses_post(self)
-    
-    @property
-    def synapse_density_pre(self):
-        return syu.synapse_density_pre(self)
-    
-    @property
-    def synapse_density_post(self):
-        return syu.synapse_density_post(self)
     
     @property
     def boutons(self):
@@ -1751,10 +1626,7 @@ class Limb:
                     else:
                         setattr(curr_branch,attribute_name,None)
                 elif attribute_name in object_attributes:
-                    if attribute_dict[branch_idx] is not None:
-                        setattr(curr_branch,attribute_name,[object_name_to_class[attribute_name](**k) for k in attribute_dict[branch_idx]])
-                    else:
-                        setattr(curr_branch,attribute_name,None)
+                    setattr(curr_branch,attribute_name,None)
                 else:
                     att_val = attribute_dict[branch_idx]
                     if attribute_name == "spines_volume" and att_val is not None:
@@ -2197,25 +2069,7 @@ class Soma:
         return not self.__eq__(other)
     
     
-    @property
-    def n_synapses(self):
-        return syu.n_synapses(self)
     
-    @property
-    def synapses_pre(self):
-        return syu.synapses_pre(self)
-    
-    @property
-    def n_synapses_pre(self):
-        return syu.n_synapses_pre(self)
-    
-    @property
-    def n_synapses_post(self):
-        return syu.n_synapses_post(self)
-    
-    @property
-    def synapses_post(self):
-        return syu.synapses_post(self)
 
 #from neurd import preprocess_neuron as pn
 
@@ -2620,20 +2474,9 @@ class Neuron:
                 preprocessed_data["soma_volume_ratios"] = [sm.soma_volume_ratio(j) for j in soma_meshes]
                 
             # -------- 6/9 addition: synapses that are saved off--------
-            if "soma_synapses" in preprocessed_data.keys():
-                soma_synapses = [syu.exports_to_synapses(jj) for jj in preprocessed_data["soma_synapses"]]
-            else:
-                soma_synapses = [None]*len(soma_sdfs)
+
                 
-            if "distance_errored_synapses" in preprocessed_data.keys():
-                self.distance_errored_synapses = syu.exports_to_synapses(preprocessed_data["distance_errored_synapses"])
-            else:
-                self.distance_errored_synapses = []
-                
-            if "mesh_errored_synapses" in preprocessed_data.keys():
-                self.mesh_errored_synapses = syu.exports_to_synapses(preprocessed_data["mesh_errored_synapses"])
-            else:
-                self.mesh_errored_synapses = []
+
                 
                 
                 
@@ -2678,7 +2521,7 @@ class Neuron:
                 print(f"--- 3a) Finshed generating soma_meshes_face_idx: {time.time() - neuron_start_time}")
                 neuron_start_time =time.time()
 
-            for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume,curr_synapses) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes,soma_synapses)):
+            for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume,curr_synapses) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes)):
                 Soma_obj = Soma(curr_soma,
                                 mesh_face_idx=curr_soma_face_idx,
                                 sdf=current_sdf,
@@ -2855,47 +2698,12 @@ class Neuron:
             store_in_obj = store_in_obj,
         )
         
-    def calculate_multi_soma_split_suggestions(
-        self,
-        store_in_obj = True,
-        plot = True,
-        **kwargs):
-        
-        ret_result = ssu.calculate_multi_soma_split_suggestions(
-            self,
-            store_in_obj = True,
-            plot = plot,
-            **kwargs
-        )
-        
-        
-        return ret_result
     
-    def multi_soma_split_execution(
-        self,
-        verbose=False,
-        store_in_obj=True,
-        **kwargs
-        ):
-        
-        return ssu.multi_soma_split_execution(
-            self,
-            verbose = verbose,
-            store_in_obj=store_in_obj,
-            **kwargs
-        )
+    
+    
         
     
-    @property
-    def valid_error_split_points_by_limb(self):
-        """
-        dummy docstring
-        """
-        rb_splits = getattr(self,"red_blue_split_results",None)
-        return ssu.limb_red_blue_dict_from_red_blue_splits(
-            rb_splits     
-        )
-        
+    
     
     def get_total_n_branches(self):
         return np.sum([len(self.concept_network.nodes[li]["data"].concept_network.nodes()) for li in self.get_limb_node_names()])
@@ -3098,123 +2906,7 @@ class Neuron:
             return self[self._index]
         
     
-    #Overloading the Comparison 
-    def __eq__(self,other):
-        """
-        Purpose: Computes equality of all members of the neuron object
-        
-        Things that need to compare: 
-        concept_network
-        segment_id
-        description
-        mesh
-        inside_pieces #we should do these in the same order
-        insignificant_limbs #same order
-        non_soma_touching_meshes #same order
-        
-        Testing: 
-        from datasci_tools import numpy_dep as np
-        nru = reload(nru)
-        neuron = reload(neuron)
-        xu = reload(xu)
-        sk = reload(sk)
-        nu= reload(nu)
-        tu = reload(tu)
-
-        from neurd import soma_extraction_utils as sm
-        sm = reload(sm)
-
-        obj1 = neuron.Neuron(double_soma_obj,suppress_output=False)
-        obj2 = neuron.Neuron(double_soma_obj,suppress_output=False)
-
-        #obj1 == obj2
-
-        #testing the changing of different things
-        #obj1.concept_network.nodes["S0"]["data"].mesh = obj1.concept_network.nodes["S0"]["data"].mesh.submesh([np.arange(0,len(obj1.concept_network.nodes["S0"]["data"].mesh.faces)-5)],append=True)
-        #obj1.concept_network.nodes["S0"]["data"].sdf = 100
-        #obj1.description = "hello"
-        #obj1.segment_id = 1234567
-        #obj1.inside_pieces = obj1.inside_pieces[:10]
-        #obj2.non_soma_touching_meshes =  obj2.non_soma_touching_meshes[6:17]
-        #curr_mesh = obj1.concept_network.nodes["L1"]["data"].concept_network.nodes[1]["data"].mesh
-        #obj1.concept_network.nodes["L1"]["data"].concept_network.nodes[1]["data"].mesh = curr_mesh.submesh([np.arange(5,50)],append=True)
-        
-        au = reload(au)
-        obj1 == obj2
-        
-        """
-        
-        print_flag = True
-        differences = []
-      
-        
-        # Compare'concept_network', #networkx graph
-        nx_compare_result,nx_diff_list = xu.compare_networks(self.concept_network,
-                                                          other.concept_network,return_differences=True)
-        if not nx_compare_result:
-            differences.append(f"concept_network didn't match"
-                              f"\n    Differences in compare_networks = {nx_diff_list}")
-        
-        #comparing the segment_id
-        if self.segment_id != other.segment_id:
-            differences.append(f"segment_id didn't match: "
-                               f"\n    self.segment_id = {self.segment_id},"
-                               f" other.segment_id = {other.segment_id}") 
-        
-        #comparing the description
-        if self.description != other.description:
-            differences.append(f"description didn't match: "
-                               f"\n    self.description = {self.description},"
-                               f" other.description = {other.description}") 
-        
-        
-        #comparing the meshes
-        if not tu.compare_meshes_by_face_midpoints(self.mesh,other.mesh):
-            differences.append(f"mesh didn't match"
-                               f"\n    self.mesh = {self.mesh},"
-                               f" other.mesh = {other.mesh}") 
-        
-        #comparing the mesh lists
-        mesh_lists_to_check = ["inside_pieces",
-                                "insignificant_limbs",
-                               "not_processed_soma_containing_meshes",
-                                "non_soma_touching_meshes"]
-        
-        
-        for curr_mesh_attr in mesh_lists_to_check:
-            curr_self_attr = getattr(self, curr_mesh_attr)
-            curr_other_attr = getattr(other, curr_mesh_attr)
-            
-            """
-            Older method of comparison that did not account for lists of different sizes: 
-            mesh_list_comparisons = tu.compare_meshes_by_face_midpoints_list(curr_self_attr,
-                                                                             curr_other_attr)
-            
-            """
-            comparison_result, comparison_differences = agu.compare_uneven_groups(curr_self_attr,curr_other_attr,
-                             comparison_func = tu.compare_meshes_by_face_midpoints,
-                             group_name=curr_mesh_attr,
-                             return_differences=True)
-        
-            
-            
-            if not comparison_result:
-                """
-                #didnt account for different size comparisons
-                differences.append(f"{curr_mesh_attr} didn't match"
-                                   f"\n    self.{curr_mesh_attr} different = {[k for truth,k in zip(mesh_list_comparisons,curr_self_attr) if truth == False]},"
-                                   f" other.{curr_mesh_attr} different = {[k for truth,k in zip(mesh_list_comparisons,curr_other_attr) if truth == False]}") 
-                """
-                differences += comparison_differences
-        
-        if len(differences) == 0:
-            return True
-        else:
-            if print_flag:
-                print("Differences List:")
-                for j,diff in enumerate(differences):
-                    print(f"{j})   {diff}")
-            return False
+    
         
     
     def __ne__(self,other):
@@ -3335,281 +3027,17 @@ class Neuron:
         else:
             return soma_neighbors
     
-    # --------------------- For saving the neuron -------------------- #
-    def save_compressed_neuron(self,output_folder="./",file_name="",return_file_path=False,
-                               export_mesh=False,
-                              suppress_output=True,
-                              file_name_append=None,):
-        """
-        Will save the neuron in a compressed format:
-        
-        
-        Ex: How to save compressed neuron
-        double_neuron_preprocessed.save_compressed_neuron("/notebooks/test_neurons/preprocessed_neurons/meshafterparty/",export_mesh=True,
-                                         file_name=f"{double_neuron_preprocessed.segment_id}_{double_neuron_preprocessed.description}_meshAfterParty",
-                                         return_file_path=True)
-        
-        Ex: How to reload compressed neuron
-        nru.decompress_neuron(filepath="/notebooks/test_neurons/preprocessed_neurons/meshafterparty/12345_double_soma_meshAfterParty",
-                     original_mesh='/notebooks/test_neurons/preprocessed_neurons/meshafterparty/12345_double_soma_meshAfterParty')
-        """
-        if suppress_output:
-            print("Saving Neuorn in suppress_output mode...please wait")
-        
-        
-        with su.suppress_stdout_stderr() if suppress_output else su.dummy_context_mgr():
-            returned_file_path = nru.save_compressed_neuron(self,
-                                       output_folder=output_folder,
-                                       file_name=file_name,
-                                       return_file_path=True,
-                                       export_mesh=export_mesh,
-                                        file_name_append=file_name_append)
-        print(f"Saved File at location: {returned_file_path}")
-        
-        if  return_file_path:
-            return returned_file_path
     
-    #how to save neuron object
-    def save_neuron_object(self,
-                          filename=""):
-        if filename == "":
-            print("No filename/location given so creating own")
-            filename = f"{self.segment_id}_{self.description}.pkl"
-        file = Path(filename)
-        print(f"Saving Object at: {file.absolute()}")
-        
-        su.save_object(self,file)
     
-#     def calculate_width_without_spines(self,
-#                                       skeleton_segment_size = 1000,
-#                                        width_segment_size=None,
-#                                       width_name = "no_spine_average",
-#                                       **kwargs):
+   
+    
 
-
-#         for limb_idx in self.get_limb_node_names():
-#             for branch_idx in self.get_branch_node_names(limb_idx):
-#                 print(f"Working on limb {limb_idx} branch {branch_idx}")
-#                 curr_branch_obj = self.concept_network.nodes[nru.limb_label(limb_idx)]["data"].concept_network.nodes[branch_idx]["data"]
-#                 if "distance_by_mesh_center" not in kwargs.keys():
-#                     if "mesh_center" in width_name:
-#                         distance_by_mesh_center = True
-#                     else:
-#                         distance_by_mesh_center = False
-                
-                
-#                 current_width_array,current_width = wu.calculate_new_width(curr_branch_obj, 
-#                                       skeleton_segment_size=skeleton_segment_size,
-#                                       width_segment_size=width_segment_size, 
-#                                       distance_by_mesh_center=distance_by_mesh_center,
-#                                       return_average=True,
-#                                       print_flag=False,
-#                                     **kwargs)
-
-
-#                 curr_branch_obj.width_new[width_name] = current_width
-#                 curr_branch_obj.width_array[width_name] = current_width_array
     
     
     
     from datasci_tools import system_utils as su
-    def calculate_spines_old(self,
-                        #query="width > 400 and n_faces_branch>100",
-                         #query="median_mesh_center > 140 and n_faces_branch>100",#previous used median_mesh_center > 140
-                         query="median_mesh_center > 115 and n_faces_branch>100",#previous used median_mesh_center > 140
-                        clusters_threshold=3,#2,
-                        smoothness_threshold=0.12,#0.08,
-                        shaft_threshold=300,
-                        cgal_path=Path("./cgal_temp"),
-                        print_flag=False,
-                         spine_n_face_threshold=25,
-                         filter_by_bounding_box_longest_side_length=True,
-                         side_length_threshold = 5000,
-                        filter_out_border_spines=False, #this seemed to cause a lot of misses
-                        skeleton_endpoint_nullification=True,
-                         skeleton_endpoint_nullification_distance = 2000,
-                         soma_vertex_nullification = True,
-                         border_percentage_threshold=0.3,
-                        check_spine_border_perc=0.4,
-                        calculate_spine_volume=True,
-                         
-                         #-------1/20 Addition --------
-                         filter_by_volume = True,
-                         filter_by_volume_threshold = 19835293, #calculated from experiments
-                         
-                        limb_branch_dict=None):
-        
-        raise Exception("Out-dated function")
-        
-        print(f"query = {query}")
-        print(f"smoothness_threshold = {smoothness_threshold}")
-        if type(query) == dict():
-            functions_list = query["functions_list"]
-            current_query = query["query"]
-        else:
-            functions_list = ["median_mesh_center","n_faces_branch"]
-            current_query = query
-            
-        
-        #check that have calculated the median mesh center if required
-        if "median_mesh_center" in functions_list:
-            if len(self.get_limb_node_names())>0 and "median_mesh_center" not in self[0][0].width_new.keys():
-                print("The median_mesh_center was requested but has not already been calculated so calculating now.... ")
-                
-                wu.calculate_new_width_for_neuron_obj(self,
-                                                      no_spines=False,
-                                       distance_by_mesh_center=True,
-                                       summary_measure="median")
-            else:
-                print("The median_mesh_center was requested and HAS already been calculated")
-
-        new_branch_dict = ns.query_neuron(self,
-                       functions_list=functions_list,
-                       query=current_query)
-        if print_flag:
-            print(f"new_branch_dict = {new_branch_dict}")
- 
-        
-        
-        self._index = -1
-        for limb_idx,curr_limb in enumerate(self):
-            limb_idx = f"L{limb_idx}"
-            
-            # ------------- 1/20 Addition that allows you to specify which branches to do ------- #
-            if limb_branch_dict is not None:
-                if limb_idx not in list(limb_branch_dict.keys()):
-                    continue
-            
-            
-            
-            if soma_vertex_nullification:
-                soma_verts = np.concatenate([self[f"S{k}"].mesh.vertices for k in curr_limb.touching_somas()])
-                soma_kdtree = KDTree(soma_verts)
-            
-            curr_limb._index = -1
-            for branch_idx,curr_branch in enumerate(curr_limb):
-                already_calculated_volumes = False
-                if limb_idx in new_branch_dict.keys():
-
-                    #print(f"new_branch_dict[{limb_idx}] = {new_branch_dict[limb_idx]}")
-                    #print(f"branch_idx = {branch_idx}")
-                    if branch_idx in new_branch_dict[limb_idx]:
-                        
-                        # ------------- 1/20 Addition that allows you to specify which branches to do ------- #
-                        if limb_branch_dict is not None:
-                            if branch_idx not in limb_branch_dict[limb_idx]:
-                                continue
-
-                        if print_flag:
-                            print(f"Working on limb {limb_idx} branch {branch_idx}")
-                        #calculate the spines
-                        
-                        #su.compressed_pickle(curr_branch,"curr_branch_before_spines")
-                        
-                        spine_submesh_split= spu.get_spine_meshes_unfiltered(current_neuron = self,
-                                                                limb_idx=limb_idx,
-                                                                branch_idx=branch_idx,
-                                                                clusters=clusters_threshold,
-                                                                smoothness=smoothness_threshold,
-                                                                #cgal_folder = cgal_path,
-                                                                #delete_temp_file=True,
-                                                                return_sdf=False,
-                                                                print_flag=False,
-                                                                shaft_threshold=shaft_threshold)
-                        
-                            
-                        #print(f"curr_branch.mesh = {curr_branch.mesh}")
-#                         spine_submesh_split = spu.get_spine_meshes_unfiltered_from_mesh(curr_branch.mesh,
-#                                                                 segment_name=f"{limb_idx}_{branch_idx}",
-#                                                                 clusters=clusters_threshold,
-#                                                                 smoothness=smoothness_threshold,
-#                                                                 cgal_folder = cgal_path,
-#                                                                 delete_temp_file=True,
-#                                                                 return_sdf=False,
-#                                                                 print_flag=False,
-#                                                                 shaft_threshold=shaft_threshold)
-                        
-                        if print_flag:
-                            print(f"--> n_spines found before filtering = {len(spine_submesh_split)}")
-
-        #                 if limb_idx == "L0":
-        #                     if branch_idx == 0:
-        #                         print(f"spine_submesh_split = {spine_submesh_split}")
-
-                        spine_submesh_split_filtered = spu.filter_spine_meshes(spine_submesh_split,
-                                                                              spine_n_face_threshold=spine_n_face_threshold)
-            
-                        if filter_by_bounding_box_longest_side_length:
-                            old_length = len(spine_submesh_split_filtered)
-                            spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
-                                                                                                     side_length_threshold=side_length_threshold)
-                            if len(spine_submesh_split_filtered) < old_length:
-                                #print(f"Removed {old_length - len(spine_submesh_split_filtered)} spines because of side length greater than {side_length_threshold}")
-                                pass
-        #                 if limb_idx == "L0":
-        #                     if branch_idx == 0:
-        #                         print(f"spine_submesh_split_filtered = {spine_submesh_split_filtered}")
-        
-                        if filter_out_border_spines:
-                            if print_flag:
-                                print("Using the filter_out_border_spines option")
-                            spine_submesh_split_filtered = spu.filter_out_border_spines(self[limb_idx][branch_idx].mesh,
-                                                                                        spine_submesh_split_filtered,
-                                                                                        border_percentage_threshold=border_percentage_threshold,
-                                                                                        check_spine_border_perc=check_spine_border_perc,
-                                                                                        verbose=print_flag
-                                                                                       )
-                        if skeleton_endpoint_nullification:
-                            if print_flag:
-                                print("Using the skeleton_endpoint_nullification option")
-                                
-                            
-                            curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(self[limb_idx][branch_idx].skeleton)
-                                
-                            spine_submesh_split_filtered = tu.filter_meshes_by_containing_coordinates(spine_submesh_split_filtered,
-                                                                        curr_branch_end_coords,
-                                                                        distance_threshold=skeleton_endpoint_nullification_distance)
-                        
-                        if soma_vertex_nullification:
-                            if print_flag:
-                                print("Using the soma_vertex_nullification option")
-                                
-                            spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
-                                                                        soma_kdtree=soma_kdtree)
-                        
-                        
-                        if filter_by_volume:
-                            """
-                            Pseudocode: 
-                            1) Calculate the volumes of all the spines
-                            2) Filter those spines for only those above the volume
-                            
-                            """
-                            
-                            
-                            if len(spine_submesh_split_filtered) > 0:
-                                
-                                
-                                spine_volumes = np.array([tu.mesh_volume(k) for k in spine_submesh_split_filtered])
-                                volume_kept_idx = np.where(spine_volumes > filter_by_volume_threshold)[0]
-                                spine_submesh_split_filtered = [spine_submesh_split_filtered[k] for k in volume_kept_idx]
-                                
-                                curr_branch.spines_volume = list(spine_volumes[volume_kept_idx])
-                                
-                                already_calculated_volumes = True
-                                                         
-                        if print_flag:
-                            print(f"--> n_spines found = {len(spine_submesh_split_filtered)}")
-                        curr_branch.spines = spine_submesh_split_filtered
-                        
-                    else:
-                        curr_branch.spines = None
-                else:
-                    curr_branch.spines = None
-                
-                # will compute the spine volumes if asked for 
-                if calculate_spine_volume and not already_calculated_volumes:
-                    curr_branch.compute_spines_volume()
+    
+     # Here was old not actie code  def calculate_spines_old
     @property          
     def limb_area(self):
         self._index = -1
@@ -3664,33 +3092,7 @@ class Neuron:
         return nru.feature_list_over_object(self,"spines_obj")
     
     
-    @property
-    def n_synapses(self):
-        return syu.n_synapses(self)
     
-    @property
-    def synapses_pre(self):
-        return syu.synapses_pre(self)
-    
-    @property
-    def n_synapses_pre(self):
-        return syu.n_synapses_pre(self)
-    
-    @property
-    def n_synapses_post(self):
-        return syu.n_synapses_post(self)
-    
-    @property
-    def synapses_post(self):
-        return syu.synapses_post(self)
-    
-    @property
-    def synapse_density_pre(self):
-        return syu.synapse_density_pre(self)
-    
-    @property
-    def synapse_density_post(self):
-        return syu.synapse_density_post(self)
     
     @property
     def web(self):
@@ -3737,40 +3139,8 @@ class Neuron:
     '''
         
     
-    def plot_soma_limb_concept_network(self,
-                                      soma_color="red",
-                                      limb_color="aqua",
-                                      node_size=800,
-                                      font_color="black",
-                                      node_colors=dict(),
-                                      **kwargs):
-        """
-        Purpose: To plot the connectivity of the soma and the meshes in the neuron
-        
-        How it was developed: 
-        
-        from datasci_tools import networkx_utils as xu
-        xu = reload(xu)
-        node_list = xu.get_node_list(my_neuron.concept_network)
-        node_list_colors = ["red" if "S" in n else "blue" for n in node_list]
-        nx.draw(my_neuron.concept_network,with_labels=True,node_color=node_list_colors,
-               font_color="white",node_size=500)
-        
-        """
-        
-        nviz.plot_soma_limb_concept_network(self,
-                                              soma_color=soma_color,
-                                              limb_color=limb_color,
-                                              node_size=node_size,
-                                              font_color=font_color,
-                                              node_colors=node_colors,
-                                              **kwargs
-                                            
-                                           )
     
-    def axon_classification(self,**kwargs):
-        clu.axon_classification(self,**kwargs)
-    
+
     @property
     def axon_mesh(self):
         return nru.axon_mesh(self)
@@ -3783,48 +3153,16 @@ class Neuron:
     def axon_skeleton(self):
         return nru.axon_skeleton(self)
     
-    @property
-    def axon_limb_branch_dict(self):
-        return au.axon_limb_branch_dict(self)
     
     @property 
     def non_axon_like_limb_branch_on_dendrite(self):
         return nru.non_axon_like_limb_branch_on_dendrite(self)
+   
     
-    @property
-    def dendrite_limb_branch_dict(self):
-        return au.dendrite_limb_branch_dict(self)
-    
-    @property
-    def axon_on_dendrite_limb_branch_dict(self):
-        return au.axon_on_dendrite_limb_branch_dict(self)
-    
-    @property
-    def dendrite_on_axon_limb_branch_dict(self):
-        return au.dendrite_on_axon_limb_branch_dict(self)
-
     def label_limb_branch_dict(self,label):
         return nru.label_limb_branch_dict(self,label)
     
-    @property
-    def apical_shaft_limb_branch_dict(self):
-        return apu.apical_shaft_limb_branch_dict(self)
     
-    @property
-    def apical_limb_branch_dict(self):
-        return apu.apical_limb_branch_dict(self)
-    
-    @property
-    def apical_tuft_limb_branch_dict(self):
-        return apu.apical_tuft_limb_branch_dict(self)
-    
-    @property
-    def basal_limb_branch_dict(self):
-        return apu.basal_limb_branch_dict(self)
-    
-    @property
-    def oblique_limb_branch_dict(self):
-        return apu.oblique_limb_branch_dict(self)
     
     @property
     def axon_skeleton(self):
@@ -3834,13 +3172,6 @@ class Neuron:
     def dendrite_skeleton(self):
         return nru.dendrite_skeleton(self)
     
-    @property
-    def axon_starting_coordinate(self):
-        return clu.axon_starting_coordinate(self)
-    
-    @property
-    def axon_starting_branch(self):
-        return clu.axon_starting_branch(self)
     
     @property
     def axon_limb_name(self):
@@ -3867,26 +3198,6 @@ class Neuron:
             return nru.get_limb_int_name(ax_name)
     
         
-    def plot_limb_concept_network(self,
-                                  limb_name="",
-                                 limb_idx=-1,
-                                  node_size=0.3,
-                                  directional=True,
-                                 append_figure=False,
-                                 show_at_end=True,**kwargs):
-        if limb_name == "":
-            if limb_idx == -1:
-                raise Exception("Limb name and limb_idx both not specified")
-            limb_name = f"L{limb_idx}"
-            
-        if directional:
-            curr_limb_concept_network_directional = self.concept_network.nodes[limb_name]["data"].concept_network_directional
-        else:
-            curr_limb_concept_network_directional = self.concept_network.nodes[limb_name]["data"].concept_network
-        nviz.plot_concept_network(curr_concept_network = curr_limb_concept_network_directional,
-                            scatter_size=node_size,
-                            show_at_end=show_at_end,
-                            append_figure=append_figure,**kwargs)
     
     # ---- 11/20 functions that will help compute statistics of the neuron object ----------
     
@@ -4058,95 +3369,7 @@ class Neuron:
                      cell_type_mode = cell_type_mode,
                     **kwargs)
     
-    def neuron_stats_old(self,stats_to_ignore=None,
-                     include_skeletal_stats = False,
-                    include_centroids= False,
-                     voxel_adjustment_vector = None,
-                     cell_type_mode = False,
-                    **kwargs):
-        if cell_type_mode:
-            stats_to_ignore = [
-                "n_not_processed_soma_containing_meshes",
-                "n_error_limbs",
-                "n_same_soma_multi_touching_limbs",
-                "n_multi_soma_touching_limbs",
-                "n_somas",
-                "spine_density"
-                ]
-            include_skeletal_stats = False
-            include_centroids= True
-            
-            
-        stats_dict = dict(
-                        n_vertices = self.n_vertices,
-                        n_faces = self.n_faces,
-            
-                        axon_length = self.axon_length,
-                        axon_area = self.axon_area,
-            
-                        max_soma_volume = self.max_soma_volume,
-                        max_soma_n_faces = self.max_soma_n_faces,
-                        max_soma_area = self.max_soma_area,
-            
-            
-                        n_not_processed_soma_containing_meshes = len(self.not_processed_soma_containing_meshes),
-                        n_error_limbs=self.n_error_limbs,
-                        n_same_soma_multi_touching_limbs=len(self.same_soma_multi_touching_limbs),
-                        n_multi_soma_touching_limbs = len(self.multi_soma_touching_limbs),
-                        n_somas=self.n_somas,
-                        n_limbs=self.n_limbs,
-                        n_branches=self.n_branches,
-                        max_limb_n_branches=self.max_limb_n_branches,
-                       
-                        skeletal_length=self.skeletal_length,
-                        max_limb_skeletal_length=self.max_limb_skeletal_length,
-                        median_branch_length=self.median_branch_length,
-
-                        width_median=self.width_median, #median width from mesh center without spines removed
-                        width_no_spine_median=self.width_no_spine_median, #median width from mesh center with spines removed
-                        width_90_perc=self.width_90_perc, # 90th percentile for width without spines removed
-                        width_no_spine_90_perc=self.width_no_spine_90_perc,  # 90th percentile for width with spines removed
-
-                        n_spines=self.n_spines,
-                        n_boutons=self.n_boutons,
-
-                        spine_density=self.spine_density, # n_spines/ skeletal_length
-                        spines_per_branch=self.spines_per_branch,
-
-                        skeletal_length_eligible=self.skeletal_length_eligible, # the skeletal length for all branches searched for spines
-                        n_spine_eligible_branches=self.n_spine_eligible_branches,
-                        spine_density_eligible = self.spine_density_eligible,
-                        spines_per_branch_eligible = self.spines_per_branch_eligible,
-
-                        total_spine_volume=self.total_spine_volume, # the sum of all spine volume
-                        spine_volume_median = self.spine_volume_median,
-                        spine_volume_density=self.spine_volume_density, #total_spine_volume/skeletal_length
-                        spine_volume_density_eligible=self.spine_volume_density_eligible, #total_spine_volume/skeletal_length_eligible
-                        spine_volume_per_branch_eligible=self.spine_volume_per_branch_eligible, #total_spine_volume/n_spine_eligible_branche
-        
-        
-        
-        )
-        
-        if stats_to_ignore is not None:
-            for s in stats_to_ignore:
-                del stats_dict[s]
-                
-        if include_skeletal_stats:
-            sk_dict = nst.features_from_neuron_skeleton_and_soma_center(self,
-                                                  verbose = False,
-                                                  features_to_exclude=("length","n_branches"),
-                                                 )
-            stats_dict.update(sk_dict)
-            
-            
-        if include_centroids:
-            cent_stats = nst.centroid_stats_from_neuron_obj(self,
-                                                           voxel_adjustment_vector=voxel_adjustment_vector)
-            stats_dict.update(cent_stats)
-            
-        
-        return stats_dict
+    
     
     @property
     def mesh_kdtree(self):
@@ -4166,10 +3389,7 @@ class Neuron:
         return len(self.mesh_errored_synapses)
     
     
-    @property
-    def mesh_errored_synapses_pre(self):
-        return syu.synapses_pre(self.mesh_errored_synapses)
-    
+
     @property
     def n_mesh_errored_synapses_pre(self):
         return len(self.mesh_errored_synapses_pre)
@@ -4178,20 +3398,13 @@ class Neuron:
     def n_mesh_errored_synapses_post(self):
         return len(self.mesh_errored_synapses_post)
     
-    @property
-    def mesh_errored_synapses_post(self):
-        return syu.synapses_post(self.mesh_errored_synapses)
-    
-    
+
     
     @property
     def n_distance_errored_synapses(self):
         return len(self.distance_errored_synapses)
     
-    @property
-    def distance_errored_synapses_pre(self):
-        return syu.synapses_pre(self.distance_errored_synapses)
-    
+
     @property
     def n_distance_errored_synapses_pre(self):
         return len(self.distance_errored_synapses_pre)
@@ -4200,64 +3413,9 @@ class Neuron:
     def n_distance_errored_synapses_post(self):
         return len(self.distance_errored_synapses_post)
     
-    @property
-    def distance_errored_synapses_post(self):
-        return syu.synapses_post(self.distance_errored_synapses)
-    
-    @property
-    def synapses_somas(self):
-        return syu.synapses_somas(self)
-    
-    @property
-    def synapses_error(self):
-        return syu.synapses_error(self)
-    
-    @property 
-    def synapses_valid(self):
-        return syu.synapses_valid(self)
-    
-    @property 
-    def n_synapses_valid(self):
-        return len(self.synapses_valid)
-    
-    @property
-    def synapses_total(self):
-        return syu.synapses_total(self)
-    
-    @property
-    def n_synapses_somas(self):
-        return len(self.synapses_somas)
-    
-    @property
-    def n_synapses_error(self):
-        return len(self.synapses_error)
-    
-    @property
-    def n_synapses_total(self):
-        return len(self.synapses_total)
     
     
-    @property
-    def merge_filter_suggestions(self):
-        """
-        a dictionary data structure that stores a list for each merge error filter of merge filter suggestions that would be the minimal cuts that would eliminate all merge errors of that type . 
-        Each filter detection is a dictionary storing meta data about the suggestion, with the following as some of the keys:
-            - valid points: coordinates that should belong to the existing neuronal process ( a marker of where the valid mesh is). 
-            - error points: coordinates that should belong to incorrect neuronal process resulting from merge errors ( a marker of where the error mesh starts)
-            - coordinate: locations of split points used in the elimination of soma to soma paths
-
-            The valid and error points can be used as inputs for automatic mesh splitting algorithms in other pipelines (ex: Neuroglancer)
-        
-        """
-        try:
-            rb_suggestions = self.pipeline_products["auto_proof"]["red_blue_suggestions"]
-        except:
-            return dict()
-        
-        return pru.merge_error_red_blue_suggestions_clean(
-                    rb_suggestions
-                )
-        
+    
     @property
     def merge_filter_locations(self):
         """
@@ -4278,38 +3436,28 @@ class Neuron:
 
 
 #--- from neurd_packages ---
-from . import apical_utils as apu
-from . import axon_utils as au
+
+
 from . import branch_utils as bu
-from . import classification_utils as clu
 from . import preprocess_neuron as pre
 from . import soma_extraction_utils as sm
 from . import spine_utils as spu
-from . import synapse_utils as syu
 from . import width_utils as wu
-from . import proofreading_utils as pru
 
-object_name_to_class = dict(synapses=syu.Synapse,
-                           spines_obj = spu.Spine)
 
 #--- from mesh_tools ---
-from mesh_tools import compartment_utils as cu
-from mesh_tools import meshlab
 from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import algorithms_utils as agu
-from datasci_tools import matplotlib_utils as mu
+
+
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import system_utils as su
 from datasci_tools import pipeline as pl
 
-from . import neuron_searching as ns
-from . import neuron_statistics as nst
-from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
-from . import soma_splitting_utils as ssu
+
+
 

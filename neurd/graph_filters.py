@@ -11,7 +11,13 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 from datasci_tools import numpy_dep as np
-from datasci_tools import general_utils as gu
+from datasci_tools import networkx_utils as xu
+from . import axon_utils as au
+from . import concept_network_utils as cnu
+from . import error_detection as ed
+from . import neuron_statistics as nst
+from . import neuron_utils as nru
+from . import neuron_visualizations as nviz
 
 def upstream_pair_singular(limb_obj,
                           G=None,
@@ -274,16 +280,7 @@ def upstream_pair_singular(limb_obj,
             if verbose:
                 print(f"Using lowest_angle_sum method")
             raise Exception("hasn't been fixed to make sure the upstream node is guaranteed to be in the output graph")
-            G_final = xu.graph_to_lowest_weighted_sum_singular_matches(G,
-            verbose = verbose,
-            return_graph = True)
-
-
-            winning_node = xu.get_neighbors(G_final,upstream_branch)
-            if len(winning_node) != 1:
-                raise Exception(f"Not just one winning node: {winning_node}")
-            else:
-                winning_node = winning_node[0]
+            # Here was not active code
         elif match_method == "all_error_if_not_one_match":
             error_branches = downstream_branches
             if len(upstream_subgraph) == 2:
@@ -1203,18 +1200,12 @@ attributes_dict_h01 = dict(
 
 
 #--- from neurd_packages ---
-from . import axon_utils as au
-from . import concept_network_utils as cnu
-from . import error_detection as ed
-from . import neuron_statistics as nst
-from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
+
 
 min_double_back_threshold = ed.double_back_threshold_axon_thin
 min_double_back_threshold_inh = ed.double_back_threshold_axon_thick_inh
 
 #--- from datasci_tools ---
-from datasci_tools import general_utils as gu
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
+
+
 
