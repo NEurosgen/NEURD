@@ -24,7 +24,6 @@ CORE_MODULES = [
     "concept_network_utils",
     "limb_utils",
     "neuron_searching",
-    "neuron_simplification",
     "neuron_statistics",
     "neuron_utils",
     "preprocess_neuron",

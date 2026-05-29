@@ -5,8 +5,8 @@
 
 См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md).
 
-**Текущий размер:** `neurd/` — 17 файлов `*.py`.
-**Unit-тесты:** 60 passed, 0 failed, 1 skipped.
+**Текущий размер:** `neurd/` — 16 файлов `*.py`.
+**Unit-тесты:** 59 passed, 0 failed, 1 skipped.
 
 ---
 
@@ -50,7 +50,6 @@ code_structure_tools     → code_structure_tools
 | [branch_utils.py](neurd/branch_utils.py) | 1610 | Утилиты ветвей |
 | [limb_utils.py](neurd/limb_utils.py) | 742 | Утилиты лимбов |
 | [concept_network_utils.py](neurd/concept_network_utils.py) | 1758 | Граф-утилиты концепт-сети |
-| [neuron_simplification.py](neurd/neuron_simplification.py) | 684 | Упрощение ветвления |
 | [width_utils.py](neurd/width_utils.py) | 548 | Расчёт ширины ветвей |
 | [parameter_utils.py](neurd/parameter_utils.py) | 877 | Загрузка JSON/py-конфигов |
 
@@ -80,20 +79,19 @@ code_structure_tools     → code_structure_tools
 ## 3. Slim-пайплайн сегментации (как работает сейчас)
 
 Каноничный путь — [segmentation_pipeline.py](neurd/segmentation_pipeline.py),
-`mesh → Neuron(somas + limbs/branches[mesh+skeleton] + spines)`. Стадии:
+`mesh → Neuron(somas + limbs/branches[mesh+skeleton])`. **2 стадии:**
 
 1. **Идентификация сомы** — `sm.soma_indentification(mesh)`.
 2. **Декомпозиция** — `neuron.Neuron(mesh=...)` + `.calculate_decomposition_products()`
    (внутри — `preprocess_neuron`: скелетонизация, ветви, сырые шипики).
-3. **Уточнение ширины** — `bu.refine_width_array_to_match_skeletal_coordinates`.
-4. **Упрощение ветвления** (опц.) — `nsimp.branching_simplification`.
-5. **Упаковка шипиков** head/neck/shaft — `spu.add_head_neck_shaft_spine_objs(add_synapse_labels=False)`.
 
-`process_all_neurons.py` (точка входа пользователя) идёт коротким путём —
+`process_all_neurons.py` (точка входа пользователя) идёт ещё короче —
 `neuron.Neuron(mesh=...)` напрямую в воркер-процессе на каждый OFF-меш.
 
-Опущено намеренно: multi-soma split, синапсы, E/I cell typing, axon labeling,
-auto-proofreading, after-proof статистика.
+Опущено намеренно (Фаза 7 — урезаны стадии 3–5): уточнение ширины,
+упрощение ветвления (`neuron_simplification` удалён), упаковка шипиков
+head/neck/shaft, а также multi-soma split, синапсы, E/I cell typing,
+axon labeling, auto-proofreading, after-proof статистика.
 
 ---
 

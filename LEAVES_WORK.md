@@ -14,7 +14,7 @@
 
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd
-pytest tests/unit/        # → 60 passed, 0 failed, 1 skipped
+pytest tests/unit/        # → 59 passed, 0 failed, 1 skipped
 ```
 
 - Активация шимов: [tests/unit/__init__.py](tests/unit/__init__.py)
@@ -72,14 +72,13 @@ leaves/
 | `concept_network_utils.py` | 1758 | Очищен от au/syu/nviz |
 | `limb_utils.py` | 742 | Очищен от au/nst/nviz |
 | `preprocess_neuron.py` | 5193 | Очищен от nviz |
-| `neuron_simplification.py` | 684 | Очищен от pru |
 | `parameter_utils.py` | 877 | Багфиксы B1–B7 + 36 тестов (без изменений в этой сессии) |
 | `soma_extraction_utils.py` | 1786 | Без изменений в Фазе 5 |
 | `width_utils.py` | 548 | Без изменений |
 
-> **17 core-файлов** после Фазы 6 (+ `_cgal_segmentation`, `__init__`, `version`,
-> `segmentation_pipeline`). `branch_attr_utils` удалён (инлайнен в `spine_utils`),
-> `documentation_utils` удалён (0 импортёров).
+> **16 core-файлов** после Фаз 6–7 (+ `_cgal_segmentation`, `__init__`, `version`,
+> `segmentation_pipeline`). `branch_attr_utils`/`documentation_utils` удалены (0 импортёров);
+> `neuron_simplification` удалён в Фазе 7 (использовался только в урезанных стадиях 3–5).
 
 ### Удалены в Фазе 5
 - `synapse_utils.py` (~4.5k LOC), `axon_utils.py` (~3.9k LOC),
