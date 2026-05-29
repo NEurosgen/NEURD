@@ -1723,16 +1723,6 @@ def n_siblings(curr_limb,limb_name=None,
     return output_dict
 
 @run_options(run_type="Limb")
-def n_small_children(curr_limb,limb_name=None,
-                    width_maximum=75,
-               **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        output_dict[b] = nst.n_small_children(curr_limb,b,width_maximum=width_maximum)
-        
-    return output_dict
-
-@run_options(run_type="Limb")
 def children_skeletal_lengths_min(curr_limb,limb_name=None,
                     width_maximum=75,
                **kwargs):
@@ -1819,29 +1809,6 @@ def run_limb_function(limb_func,curr_limb,limb_name=None,
     return output_dict
 
 @run_options(run_type="Limb")
-def upstream_axon_width(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.upstream_axon_width,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-
-@run_options(run_type="Limb")
-def children_axon_width_max(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.children_axon_width_max,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
 def upstream_skeletal_length(curr_limb,limb_name=None,
                     limb_branch_dict_restriction=None,
                **kwargs):
@@ -1857,19 +1824,6 @@ def total_upstream_skeletal_length(curr_limb,limb_name=None,
                     limb_branch_dict_restriction=None,
                **kwargs):
     return run_limb_function(nst.total_upstream_skeletal_length,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-# ------------- 5/26: For Width and Double Back Errors ----------
-
-@run_options(run_type="Limb")
-def width_jump_from_upstream_min(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(ed.width_jump_from_upstream_min,
                             curr_limb=curr_limb,
                              limb_name=limb_name,
                              limb_branch_dict_restriction=limb_branch_dict_restriction,
@@ -1925,67 +1879,6 @@ def downstream_nodes_mesh_connected(curr_limb,limb_name=None,
                              **kwargs
                             )
 
-@run_options(run_type="Limb")
-def parent_width(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.parent_width,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def min_synapse_dist_to_branch_point(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.min_synapse_dist_to_branch_point,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Branch")
-def ray_trace_perc(curr_branch,name=None,branch_name=None,**kwargs):
-    if "percentile" in kwargs.keys():
-        return nst.ray_trace_perc(curr_branch,kwargs["percentile"])
-    else:
-        return nst.ray_trace_perc(curr_branch)
-    
-@run_options(run_type="Branch")
-def synapse_closer_to_downstream_endpoint_than_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.synapse_closer_to_downstream_endpoint_than_upstream(curr_branch)
-
-@run_options(run_type="Branch")
-def downstream_upstream_diff_of_most_downstream_syn(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.downstream_upstream_diff_of_most_downstream_syn(curr_branch)
-
-
-#-------- 7/17: For new axon finder --------- #
-@run_options(run_type="Limb")
-def n_synapses_post_downstream_within_dist(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.n_synapses_post_downstream_within_dist,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-@run_options(run_type="Limb")
-def n_synapses_downstream_within_dist(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.n_synapses_downstream_within_dist,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-
 # --------- 7/19: Helping with the new E/I classification --------
 
 @run_options(run_type="Limb")
@@ -1998,49 +1891,6 @@ def distance_from_soma(curr_limb,limb_name=None,
                              limb_branch_dict_restriction=limb_branch_dict_restriction,
                              **kwargs
                             )
-
-# --------- 7/20: for the axon error segments ----- #
-
-
-@run_options(run_type="Branch")
-def synapse_density_post_near_endpoint_downstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.synapse_density_post_near_endpoint_downstream(curr_branch,
-                                                            **kwargs)
-
-@run_options(run_type="Branch")
-def n_synapses_spine_within_distance_of_endpoint_downstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.n_synapses_spine_within_distance_of_endpoint_downstream(curr_branch,
-                                                            **kwargs)
-
-@run_options(run_type="Branch")
-def synapse_density_post_offset_endpoint_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.synapse_density_post_offset_endpoint_upstream(curr_branch,
-                                                            **kwargs)
-
-@run_options(run_type="Branch")
-def synapse_density_offset_endpoint_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.synapse_density_offset_endpoint_upstream(curr_branch,
-                                                            **kwargs)
-
-# @run_options(run_type="Branch")
-# def labels(curr_branch,name=None,branch_name=None,**kwargs):
-#     return set(curr_branch.labels)
-
-@run_options(run_type="Branch")
-def n_synapses_offset_endpoint_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.n_synapses_offset_endpoint_upstream(curr_branch,
-                                                            **kwargs)
-
-@run_options(run_type="Branch")
-def n_synapses_pre_offset_endpoint_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.n_synapses_pre_offset_endpoint_upstream(curr_branch,
-                                                            **kwargs)
-
-@run_options(run_type="Branch")
-def n_synapses_spine_offset_endpoint_upstream(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.n_synapses_spine_offset_endpoint_upstream(curr_branch,
-                                                            **kwargs)
-
 
 
 # ------- functions for apical classification ---------#
@@ -2212,7 +2062,6 @@ def bend_max_smooth(curr_branch,name=None,branch_name=None,**kwargs):
 #--- from neurd_packages ---
 from . import branch_utils as bu
 from . import concept_network_utils as cnu
-from . import error_detection as ed
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
 

@@ -4,170 +4,8 @@ import networkx as nx
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
 import pandas as pd
-from . import microns_volume_utils as mvu
-from . import h01_volume_utils as hvu
-
 top_of_layer_vector = np.array([0,-1,0])
 
-def neuron_path_analysis(neuron_obj,
-                        N = 3,
-                        plot_paths = False,
-                        return_dj_inserts = True,
-                        verbose = False):
-
-    """
-    Pseudocode: 
-    1) Get all the errored branches
-    For Each Limb:
-    2) Remove the errored branches
-    3) Find all branches that are N steps away from starting node (and get the paths)
-    4) Filter away paths that do not have all degrees of 2 on directed network
-    *** Those are the viable paths we would analyze***
-    5) Extract the statistics
-
-    """
-
-    # 0) Compute the mesh center of the soma
-    curr_soma = neuron_obj["S0"].mesh
-    curr_soma_center = tu.mesh_center_vertex_average(curr_soma)
-    y_vector = top_of_layer_vector
-
-    # 1) Getting all Errored Branches 
-    error_branches = ed.error_branches_by_axons(neuron_obj,visualize_errors_at_end=False)
-
-    # ----------- Loop that will iterate through all branches ----------- #
-    neuron_path_inserts_by_limb = dict()
-
-
-    total_paths = dict()
-    for curr_limb_idx,curr_limb_obj in enumerate(neuron_obj):
-        l_name = f"L{curr_limb_idx}"
-        if l_name in error_branches.keys():
-            curr_limb_error_branches = error_branches[l_name]
-        else:
-            curr_limb_error_branches = []
-
-        # 2) Remove the errored branches
-        if len(curr_limb_obj.all_concept_network_data)>1:
-            raise Exception(f"More than one starting node for limb {curr_limb_idx}")
-
-        st_node = curr_limb_obj.current_starting_node
-        st_coordinates = curr_limb_obj.current_starting_coordinate
-
-
-
-        #2-4: Getting the paths we want
-
-        G = nx.Graph(curr_limb_obj.concept_network)
-
-        target_to_path = nx.single_source_shortest_path(G, source=st_node)#, cutoff=N+1) 
-        paths_of_certain_length = [v for k,v in target_to_path.items() if (len(v) == N) ]
-        if verbose:
-            print(f"Number of paths with {N} nodes = {len(paths_of_certain_length)}")
-
-        #remove the paths with errors on
-        paths_of_certain_length_no_errors = [v for v in paths_of_certain_length if len(np.intersect1d(curr_limb_error_branches,
-                                                                                                     v))==0]
-
-        if verbose:
-            print(f"Number of paths with {N} nodes and no Errors = {len(paths_of_certain_length_no_errors)}")
-
-        #need to filter away for high degree nodes along path
-        """
-        1) Turn network into directional
-        2) Find all of the upstream nodes
-        3) Filter those paths away where existence of greater than 2 degrees
-        """
-        #1) Turn network into directional
-        G_directional = nx.DiGraph(curr_limb_obj.concept_network_directional)
-
-        final_paths = []
-        for ex_path in paths_of_certain_length_no_errors:
-            path_degree = np.array([len(xu.downstream_edges_neighbors(G_directional,k)) for k in ex_path[:-1]] )
-            if np.sum(path_degree!=2) == 0:
-                final_paths.append(ex_path)
-            else:
-                if verbose:
-                    print(f"Ignoring path because path degrees are {path_degree}")
-
-        if verbose: 
-            print(f"Number of paths after filtering away high degree nodes = {len(final_paths)} ")
-
-        if plot_paths:
-            if len(final_paths) > 0:
-                curr_nodes = np.unique(np.concatenate(final_paths))
-            else:
-                curr_nodes = []
-            total_paths.update({f"L{curr_limb_idx}":curr_nodes})
-
-
-        # Step 5: Calculating the Statistics on the branches
-
-
-        """
-        Pseudocode: 
-        1) Get starting angle of branch
-
-        For all branches not in the starting node
-        a) Get the width (all of them)
-        b) Get the number of spines, spines_volume, and spine density
-
-
-        d) Skeletal distance (distance to next branch point)
-        e) Angle between parent branch and current branch
-        f) Angle between sibling branch and current
-
-
-        """
-
-        #1) Get starting angle of branch
-        st_vector = st_coordinates - curr_soma_center
-        st_vector_norm = st_vector/np.linalg.norm(st_vector)
-        angle_from_top = np.round(nu.angle_between_vectors(y_vector,st_vector_norm),2)
-
-
-
-        limb_path_dict = dict()
-        for zz,curr_path in enumerate(final_paths):
-
-            local_dict = dict(soma_angle=angle_from_top)
-            for j,n in enumerate(curr_path[1:]):
-                curr_name = f"n{j}_"
-                curr_node = curr_limb_obj[n]
-
-                #a) Get the width (all of them)
-                for w_name,w_value in curr_node.width_new.items():
-                    local_dict[curr_name +"width_"+ w_name] = np.round(w_value,2)
-
-                #b) Get the number of spines, spines_volume, and spine density
-                attributes_to_export = ["n_spines","total_spine_volume","spine_volume_median",
-                                       "spine_volume_density","skeletal_length"]
-                for att in attributes_to_export:
-                    local_dict[curr_name + att] = np.round(getattr(curr_node,att),2)
-
-                #e) Angle between parent branch and current branch
-                local_dict[curr_name + "parent_angle"] = nru.find_parent_child_skeleton_angle(curr_limb_obj,child_node=n)
-
-                #f) Angle between sibling branch and current
-                local_dict[curr_name + "sibling_angle"]= list(nru.find_sibling_child_skeleton_angle(curr_limb_obj,child_node=n).values())[0]
-
-            limb_path_dict[zz] = local_dict
-
-
-        neuron_path_inserts_by_limb[curr_limb_idx] =  limb_path_dict
-
-
-    if return_dj_inserts:
-        # Need to collapse this into a list of dictionaries to insert
-        dj_inserts = []
-        for limb_idx,limb_paths in neuron_path_inserts_by_limb.items():
-            for path_idx,path_dict in limb_paths.items():
-                dj_inserts.append(dict(path_dict,limb_idx=limb_idx,path_idx=path_idx))
-        return dj_inserts
-    else:
-        return neuron_path_inserts_by_limb
-    
-    
 def soma_starting_vector(limb_obj=None,
                         neuron_obj=None,
                         limb_idx=None,
@@ -2431,21 +2269,6 @@ def width_over_candidate(
         branches = candidate['branches'],
         **kwargs)
 
-def max_layer_height_over_candidate(neuron_obj,candidate,**kwargs):
-    """
-    Purpose: To determine the maximum height in the
-    layer
-    """
-    cand_sk = nru.skeleton_over_candidate(neuron_obj,candidate)
-    return np.max(mcu.coordinates_to_layer_height(cand_sk.reshape(-1,3)))
-
-def max_layer_distance_above_soma_over_candidate(neuron_obj,candidate,
-                                                **kwargs):
-    soma_max_height = mcu.coordinates_to_layer_height(neuron_obj["S0"].mesh_center)
-    cand_height = nst.max_layer_height_over_candidate(neuron_obj,candidate)
-    return cand_height - soma_max_height
-
-
 def downstream_dist_match_ref_vector_over_candidate(neuron_obj,
                                                     candidate,
                                                     verbose = False,
@@ -3411,51 +3234,6 @@ def euclidean_distance_farther_than_soma_limb_branch(
     plot = plot,
     )
     
-def max_closest_skeleton_to_mesh_distance(
-    branch,
-    skeleton_endpoints_only = False,
-    plot = False,
-    **kwargs,
-    ):
-
-    if skeleton_endpoints_only:
-        skeleton_coords = branch.endpoints
-    else:
-        skeleton_coords = branch.skeleton.reshape(-1,3)
-    
-    dist = nu.closest_dist_between_coordinates(
-            array1 = branch.mesh.vertices,
-            array2 = skeleton_coords,
-            return_min = False,
-        )
-    if plot:
-        coord1,coord2 = nu.closest_dist_between_coordinates(
-            array1 = branch.mesh.vertices,
-            array2 = skeleton_coords,
-            return_min = False,
-            return_coordinates = True
-        )
-        
-        ipvu.plot_objects(
-            branch.mesh,
-            branch.skeleton,
-            scatters=[coord1,coord2],
-        )
-    return dist
-
-def max_closest_skeleton_endpoint_to_mesh_distance(
-    branch,
-    plot = False,
-    **kwargs
-    ):
-    return max_closest_skeleton_to_mesh_distance(
-    branch,
-    skeleton_endpoints_only = True,
-    plot = plot,
-    **kwargs
-    )
-max_skeleton_endpoint_dist = max_closest_skeleton_endpoint_to_mesh_distance
-    
 def coordinate_with_deepest_y_over_branches(branches,verbose = True):
     """
     Purpose: 
@@ -3487,51 +3265,6 @@ def coordinate_with_deepest_y_over_branches(branches,verbose = True):
         print(f"deepest_coord = {deepest_coord}")
 
     return deepest_coord
-
-def deepest_y_coordinate_on_limb_branches(
-    limb,
-    branches,
-    verbose = False,
-    plot=False
-    ):
-    """
-    Purpose
-    -------
-    Get the deepest y coordinate on a set of branches on a limb
-
-    Example
-    -------
-    import numpy as np
-    axon_branches_on_limb = [ 0 , 4,  5 , 6 , 7,  8,  9 ,10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ,20, 21 ,22, 23 ,24]
-    branches_idx = [12 ,13, 14, 15 ,16, 17, 18, 19, 20 ,21, 22, 23, 24]
-    
-    limb_idx = 1
-    limb = neuron_obj[limb_idx]
-    
-    deepest_y_coordinate_on_limb_branches(
-        limb,
-        branches = branches_idx,
-        plot = True,
-        verbose = True
-    )
-    """
-    branches = [limb[k] for k in branches]
-    deepest_coord = coordinate_with_deepest_y_over_branches(
-        branches = branches,
-        verbose = verbose)
-    deepest_y = deepest_coord[1]
-    if verbose:
-        print(f"deepest y value = {deepest_y}")
-
-    if plot:
-        ipvu.plot_objects(
-            limb.mesh,
-            meshes = [b.mesh for b in branches],
-            meshes_colors="red",
-            scatters=[deepest_coord.reshape(-1,3)]
-        )
-
-    return deepest_y
 
 
 # -- 5/9 Addition for computing more statistics
@@ -3965,29 +3698,20 @@ def parent_and_downstream_branches_feature_dict(
 global_parameters_dict_default = dict(
 )
 
-attributes_dict_default = dict(
-    voxel_to_nm_scaling = mvu.voxel_to_nm_scaling
-)    
+attributes_dict_default = dict()
 
 global_parameters_dict_microns = {}
 attributes_dict_microns = {}
 
 global_parameters_dict_h01 = {}
 
-
-attributes_dict_h01 = dict(
-    voxel_to_nm_scaling = hvu.voxel_to_nm_scaling
-)
+attributes_dict_h01 = dict()
 
 
 
 #--- from neurd_packages ---
 from . import branch_utils as bu
 from . import concept_network_utils as cnu
-from . import error_detection as ed
-from . import h01_volume_utils as hvu 
-from . import microns_volume_utils as mcu
-from . import microns_volume_utils as mvu
 from . import neuron_searching as ns
 from . import neuron_utils as nru
 
@@ -4002,6 +3726,3 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import pandas_utils as pu
-from datasci_tools import ipyvolume_utils as ipvu
-
-from . import neuron_statistics as nst

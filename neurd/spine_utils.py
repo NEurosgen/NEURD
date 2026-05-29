@@ -3308,31 +3308,25 @@ def calculate_spine_obj_attr_for_neuron(
                     branch_obj.spine_id = spu.id_from_idx(limb_idx,branch_idx,s_idx)
 
         #2) calculate_branch_attr_soma_distances_on_limb
-        limb_obj = bau.calculate_branch_attr_soma_distances_on_limb(
+        limb_obj = _branch_attr_soma_distances_on_limb(
             limb_obj,
             branch_attr="spines_obj",
             calculate_endpoints_dist_if_empty=True
         )
         neuron_obj[limb_idx] = limb_obj
-        
-        
 
-#     if verbose:
-#         print(f"Working on calculate_neuron_soma_distance")
-#     bau.calculate_neuron_soma_distance(neuron_obj,branch_attr="spines_obj")   
     if verbose:
         print(f"Working on calculate_neuron_soma_distance_euclidean")
-    bau.calculate_neuron_soma_distance_euclidean(neuron_obj,branch_attr="spines_obj")
-    bau.set_limb_branch_idx_to_attr(neuron_obj,branch_attr="spines_obj")
-    
-    
+    _neuron_soma_distance_euclidean(neuron_obj, branch_attr="spines_obj")
+    _set_limb_branch_idx_to_attr(neuron_obj, branch_attr="spines_obj")
+
     return neuron_obj
 
-def calculate_endpoints_dist(branch_obj,spine_obj):
-    bau.calculate_endpoints_dist(branch_obj,spine_obj)
-    
-def calculate_upstream_downstream_dist_from_up_idx(spine_obj,up_idx):
-    bau.calculate_upstream_downstream_dist_from_up_idx(spine_obj,up_idx=up_idx)
+def calculate_endpoints_dist(branch_obj, spine_obj):
+    _calculate_endpoints_dist(branch_obj, spine_obj)
+
+def calculate_upstream_downstream_dist_from_up_idx(spine_obj, up_idx):
+    _calculate_upstream_downstream_dist_from_up_idx(spine_obj, up_idx=up_idx)
     
     
 # ------- for calculating properties of spines ----
@@ -6367,10 +6361,63 @@ attributes_dict_h01 = {}
 
 
 
+# --- inlined from branch_attr_utils (wave 5.5) ---
+
+def _calculate_endpoints_dist(branch_obj, attr_obj):
+    attr_obj.endpoints_dist = [sk.skeleton_path_between_skeleton_coordinates(
+        starting_coordinate=attr_obj.closest_sk_coordinate,
+        destination_node=j,
+        skeleton_graph=branch_obj.skeleton_graph,
+        only_skeleton_distance=True,
+    ) for j in branch_obj.endpoints_nodes]
+
+def _calculate_upstream_downstream_dist_from_up_idx(attr_obj, up_idx):
+    down_idx = 1 - up_idx
+    attr_obj.downstream_dist = attr_obj.endpoints_dist[down_idx]
+    attr_obj.upstream_dist = attr_obj.endpoints_dist[1 - down_idx]
+
+def _branch_attr_soma_distances_on_limb(limb_obj, branch_attr, calculate_endpoints_dist_if_empty=True, verbose=False):
+    bu.set_branches_endpoints_upstream_downstream_idx_on_limb(limb_obj)
+    for branch_idx in limb_obj.get_branch_names():
+        branch_obj = limb_obj[branch_idx]
+        upstream_dist = nst.total_upstream_skeletal_length(limb_obj, branch_idx)
+        upstream_endpoint_idx = branch_obj.endpoints_upstream_downstream_idx[0]
+        curr_attr_list = getattr(branch_obj, branch_attr)
+        if curr_attr_list is not None:
+            for attr_obj in curr_attr_list:
+                if attr_obj.endpoints_dist is None or attr_obj.endpoints_dist[upstream_endpoint_idx] == -1:
+                    if calculate_endpoints_dist_if_empty:
+                        _calculate_endpoints_dist(branch_obj, attr_obj)
+                        bu.set_endpoints_upstream_downstream_idx_on_branch(limb_obj, branch_idx)
+                        down_idx = branch_obj.endpoints_upstream_downstream_idx[1]
+                        attr_obj.downstream_dist = attr_obj.endpoints_dist[down_idx]
+                        attr_obj.upstream_dist = attr_obj.endpoints_dist[1 - down_idx]
+                    else:
+                        raise Exception("Endpoint distance was not calculated yet")
+                _calculate_upstream_downstream_dist_from_up_idx(attr_obj, upstream_endpoint_idx)
+                attr_obj.soma_distance = attr_obj.upstream_dist + upstream_dist
+    return limb_obj
+
+def _neuron_soma_distance_euclidean(neuron_obj, branch_attr, verbose=False):
+    soma_center = neuron_obj["S0"].mesh_center
+    for attr_obj in getattr(neuron_obj, branch_attr):
+        attr_obj.soma_distance_euclidean = np.linalg.norm(soma_center - attr_obj.coordinate)
+
+def _set_limb_branch_idx_to_attr(neuron_obj, branch_attr):
+    for limb_idx in neuron_obj.get_limb_names(return_int=True):
+        limb_obj = neuron_obj[limb_idx]
+        for branch_idx in limb_obj.get_branch_names():
+            branch_obj = limb_obj[branch_idx]
+            attr_list = getattr(branch_obj, branch_attr)
+            if attr_list is not None:
+                for s in attr_list:
+                    s.limb_idx = limb_idx
+                    s.branch_idx = branch_idx
+
+# ---
+
 #--- from neurd_packages ---
-from . import branch_attr_utils as bau
 from . import branch_utils as bu
-from . import cell_type_utils as ctu
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import neuron_utils as nru

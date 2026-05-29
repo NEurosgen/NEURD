@@ -677,7 +677,6 @@ def branching_simplification(
 from . import branch_utils as bu
 from . import neuron_searching as ns
 from . import neuron_utils as nru
-from . import proofreading_utils as pru
 
 #--- from datasci_tools ---
 from datasci_tools import networkx_utils as xu

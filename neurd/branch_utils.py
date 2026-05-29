@@ -1590,7 +1590,6 @@ attributes_dict_h01 = dict()
 
 
 #--- from neurd_packages ---
-from . import branch_attr_utils as bau
 from . import neuron_utils as nru
 from . import spine_utils as spu
 
