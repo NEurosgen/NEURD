@@ -3,7 +3,8 @@
 Карта текущего состояния форка после Фаз 1–5.
 Источник истины — сам код; этот файл — навигационная карта.
 
-См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md).
+См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md),
+[DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) — гайд по глубокому reachability-анализу.
 
 **Текущий размер:** `neurd/` — 16 файлов `*.py`, ~27.4k строк (после Фазы 9 dead-code).
 **Unit-тесты:** 59 passed, 0 failed, 1 skipped. **Характеризационный тест:** 4 passed.
