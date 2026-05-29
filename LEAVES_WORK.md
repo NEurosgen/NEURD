@@ -48,12 +48,21 @@ leaves/
 | Smoke-тесты Фазы 3 (env/numpy/mesh_tools) | 13 | шимы + версии |
 | **Итого** | **60 passed, 1 skipped** | — |
 
+### Характеризационный тест пайплайна ✅ (есть)
+[tests/integration/test_segmentation_pipeline.py](tests/integration/test_segmentation_pipeline.py)
+прогоняет реальную декомпозицию fixture-меша (`tests/fixtures/864691135510518224.off`,
+data_type="microns") через `segmentation_pipeline` и пинит контракт:
+`mesh → Neuron(somas + limbs/branches[.mesh + .skeleton])`.
+- ~11 мин, шеллит `xvfb-run meshlabserver`; скипается, если их нет на PATH.
+- Вне `tests/unit/`-гейта (лежит в `tests/integration/`); chdir в pytest-tmp, репо не засоряет.
+- Этот тест вскрыл и зафиксировал 4 регрессии Фаз 5–7 (см. `DEPS_PLAN.md` §Фаза 8).
+
 ### Пробелы
-- **Нет функциональных тестов на pipeline** — нет характеризационного теста
-  `test_segmentation_pipeline.py` на fixture-меше (был создан в Batch 1, не сохранился).
-  Это главный пробел: нужен до замены meshlabserver и любых изменений в `Branch`/`Neuron`.
-- Скипается 1 тест: `test_ipyvolume_submodule_resolves_via_stub` — реальный `ipyvolume`
+- Скипается 1 unit-тест: `test_ipyvolume_submodule_resolves_via_stub` — реальный `ipyvolume`
   подтягивается через `meshparty`, stub-путь не активен.
+- `calculate_decomposition_products` (stats-агрегация) больше **не** на slim-пути;
+  частично починен, но остаётся `voxel_to_nm_scaling` (был из удалённых `*_volume_utils`)
+  и мёртвые `nst.width_diff*`/`none_to_some_synapses` в недостижимых функциях.
 
 ---
 
@@ -96,10 +105,9 @@ leaves/
 ## Открытые задачи
 
 ### Приоритет 1 — Тесты
-- [ ] Заново создать характеризационный тест `tests/integration/test_segmentation_pipeline.py`
-  БЕЗ зависимости от `vdi_*` (старый удалён в Фазе 6): fixture-меш →
-  `segmentation_pipeline(mesh)` → проверить: somas≥1, limbs>0, у каждой ветки mesh+skeleton.
-  Это контракт выхода slim-пути.
+- [x] **Готово (Фаза 8):** характеризационный тест `tests/integration/test_segmentation_pipeline.py`
+  без `vdi_*`: fixture-меш → `segmentation_pipeline(mesh)` → somas≥1, limbs>0,
+  у каждой ветки mesh+skeleton. **4 passed (11 мин).** Попутно вскрыл 4 регрессии (исправлены).
 
 ### Приоритет 2 — Удаление остатков кластера
 - [x] **Готово (Фаза 6):** удалены все 20 кластерных файлов + 2 мёртвых. `neurd/` = 17 файлов.

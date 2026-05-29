@@ -150,7 +150,10 @@ Core-модули их не импортировали; gate `pytest tests/unit/
 
 ## 6. Следующие шаги
 
-1. **Характеризационные тесты** на швах декомпозиции (fixture-меш → somas/limbs/branches/spines).
-   Особенно — заново собрать `test_segmentation_pipeline` без зависимости от `vdi_*`.
+1. ✅ **Характеризационный тест** есть — [tests/integration/test_segmentation_pipeline.py](tests/integration/test_segmentation_pipeline.py)
+   (fixture-меш → somas/limbs/branches+skeleton). Зафиксировал 4 регрессии Фаз 5–7 (исправлены).
 2. **Замена `meshlabserver`** на in-process (open3d/trimesh) — Decimator, Poisson, FillHoles, Interior.
+   Теперь безопасно: контракт декомпозиции запинен тестом.
 3. **Оптимизация памяти** — `Branch.__init__` делает deepcopy submesh (главный драйвер RAM).
+4. **Распутывание клубка** — 18 циклов module-load среди 12 модулей; начать с dead-code внутри
+   `neuron_utils`/`spine_utils`/`neuron_statistics` (теперь под защитой характеризационного теста).
