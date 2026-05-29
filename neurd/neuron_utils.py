@@ -8999,9 +8999,7 @@ def calculate_decomposition_products(
     
     # ---- basic statistics of neuron
     stats_dict = neuron_obj.neuron_stats(stats_to_ignore = [
-                    "n_boutons",
-                     "axon_length",
-                     "axon_area",
+                     # n_boutons/axon_length/axon_area removed from neuron_stats (Phase 5).
                      "max_soma_volume",
                      "max_soma_n_faces",],
         include_skeletal_stats = True,
