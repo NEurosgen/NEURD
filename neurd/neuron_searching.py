@@ -88,19 +88,6 @@ def width_neuron(curr_branch,name=None,branch_name=None,**kwargs):
     return nru.width(curr_branch)
 
 @run_options(run_type="Branch")
-def axon_width(curr_branch,name=None,branch_name=None,
-               width_name="no_bouton_median",
-               width_name_backup="no_spine_median_mesh_center",
-               width_name_backup_2 = "median_mesh_center",
-               **kwargs):
-    return au.axon_width(curr_branch,
-                         width_name=width_name,
-               width_name_backup=width_name_backup,
-               width_name_backup_2 = width_name_backup_2,
-                        )
-    
-
-@run_options(run_type="Branch")
 def skeleton_distance_branch(curr_branch,name=None,branch_name=None,**kwargs):
     try:
         #print(f"curr_branch.skeleton = {curr_branch.skeleton.shape}")
@@ -2223,20 +2210,13 @@ def bend_max_smooth(curr_branch,name=None,branch_name=None,**kwargs):
     return bu.bend_max_on_branch_skeleton(curr_branch)
 
 #--- from neurd_packages ---
-from . import axon_utils as au
 from . import branch_utils as bu
-from . import classification_utils as clu
 from . import concept_network_utils as cnu
 from . import error_detection as ed
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
 
 from . import width_utils as wu
-
-axon_width_like_requirement = clu.axon_width_like_requirement
-ais_axon_width_like_requirement = clu.ais_axon_width_like_requirement
-axon_width_like_query_revised= clu.axon_width_like_query_revised
-axon_width_like_segments = clu.axon_width_like_segments
 
 #--- from mesh_tools ---
 from mesh_tools import skeleton_utils as sk

@@ -417,38 +417,6 @@ def fork_divergence_from_branch(limb_obj,
     return return_value
 
 
-def n_small_children(limb_obj,
-    branch_idx,
-    width_maximum = 80,
-    verbose = False):
-    """
-    Purpose: Will measure the number
-    of small width immediate downstream nodes
-
-    Pseudocode: 
-    1) Find the number of downstream nodes
-    2) Find the width of the downstream nodes
-    3) Count how many are below the threshold
-    
-    Ex:
-    from neurd import neuron_statistics as nst
-    nst.n_small_children(limb_obj = neuron_obj[6],
-        branch_idx = 5,
-        width_maximum = 80,
-    verbose = False)
-    """
-    
-    downstream_n = xu.downstream_nodes(limb_obj.concept_network_directional,
-                        branch_idx)
-    downstream_width = np.array([au.axon_width(limb_obj[k]) for k in downstream_n])
-
-    n_small_downstream = len(np.where(downstream_width < width_maximum)[0])
-    
-    if verbose: 
-        print(f"downstream_n = {downstream_n}, downstream_width = {downstream_width},"
-              f" n_small_downstream = {n_small_downstream}")
-    return n_small_downstream
-
 def child_angles(limb_obj,
     branch_idx,
     verbose = False,
@@ -577,53 +545,6 @@ def children_feature(limb_obj,
     else:
         return list(vals.values())
     
-def children_axon_width(limb_obj,
-                       branch_idx,
-                       verbose = False,
-                       return_dict = True):
-    """
-    Computes the axon width of all the children
-    """
-    feature_func = au.axon_width
-    vals = dict([(k,feature_func(limb_obj[k],
-                                ))
-                  for k in xu.downstream_nodes(limb_obj.concept_network_directional,branch_idx)])
-    if verbose:
-        print(f"Childrean Axon Width values = {vals}")
-    if return_dict:
-        return vals
-    else:
-        return list(vals.values())
-    return vals
-
-def children_axon_width_max(limb_obj,
-                       branch_idx,
-                       verbose = False,
-                       **kwargs):
-    children_widths = children_axon_width(limb_obj,
-                       branch_idx,
-                       verbose = verbose,
-                       return_dict = False)
-    return np.max(children_widths)
-    
-    
-def upstream_axon_width(limb_obj,
-                       branch_idx,
-                        default = np.inf,
-                        **kwargs):
-    """
-    Purpose: To return the widh of the upstream branch
-    
-    Psuedocode: 
-    1) Get the upstream branch
-    2) return the width
-    """
-    up_node = xu.upstream_node(limb_obj.concept_network_directional,branch_idx)
-    if up_node is None:
-        return default
-    else:
-        return au.axon_width(limb_obj[up_node])
-    
 def upstream_skeletal_length(limb_obj,
                        branch_idx,
                         default = np.inf,
@@ -683,110 +604,6 @@ def width_diff_basic(limb_obj,
     nst.width_diff_percentage_basic(n_obj_syn[0],1,2)
     """
     return np.abs(width_func(limb_obj[branch_1_idx]) - width_func(limb_obj[branch_2_idx]))
-
-
-def width_diff(limb_obj,
-                 branch_1_idx,
-                 branch_2_idx,
-                 width_func = None,
-                   branch_1_direction = "upstream",
-                   branch_2_direction = "downstream",
-                  comparison_distance = 10000,
-                  nodes_to_exclude=None,
-                 return_individual_widths = False,
-              verbose = False):
-    
-    if width_func is None:
-        width_func = au.axon_width
-    
-    branch_1_width = cnu.width_upstream_downstream(limb_obj,
-                                                  branch_1_idx,
-                                                  direction=branch_1_direction,
-                                                  distance=comparison_distance,
-                                                  width_func=width_func,
-                                                  nodes_to_exclude=nodes_to_exclude)
-    
-    branch_2_width = cnu.width_upstream_downstream(limb_obj,
-                                                  branch_2_idx,
-                                                  direction=branch_2_direction,
-                                                  distance=comparison_distance,
-                                                  width_func=width_func,
-                                                  nodes_to_exclude=nodes_to_exclude)
-    if verbose:
-        print(f"branch_1_width = {branch_1_width}, branch_2_width = {branch_2_width}")
-    
-    width_d = np.abs(branch_1_width - branch_2_width)
-    if return_individual_widths:
-        return width_d,branch_1_width,branch_1_width
-    else:
-        return width_d
-
-def width_max(limb_obj,
-             branches_idxs,
-             width_func = None):
-    if width_func is None:
-        width_func = au.axon_width
-    return np.max([width_func(limb_obj[k]) for k in branches_idxs])
-
-def width_diff_percentage_basic(limb_obj,
-                 branch_1_idx,
-                 branch_2_idx,
-                 width_func = width_new,
-                         verbose = False):
-    """
-    Ex: 
-    from neurd import neuron_statistics as nst
-    nst.width_diff_percentage_basic(n_obj_syn[0],1,2)
-    """
-    w_diff = width_diff(limb_obj,
-                       branch_1_idx=branch_1_idx,
-                       branch_2_idx=branch_2_idx,
-                       width_func=width_func)
-    max_width = width_max(limb_obj,[branch_1_idx,branch_2_idx],width_func=width_func)
-    if max_width > 0:
-        w_diff_perc = w_diff/max_width
-    else:
-        w_diff_perc = 0
-        
-    if verbose:
-        print(f"w_diff= {w_diff}, max_width = {max_width}, w_diff_perc = {w_diff_perc}")
-    return w_diff_perc
-
-def width_diff_percentage(limb_obj,
-                 branch_1_idx,
-                 branch_2_idx,
-                 width_func = None,
-                branch_1_direction = "upstream",
-                   branch_2_direction = "downstream",
-                  comparison_distance = 10000,
-                  nodes_to_exclude=None,
-              verbose = False):
-                  
-    if width_func is None:
-        width_func = au.axon_width
-    
-    w_diff, b1_w, b2_w= width_diff(limb_obj,
-                       branch_1_idx=branch_1_idx,
-                       branch_2_idx=branch_2_idx,
-                       width_func=width_func,
-                       branch_1_direction = branch_1_direction,
-                   branch_2_direction = branch_2_direction,
-                  comparison_distance = comparison_distance,
-                  nodes_to_exclude=nodes_to_exclude,
-              verbose = verbose,
-                       return_individual_widths=True)
-    
-    
-    max_width = np.max([b1_w, b2_w])
-    if max_width > 0:
-        w_diff_perc = w_diff/max_width
-    else:
-        w_diff_perc = 0
-        
-    if verbose:
-        print(f"w_diff= {w_diff}, max_width = {max_width}, w_diff_perc = {w_diff_perc}, for individual widths: {b1_w,b2_w}")
-    return w_diff_perc
-
 
 
 def parent_child_sk_angle(limb_obj,
@@ -1487,15 +1304,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
     
 def ray_trace_perc(branch_obj,percentile=85):
     return tu.mesh_size(branch_obj.mesh,'ray_trace_percentile',percentile)
-
-def parent_width(limb_obj,branch_idx,width_func=None,verbose = False,**kwargs):
-    if width_func is None:
-        width_func = au.axon_width
-    upstream_node = nru.upstream_node(limb_obj,branch_idx)
-    if upstream_node is None:
-        return 0
-    
-    return width_func(limb_obj[upstream_node])
 
 def min_synapse_dist_to_branch_point(limb_obj,
     branch_idx,
@@ -2853,7 +2661,7 @@ def stats_dict_over_limb_branch(
     from neurd import neuron_statistics as nst
     nst.stats_dict_over_limb_branch(
         neuron_obj = neuron_obj_proof,
-        limb_branch_dict = apu.apical_limb_branch_dict(neuron_obj_proof))
+        limb_branch_dict = limb_branch_dict)
     """
     if limb_branch_dict is None:
         limb_branch_dict= neuron_obj.limb_branch_dict
@@ -3994,27 +3802,6 @@ def limb_branches_aggr_features(
                                 for k,v in branch_attr_dict.items()}
     return branch_attr_dict 
 
-def limb_branch_avg_features(
-    limb,
-    branches,
-    features=None,
-    default_value = None,
-    **kwargs
-):
-    if features is None:
-        features = [
-            au.axon_width,
-        ]
-    
-    return limb_branches_aggr_features(
-        limb,
-        branches,
-        features=features,
-        aggr_type = "mean",
-        default_value = default_value,
-        **kwargs
-    ) 
-    
 def limb_branch_sum_features(
     limb,
     branches,
@@ -4195,7 +3982,6 @@ attributes_dict_h01 = dict(
 
 
 #--- from neurd_packages ---
-from . import axon_utils as au
 from . import branch_utils as bu
 from . import concept_network_utils as cnu
 from . import error_detection as ed
