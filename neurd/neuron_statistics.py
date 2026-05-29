@@ -2450,72 +2450,6 @@ def trajectory_angle_from_start_branch_and_subtree(limb_obj,
 
 # ------- 7/26: To help identify axons  -----------
 distance_away_from_endpoint= 6_000
-#distance_away_from_endpoint= 10_000
-def synapse_density_post_near_endpoint_downstream(branch_obj,
-                                                 distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    """
-    Purpose: To get the synapse density near the downstream endpoint
-    """
-    return syu.synapse_density_post_within_distance_of_endpoint_downstream(branch_obj,
-                                                                          distance=distance,
-                                                                          verbose=verbose)
-
-def n_synapses_spine_within_distance_of_endpoint_downstream(branch_obj,
-                                                            distance = distance_away_from_endpoint,
-                                                            verbose = False,
-                                                            **kwargs
-                                                           ):
-    return syu.n_synapses_spine_within_distance_of_endpoint_downstream(branch_obj,
-                                                                          distance=distance,
-                                                                          verbose=verbose)
-
-def synapse_density_post_offset_endpoint_upstream(branch_obj,
-                                                 distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    return syu.synapse_density_post_offset_distance_of_endpoint_upstream(branch_obj,
-                                                                    distance=distance,
-                                                                    verbose = verbose,)
-
-def synapse_density_offset_endpoint_upstream(branch_obj,
-                                                 distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    return syu.synapse_density_offset_distance_of_endpoint_upstream(branch_obj,
-                                                                    distance=distance,
-                                                                    verbose = verbose,)
-
-def n_synapses_offset_endpoint_upstream(branch_obj,
-                                                   distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    return syu.n_synapses_offset_distance_of_endpoint_upstream(branch_obj,
-                                                                    distance=distance,
-                                                                    verbose = verbose,)
-
-def n_synapses_spine_offset_endpoint_upstream(branch_obj,
-                                                 distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    return syu.n_synapses_spine_offset_distance_of_endpoint_upstream(branch_obj,
-                                                                    distance=distance,
-                                                                    verbose = verbose,)
-
-def n_synapses_pre_offset_endpoint_upstream(branch_obj,
-                                                 distance = distance_away_from_endpoint,
-                                                  verbose = False,
-                                                  **kwargs
-                                                 ):
-    return syu.n_synapses_pre_offset_distance_of_endpoint_upstream(branch_obj,
-                                                                    distance=distance,
-                                                                    verbose = verbose,)
 
 
 
@@ -2662,8 +2596,7 @@ def get_stat(obj,stat,**kwargs):
     Purpose: Will either run the function 0n the  object
     of get the property of the function if it is a string
     
-    Ex: 
-    nst.get_stat(limb_obj[0],syu.n_synapses_pre)
+    Ex:
     nst.get_stat(limb_obj[0],"skeletal_length")
     
     """
@@ -3826,7 +3759,6 @@ def limb_node_query_dict(neuron_obj):
         ns.is_axon,
         ns.distance_from_soma,
         ns.skeletal_length_downstream,
-        syu.downstream_dist_min_over_syn,
     ]
     
     feature_strs = [
@@ -4272,7 +4204,6 @@ from . import microns_volume_utils as mcu
 from . import microns_volume_utils as mvu
 from . import neuron_searching as ns
 from . import neuron_utils as nru
-from . import synapse_utils as syu
 
 
 #--- from mesh_tools ---

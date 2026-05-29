@@ -1518,11 +1518,6 @@ def smaller_preprocessed_data(neuron_object,print_flag=False):
                           
                           # --- 6/9 Addition: Synapses stored off
                         
-                          soma_synapses = [syu.synapses_to_exports(getattr(double_soma_obj[k],"synapses",[])) for k in soma_names],
-                          distance_errored_synapses = syu.synapses_to_exports(getattr(double_soma_obj,"distance_errored_synapses",[])),
-                          mesh_errored_synapses = syu.synapses_to_exports(getattr(double_soma_obj,"mesh_errored_synapses",[])),
-        
-                          
                           soma_sdfs = double_soma_obj.preprocessed_data["soma_sdfs"],
                           soma_volume_ratios=double_soma_obj.preprocessed_data["soma_volume_ratios"],
 
@@ -9254,11 +9249,6 @@ def translate_neuron_obj(
             branch_obj.endpoints = branch_obj.endpoints + translation
             
             
-            if align_synapses:
-                for syn in branch_obj.synapses:
-                    for att in syu.synapse_coordinate_system_dependent_attributes:
-                        setattr(syn,att,getattr(syn,f"{att}") + translation)
-                        
             #doing the spine alignment
             if branch_obj.spines is not None:
                 branch_obj.spines = [tu.translate_mesh(k,translation = translation) for k in branch_obj.spines]
@@ -9292,13 +9282,8 @@ def translate_neuron_obj(
     for s_name in neuron_obj.get_soma_node_names():
         neuron_obj[s_name].mesh = tu.translate_mesh(neuron_obj[s_name].mesh,translation)
         
-        if align_synapses:
-            for syn in neuron_obj[s_name].synapses:
-                for att in syu.synapse_coordinate_system_dependent_attributes:
-                    setattr(syn,att,getattr(syn,f"{att}") + translation)
-
         neuron_obj[s_name].mesh_center = neuron_obj[s_name].mesh_center + translation
-        
+
     return neuron_obj
 
 def align_neuron_objs_at_soma(
@@ -9566,11 +9551,6 @@ def align_neuron_obj_from_align_matrix(
             
             
             
-            if align_synapses:
-                for syn in branch_obj.synapses:
-                    for att in syu.synapse_coordinate_system_dependent_attributes:
-                        align_attribute(syn,att,align_matrix=align_matrix,)
-                        
             #doing the spine alignment
             if branch_obj.spines is not None:
                 branch_obj.spines = [align_mesh(k,align_matrix=align_matrix) for k in branch_obj.spines]
@@ -9630,11 +9610,6 @@ def align_neuron_obj_from_align_matrix(
             align_matrix=align_matrix,
         )
         
-        if align_synapses:
-            for syn in neuron_obj[s_name].synapses:
-                for att in syu.synapse_coordinate_system_dependent_attributes:
-                    align_attribute(syn,att,align_matrix=align_matrix,)
-
         neuron_obj[s_name].mesh_center = tu.mesh_center_vertex_average(neuron_obj[s_name].mesh)
         #print(f"neuron_obj[s_name].mesh_center = {neuron_obj[s_name].mesh_center}")
         
@@ -10050,7 +10025,7 @@ from . import neuron_statistics as nst
 from . import preprocess_neuron as pre
 from . import proofreading_utils as pru
 from . import soma_extraction_utils as sm
-from . import synapse_utils as syu
+
 from . import width_utils as wu
 
 #--- from mesh_tools ---
