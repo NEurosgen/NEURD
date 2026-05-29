@@ -143,70 +143,9 @@ spine_synapse_rename_dict  =dict(
             syn_spine_width_ray_80_perc = "spine_width_ray_80_perc"
         )
 
-def false_positive_queries(
-    table_type = "pandas",
-    invert = False,
-    include_axons = True):
-    return_queries = [
-        slab_query_1,
-        slab_query_2,
-        slab_query_3,
-        slab_query_4,
-        slab_query_5,
-        long_merge,
-        #too_fat_of_neck
-    ]
-    if include_axons:
-        return_queries.append("compartment == 'axon'")
-    if invert:
-        return_queries = [f"not ({k})" for k in return_queries]
-    if table_type == "dj":
-        from datasci_tools import dj_utils as dju
-        return_queries  = [dju.dj_query_from_pandas_query(k) for k in return_queries]
 
-    return return_queries
-
-def spine_table_restriction_high_confidence(
-    table_type = "pandas",
-    include_default_restrictions=True,
-    return_query_str = False,):
-    return_value = false_positive_queries(table_type,invert = True)
-    if include_default_restrictions:
-        additional_queries = default_spine_restrictions.copy()
-        if table_type == "dj":
-            from datasci_tools import dj_utils as dju
-            additional_queries = [dju.dj_query_from_pandas_query(k) for k in additional_queries]
-        return_value += additional_queries
-        
-    if return_query_str:
-        return_value = pu.query_str_from_list(return_value,table_type = table_type)
-        
-    return return_value
     
 
-def filter_away_fp_from_df(
-    df,
-    fp_queries = None,
-    verbose = False,
-    eta = 0.000001
-    ):
-    if verbose:
-        print(f"Attempting to filter away fp")
-    
-    if fp_queries is None:
-        fp_queries = false_positive_queries()
-        
-    df["spine_volume_to_spine_area"] = df["spine_volume"] / (df["spine_area"] + eta)
-    df["spine_to_shaft_border_area"] = df["spine_area"] / (df["shaft_border_area"] + eta)
-    df["spine_area_per_faces"] = df["spine_area"]/df["spine_n_faces"]
-    
-    return_df = pu.query_table_from_list(
-        df,
-        restrictions = [f"not ({k})" for k in fp_queries],
-        verbose_filtering = verbose, 
-    )
-    
-    return return_df
 
 
 
@@ -928,55 +867,7 @@ def calculate_spine_attributes(
     
     return spine_obj
 
-def mesh_minus_spine_objs(
-    spine_objs,
-    mesh = None,
-    branch_obj=None,
-    return_idx = False,):
-    """
-    Purpose: To get the shaft mesh of a branch
-    given a list of spines
-    """
-    if mesh is None:
-        mesh = branch_obj.mesh
-    idx = np.delete(
-        np.arange(len(mesh.faces)),np.hstack([k.mesh_face_idx for k in spine_objs]
-                                      ).astype('int')
-    )
-    
-    if return_idx:
-        return idx
-    else:
-        return mesh.submesh([idx],append=True)
 
-def calculate_spine_attributes_for_list(
-    spine_objs,
-    branch_obj = None,
-    calculate_coordinates = True,
-    calculate_head_neck=False,
-    verbose_time=False,
-    mesh = None,
-    **kwargs
-    ):
-    if calculate_coordinates and len(spine_objs) > 0:
-        branch_shaft_mesh_face_idx = mesh_minus_spine_objs(
-            spine_objs,
-            branch_obj=branch_obj,
-            mesh = mesh,
-            return_idx = True,
-        )
-    else:
-        branch_shaft_mesh_face_idx = None
-    return [spu.calculate_spine_attributes(
-        k,
-        branch_obj = branch_obj,
-        calculate_coordinates=calculate_coordinates,
-        calculate_head_neck=calculate_head_neck,
-        verbose_time=verbose_time,
-        branch_shaft_mesh_face_idx=branch_shaft_mesh_face_idx,
-        mesh=mesh,
-        **kwargs
-    ) for k in spine_objs]
     
         
 def is_spine_obj(obj):
@@ -1116,170 +1007,16 @@ def export(
 
 
 
-def set_branch_spines_obj(branch_obj,
-                               calculate_mesh_face_idx = True,
-                                verbose = False):
-    """
-    Purpose: To set the spine 0bj
-    attribute for a branch
-
-    Pseudocode: 
-    1) store the spine mesh and the volume
-    2) calculate the neck face idx and sdf
-    2) optional: calculate the mesh face_idx
-    """
-    curr_spines = branch_obj.spines
-    curr_spines_vol = branch_obj.spines_volume
     
-    if curr_spines is None:
-        branch_obj.spines_obj = None
-        return 
-
-    spines_obj = []
-    branch_kd = tu.mesh_kdtree_face(branch_obj.mesh)
-
-    if not verbose:
-        tqu.turn_off_tqdm()
-    else:
-        tqu.turn_on_tqdm()
-
-    for s,vol in tqu.tqdm(zip(curr_spines,curr_spines_vol)):
-        sp_obj = spu.Spine(mesh=s,volume=vol)
-        sp_obj.calculate_head_neck()
-
-        if calculate_mesh_face_idx:
-            sp_obj.calculate_face_idx(original_mesh=branch_obj.mesh,
-                                      original_mesh_kdtree=branch_kd)
-        spines_obj.append(sp_obj)
-
-    branch_obj.spines_obj = spines_obj
     
-def set_neuron_spine_attribute(neuron_obj,func,
-                              verbose = False):
-    """
-    Purpose: To set the spines obj
-    for all branches in the neuron obj
-    """
-    for limb_name in neuron_obj.get_limb_names():
-        if verbose:
-            print(f"Working on Limb {limb_name}")
-        limb_obj = neuron_obj[limb_name]
-        for b_idx in limb_obj.get_branch_names():
-            if verbose:
-                print(f"--- branch {b_idx}")
-            func(branch_obj = limb_obj[b_idx])
-    
-def set_neuron_spines_obj(neuron_obj,
-                         verbose = False):
-    spu.set_neuron_spine_attribute(neuron_obj,
-                               func = spu.set_branch_spines_obj,
-                              verbose=verbose)
 
             
-def set_branch_head_neck_shaft_idx(branch_obj,
-                                  plot_face_idx=False,
-                                    add_no_head_label = True,
-                                  verbose = False):
-    branch_obj.head_neck_shaft_idx = spu.head_neck_shaft_idx_from_branch(
-                    branch_obj,
-                    plot_face_idx  = plot_face_idx,
-                    add_no_head_label = add_no_head_label,
-                    verbose = verbose)
     
-def set_neuron_head_neck_shaft_idx(neuron_obj,
-                                   add_no_head_label= True,
-                         verbose = False):
-    set_neuron_spine_attribute(neuron_obj,
-                               func = spu.set_branch_head_neck_shaft_idx,
-                              verbose=verbose)
     
-def set_branch_synapses_head_neck_shaft(branch_obj,
-                                        verbose = False
-                                       ):
-    """
-    Purpose: To use the head_neck_shaft_idx
-    of the branch objects to give the 
-    synapses of a branch the head_neck_shaft label
-
-    Pseudocode: 
-    If the branch has any 
-    1) Build a KDTree of the branch mesh
-    2) find which faces are the closest for the coordinates of all the synapses
-    3) Assign the closest face and the head_neck_shaft to the synapse objects
-    """
-    spines_obj = branch_obj.spines_obj
-    if branch_obj.synapses is not None and len(branch_obj.synapses)>0:
-        mesh_kd = tu.mesh_kdtree_face(branch_obj.mesh)
-
-        synapse_coords = np.array([s.coordinate for s in branch_obj.synapses]).reshape(-1,3)
-
-        dist,closest_face = mesh_kd.query(synapse_coords)
- 
-        for j,s in enumerate(branch_obj.synapses):
-            s.closest_branch_face_idx = closest_face[j]
-            s.head_neck_shaft = branch_obj.head_neck_shaft_idx[s.closest_branch_face_idx]
             
-def set_neuron_synapses_head_neck_shaft(neuron_obj,
-                                       verbose=False):
-    set_neuron_spine_attribute(neuron_obj,
-                               func = spu.set_branch_synapses_head_neck_shaft,
-                              verbose=verbose)
 
-def add_head_neck_shaft_spine_objs(neuron_obj,
-                                   add_synapse_labels=True,
-                                   filter_spines_for_size = True,
-                                   add_distance_attributes = True,
-                                  verbose = False):
-    """
-    Will do the additionaly processing that
-    adds the spine objects to a neuron and then
-    creates the head_neck_shaft_idx for the branches 
-    
-    Application: Can be used later to map synapses
-    to the accurate label
-    """
-    st = time.time()
-    
-    if filter_spines_for_size:
-        
-        neuron_obj= spu.filter_spines_by_size(neuron_obj,
-                                verbose = verbose)
-        if verbose:
-            print(f"Total time for fitlering spines by size {time.time() - st}")
-            st = time.time()
-    
-    spu.set_neuron_spines_obj(neuron_obj)
-    if verbose:
-        print(f"Total time for set_neuron_spines_obj {time.time() - st}")
-        st = time.time()
-    
-    spu.set_neuron_head_neck_shaft_idx(neuron_obj)
-    if verbose:
-        print(f"Total time for set_neuron_head_neck_shaft_idx {time.time() - st}")
-        st = time.time()
-    if add_synapse_labels:
-        spu.set_neuron_synapses_head_neck_shaft(neuron_obj)
-        if verbose:
-            print(f"Total time for set_neuron_synapses_head_neck_shaft {time.time() - st}")
-            st = time.time()
-            
-    if add_distance_attributes:
-        neuron_obj= spu.calculate_spine_obj_attr_for_neuron(
-                neuron_obj,
-                verbose = verbose)
-        if verbose:
-            print(f"Total time for calculate_spine_obj_attr_for_neuron {time.time() - st}")
-            st = time.time()
-    
-    return neuron_obj
             
     
-def spines_head_meshes(obj):
-    return [k.head_mesh for k in obj.spines_obj]
-def spines_neck_meshes(obj):
-    return [k.neck_mesh for k in obj.spines_obj]
-def spines_no_head_meshes(obj):
-    return [k.no_head_mesh for k in obj.spines_obj]
 
 def spines(neuron_obj):
     if type(neuron_obj) != list:
@@ -1288,54 +1025,11 @@ def spines(neuron_obj):
         curr_spines = neuron_obj
     return curr_spines
 
-def spines_head(neuron_obj):
-    curr_spines = spu.spines(neuron_obj)
-    return [k for k in curr_spines if k.head_exist]
-def spines_no_head(neuron_obj):
-    curr_spines = spu.spines(neuron_obj)
-    return [k for k in curr_spines if not k.head_exist]
-def spines_neck(neuron_obj):
-    return spu.spines_head(neuron_obj)
 
 def n_spines(neuron_obj):
     return len(spu.spines(neuron_obj))
 
 
-def plot_spines_head_neck(neuron_obj,
-                         head_color = head_color_default,
-                         neck_color = neck_color_default,
-                          no_head_color = no_head_color_default,
-                          bouton_color = bouton_color_default,
-                          mesh_alpha = 0.5,
-                          verbose=False,
-                          show_at_end=True,
-                          combine_meshes = True,
-                         ):
-    
-    meshes_colors = []
-    
-    spine_heads = spu.spines_head_meshes(neuron_obj)
-    meshes_colors += [head_color]*len(spine_heads)
-    
-    spine_necks = spu.spines_neck_meshes(neuron_obj)
-    meshes_colors += [neck_color]*len(spine_necks)
-    
-    spine_no_heads = spu.spines_no_head_meshes(neuron_obj)
-    meshes_colors += [no_head_color]*len(spine_no_heads)
-    
-    boutons = neuron_obj.boutons
-    meshes_colors += [bouton_color]*len(boutons)
-    
-    if verbose:
-        print(f"# of spine_heads = {len(spine_heads)}, # of spine_necks= {len(spine_necks)-len(spine_no_heads)}, # of spine_no_heads = {len(spine_no_heads)}")
-    
-    if combine_meshes:
-        meshes_colors = [head_color,neck_color,no_head_color,bouton_color]
-        spine_heads = [tu.combine_meshes(spine_heads)]
-        spine_necks = [tu.combine_meshes(spine_necks)]
-        spine_no_heads = [tu.combine_meshes(spine_no_heads)]
-        boutons = [tu.combine_meshes(boutons)]
-        meshes = spine_heads+spine_necks+spine_no_heads+boutons
         
     
     
@@ -2007,89 +1701,7 @@ def spine_head_neck(
 
 
 
-def bouton_non_bouton_idx_from_branch(branch_obj,
-                                     plot_branch_boutons=False,
-                                     plot_face_idx=False,
-                                     verbose = False):
-    """
-    Purpose: To add axon labels to the branch
 
-    Ex: 
-    return_face_idx = spu.bouton_non_bouton_idx_from_branch(branch_obj = neuron_obj[0][0],
-    plot_branch_boutons = False,
-    verbose = True,
-    plot_face_idx = True,
-    )
-
-    """
-
-    head_neck_shaft_idx = np.ones(branch_obj.mesh_face_idx.shape)*spu.head_neck_shaft_dict["non_bouton"]
-
-    boutons = branch_obj.boutons
-    if boutons is not None and len(boutons) > 0:
-        boutons_idx = np.concatenate(tu.convert_meshes_to_face_idxes(boutons,branch_obj.mesh))
-
-        if verbose:
-            print(f"{len(boutons_idx)} bouton faces")
-
-        head_neck_shaft_idx[boutons_idx] = spu.head_neck_shaft_dict["bouton"]
-
-
-    return head_neck_shaft_idx
-
-def head_neck_shaft_idx_from_branch(branch_obj,
-    plot_face_idx  = False,
-    add_no_head_label = True,
-    verbose = False,
-    process_axon_branches=True):
-    """
-    Purpose: To create an array
-    mapping the mesh face idx of the branch to a
-    label of head/neck/shaft
-
-    Pseudocode: 
-    1) Create an array the size of branch mesh 
-    initialized to shaft
-    2) iterate through all of the spine objects of the branch
-        a) set all head index to head
-        b) set all neck index to neck
-        
-    Ex: 
-    spu.head_neck_shaft_idx_from_branch(branch_obj = neuron_obj_exc_syn[0][6],
-    plot_face_idx  = True,
-    verbose = True,)
-    """
-
-    if process_axon_branches and "axon" in branch_obj.labels:
-        """
-        Purpose: To add axon labels to the branch
-        
-        Psuedocode: 
-        1) 
-        """
-        head_neck_shaft_idx = spu.bouton_non_bouton_idx_from_branch(branch_obj)
-        if verbose:
-            print(f'# of bouton faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["bouton"])}')
-            print(f'# of non_bouton faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["non_bouton"])}')
-    else:
-        head_neck_shaft_idx = np.ones(branch_obj.mesh_face_idx.shape)*spu.head_neck_shaft_dict["shaft"]
-
-        if branch_obj.spines_obj is not None:
-            for sp_obj in branch_obj.spines_obj:
-                if add_no_head_label and (not sp_obj.head_exist):
-                    head_neck_shaft_idx[sp_obj.mesh_face_idx[sp_obj.neck_face_idx]] = spu.head_neck_shaft_dict["no_head"]
-                    head_neck_shaft_idx[sp_obj.mesh_face_idx[sp_obj.head_face_idx]] = spu.head_neck_shaft_dict["head"]
-                else:
-                    head_neck_shaft_idx[sp_obj.mesh_face_idx[sp_obj.head_face_idx]] = spu.head_neck_shaft_dict["head"]
-                    head_neck_shaft_idx[sp_obj.mesh_face_idx[sp_obj.neck_face_idx]] = spu.head_neck_shaft_dict["neck"]
-
-        if verbose:
-            print(f'# of shaft faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["shaft"])}')
-            print(f'# of head faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["head"])}')
-            print(f'# of neck faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["neck"])}')
-            print(f'# of no_head faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["no_head"])}')
-
-    return head_neck_shaft_idx
 
 def spine_density(obj,um = True):
     """
@@ -2128,10 +1740,6 @@ def spine_str_label(spine_label):
         spine_label =  head_neck_shaft_dict_inverted[spine_label]
     return spine_label
 
-def spine_int_label(spine_label):
-    if type(spine_label) == str:
-        spine_label =  head_neck_shaft_dict[spine_label]
-    return spine_label
 
 
 
@@ -2614,85 +2222,7 @@ def calculate_spines_on_neuron(
                 
 # --------------- for filtering spines: 1/25 ------------
     
-def filter_spines_by_size_branch(
-    branch_obj,
-    spine_n_face_threshold=None,
-    filter_by_volume_threshold = None,
-    spine_sk_length_threshold= None,
-    verbose = False,
-    assign_back_to_obj = True,
-    calculate_spines_length_on_whole_neuron = True,
-    ):
-    """
-    Purpose: To filter away any of the 
-    spines according to the size thresholds
-
-    """
-    if spine_n_face_threshold is None:
-        spine_n_face_threshold= spine_n_face_threshold_global
-    if filter_by_volume_threshold is None:
-        filter_by_volume_threshold = filter_by_volume_threshold_global
-    if spine_sk_length_threshold is None:
-        spine_sk_length_threshold = spine_sk_length_threshold_global
-        
-    if verbose:
-        print(f"Spines before filtering away: {len(branch_obj.spines_obj)}")
-        
-    if branch_obj.spines_obj is not None and len(branch_obj.spines_obj) > 0:
-        s_objs_keep = [s_obj for s_obj in branch_obj.spines_obj
-                              if ((len(s_obj.mesh.faces) > spine_n_face_threshold)
-                               and (s_obj.volume > filter_by_volume_threshold)
-                                 and (s_obj.skeletal_length > spine_sk_length_threshold))
-                              ]
-        if verbose:
-            print(f"Spines before filtering away: {len(s_objs_keep)}")
-
-        if assign_back_to_obj:
-            branch_obj.spines_obj = s_objs_keep
-            branch_obj.spines = [s.mesh for s in s_objs_keep]
-            branch_obj.spines_volume = [s.volume for s in s_objs_keep]
-
-        return_value = s_objs_keep
-    elif branch_obj.spines is not None:
-        new_spines = []
-        new_spines_volume = []
-        for spine_mesh,spine_vol in zip(branch_obj.spines,branch_obj.spines_volume):
-            if ((len(spine_mesh.faces) >= spine_n_face_threshold) 
-                and (spine_vol >= filter_by_volume_threshold)
-               and (spine_length(spine_mesh) > spine_sk_length_threshold)):
-                new_spines.append(spine_mesh)
-                new_spines_volume.append(spine_vol)
-                
-        if assign_back_to_obj:
-            branch_obj.spines = new_spines
-            branch_obj.spines_volume = new_spines_volume
-        
-        return_value = new_spines
-    else:
-        return_value = None
-        
-    if calculate_spines_length_on_whole_neuron:
-        nru.calculate_spines_skeletal_length(branch_obj)
-        
-    return return_value
     
-def filter_spines_by_size(
-    neuron_obj,
-    spine_n_face_threshold=None,
-    filter_by_volume_threshold = None,
-    verbose = False,
-    **kwargs
-    ):
-    st = time.time()
-    for limb_obj in neuron_obj:
-        for branch_obj in limb_obj:
-            spu.filter_spines_by_size_branch(branch_obj,
-                                             **kwargs
-                                )
-    if verbose:
-        print(f"Total time for spine filtering: {time.time() - st}")
-        
-    return neuron_obj
 
 
 # ------------- 2/7 adjustments -----------------
@@ -2760,12 +2290,6 @@ def spine_length(
 
 # -------------- for other properties per spine obj -------------
 
-def calculate_spine_obj_mesh_skeleton_coordinates_for_branch(branch_obj):
-    if branch_obj.spines_obj is None:
-        return branch_obj
-    branch_obj.spines_obj = [spu.calculate_spine_obj_mesh_skeleton_coordinates(branch_obj,k)
-                            for k in branch_obj.spines_obj] 
-    return branch_obj
 
 def calculate_spine_obj_mesh_skeleton_coordinates(
     branch_obj=None,
@@ -2927,67 +2451,7 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
         
     return spine_obj
 
-def id_from_idx(
-    limb_idx,
-    branch_idx,
-    spine_idx,
-    ):
     
-    limb_idx = nru.get_limb_int_name(limb_idx)
-    name_as_string = f"{str(limb_idx).zfill(2)}{str(branch_idx).zfill(3)}{str(spine_idx).zfill(3)}"
-    return int(name_as_string)
-    
-def calculate_spine_obj_attr_for_neuron(
-    neuron_obj,
-    verbose = False,
-    create_id = True,
-    **kwargs
-    ):
-    """
-    Purpose: To set all of the
-    neuron_obj spine attributes
-
-    Pseudocode: 
-    for limbs
-        for branches
-            1) calculate the mesh and skeleton info
-            2) calculate_branch_attr_soma_distances_on_limb
-
-    calculate the soma distance
-    
-    Ex: neuron_obj= spu.calculate_spine_obj_attr_for_neuron(neuron_obj,verbose = True)
-
-    """
-    
-    for limb_idx in neuron_obj.get_limb_names():
-        if verbose:
-            print(f"--- Working on Limb {limb_idx}")
-        limb_obj = neuron_obj[limb_idx]
-        for branch_idx in limb_obj.get_branch_names():
-            if verbose:
-                print(f"     Branch {branch_idx}")
-            branch_obj = limb_obj[branch_idx]
-            #1) calculate the mesh and skeleton info
-            limb_obj[branch_idx] = spu.calculate_spine_obj_mesh_skeleton_coordinates_for_branch(branch_obj)
-            
-            if create_id and branch_obj.spines_obj is not None:
-                for s_idx,sp_ogj in enumerate(branch_obj.spines_obj):
-                    branch_obj.spine_id = spu.id_from_idx(limb_idx,branch_idx,s_idx)
-
-        #2) calculate_branch_attr_soma_distances_on_limb
-        limb_obj = _branch_attr_soma_distances_on_limb(
-            limb_obj,
-            branch_attr="spines_obj",
-            calculate_endpoints_dist_if_empty=True
-        )
-        neuron_obj[limb_idx] = limb_obj
-
-    if verbose:
-        print(f"Working on calculate_neuron_soma_distance_euclidean")
-    _neuron_soma_distance_euclidean(neuron_obj, branch_attr="spines_obj")
-    _set_limb_branch_idx_to_attr(neuron_obj, branch_attr="spines_obj")
-
-    return neuron_obj
 
 def calculate_endpoints_dist(branch_obj, spine_obj):
     _calculate_endpoints_dist(branch_obj, spine_obj)
@@ -3016,232 +2480,6 @@ def volume_from_spine(spine,default_value = 0):
 
 
 # ---------------------- 11/3: Calculating the spines with all of the information  -----
-def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_obj(
-    branch_obj = None,
-    plot_segmentation = False,
-    ensure_mesh_conn_comp = True,
-    plot_spines_before_filter = False,
-    
-    
-    filter_out_border_spines = None,
-    border_percentage_threshold = None,
-    plot_spines_after_border_filter = False,
-
-    skeleton_endpoint_nullification = False,
-    skeleton_endpoint_nullification_distance = None,
-    plot_spines_after_skeleton_endpt_nullification = False,
-
-    soma_vertex_nullification = None,
-    soma_verts = None,
-    soma_kdtree = None,
-    plot_spines_after_soma_nullification = None,
-    
-    plot = False,
-    verbose = False,
-    mesh = None,
-    skeleton = None,
-    **kwargs
-    ):
-    """
-    Purpose
-    -----------
-    Performs spine detection on a branch object or a branch mesh (optionally with a skeleton) and then apply filtering before creating official Spine objects from each individually detected spine.
-
-    Purpose Detailed
-    -----------------------
-
-    Pseudocode
-    ----------------
-    1) Generate initial spine mesh detection
-    2) Filter out border spines:
-        if requested (filter_out_border_spines), filter out meshes that have:
-            a) higher than a certain percentage (border_percentage_threshold) of the submesh vertices overlapping with border vertices (certices adjacent to open spaces in the mesh) on the parent mesh  
-            b) higher than certain percentage (check_spine_border_perc_global) of the parent mesh’s border vertices overlapping with the submesh vertices
-    3) skeleton endpoint filtering:
-        if requested (skeleton_endpoint_nullification), filter away spines that are within a certain distance (skeleton_endpoint_nullification_distance) from the branch skeleton endpoints in order to avoid a high false positive class.
-    4) some vertex nullification:
-        if requested (soma_vertex_nullification), filter out spines that have vertices overlapping with vertices of the soma
-    5) Creates spine objects from all the remaining spine objects (will do head/neck segmentaiton)
-
-    Global Parameters to Set
-    ----------------
-    # -- border filtering
-    filter_out_border_spines: bool
-        whether to be perform spine filtering by considering how much spine submesh vertices overlap with border vertices of shaft submesh
-
-    border_percentage_threshold: float
-        maximum percentage a submesh vertices can overlap with border vertices (vertices adjacent to open spaces in the mesh) on the parent mesh and still be in consideration for spine label  
-
-    # -- skeleton filtering
-    skeleton_endpoint_nullification: bool
-        whether to filter away spines that are within a certain distance (skeleton_endpoint_nullification_distance) from the branch skeleton endpoints in order to avoid a high false positive class.
-
-    skeleton_endpoint_nullification_distance_global: float
-        minimum distance a spine mesh can be from the branch skeleton endpoints and not be filtered away when the skeleton_endpoint_nullification flag is set
-
-    # -- soma filtering
-    soma_vertex_nullification: bool
-        when true will filter out spines that have vertices overlapping with vertices of the soma
-
-
-    """
-    
-    if filter_out_border_spines is None:
-        filter_out_border_spines = filter_out_border_spines_global
-        
-    if border_percentage_threshold is None:
-        border_percentage_threshold = border_percentage_threshold_global
-        
-    if skeleton_endpoint_nullification is None:
-        skeleton_endpoint_nullification = skeleton_endpoint_nullification_global
-        
-    if skeleton_endpoint_nullification_distance is None:
-        skeleton_endpoint_nullification_distance = skeleton_endpoint_nullification_distance_global
-        
-    if soma_vertex_nullification is None:
-        soma_vertex_nullification = soma_vertex_nullification_global
-
-    
-    if mesh is None:
-        mesh = branch_obj.mesh
-        
-        
-
-    (spines,
-     spines_sdf,
-     spines_mesh_idx) = spu.get_spine_meshes_unfiltered_from_mesh(
-        mesh,
-        delete_temp_file=True,
-        return_sdf=True,
-        return_mesh_idx = True,
-        print_flag=False,
-        plot_segmentation=plot_segmentation,
-        ensure_mesh_conn_comp=ensure_mesh_conn_comp,
-        plot = False,
-        **kwargs
-    )
-    """
-    Purpose:
-    -------
-    if requested (filter_by_bounding_box_longest_side_length), filters the meshes to have less than a certain length (side_length_threshold) for the longest side of their oriented bounding box. To prevent false positive spines from long axon fragment merges
-
-    """
-
-        
-
-
-
-    spine_submesh_split_filtered = spines
-    
-    if len(spine_submesh_split_filtered) == 0:
-        return spine_submesh_split_filtered
-    """
-    Purpose
-    -------
-    if requested (filter_out_border_spines), filter out meshes that have:
-        a) higher than a certain percentage (border_percentage_threshold) of the submesh vertices overlapping with border vertices (certices adjacent to open spaces in the mesh) on the parent mesh  
-        b) higher than certain percentage (check_spine_border_perc_global) of the parent mesh’s border vertices overlapping with the submesh vertices
-
-    """
-    if filter_out_border_spines:
-        if verbose:
-            print("Using the filter_out_border_spines option")
-        spine_idx = spu.filter_out_border_spines(
-            mesh,
-            spine_submesh_split_filtered,
-            border_percentage_threshold=border_percentage_threshold,
-            check_spine_border_perc=check_spine_border_perc,
-            verbose=verbose,
-            return_idx = True,
-        )
-        
-        spine_submesh_split_filtered = spine_submesh_split_filtered[spine_idx]
-        spines_sdf=spines_sdf[spine_idx]
-        spines_mesh_idx = spines_mesh_idx[spine_idx]
-
-        if verbose:
-            print(f"After filter_out_border_spines: # of spines = {len(filter_out_border_spines)}")
-
-    if len(spine_submesh_split_filtered) == 0:
-        return spine_submesh_split_filtered
-
-    """
-    Purpose
-    -------
-    if requested (skeleton_endpoint_nullification), filter away spines that are within a certain distance (skeleton_endpoint_nullification_distance) from the branch skeleton endpoints in order to avoid a high false positive class.
-    """
-    if skeleton_endpoint_nullification and (branch_obj is not None or skeleton is not None):
-        if skeleton is None:
-            skeleton = branch_obj.skeleton
-        if verbose:
-            print("Using the skeleton_endpoint_nullification option")
-
-
-        curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(skeleton)
-        spine_idx = tu.filter_meshes_by_containing_coordinates(
-            spine_submesh_split_filtered,
-            curr_branch_end_coords,
-            distance_threshold=skeleton_endpoint_nullification_distance,
-            return_indices=True
-        )
-        
-        spine_submesh_split_filtered = spine_submesh_split_filtered[spine_idx]
-        spines_sdf=spines_sdf[spine_idx]
-        spines_mesh_idx = spines_mesh_idx[spine_idx]
-
-            
-        if verbose:
-            print(f"After skeleton_endpoint_nullification: # of spines = {len(spine_submesh_split_filtered)}")
-
-
-    if len(spine_submesh_split_filtered) == 0:
-        return spine_submesh_split_filtered
-    
-    """
-    Purpose:
-    --------
-    
-    if requested (soma_vertex_nullification), filter out spines that have vertices overlapping with vertices of the soma
-    """
-    if soma_vertex_nullification and (soma_kdtree is not None or soma_kdtree is not None):
-        if soma_verts is not None:
-            soma_kdtree = KDTree(soma_verts)
-        if soma_kdtree is None:
-            raise Exception("Requested soma vertex but no soma information given")
-
-        if verbose:
-            print("Using the soma_vertex_nullification option")
-
-        spine_idx = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
-                                                    soma_kdtree=soma_kdtree,
-                                                       return_idx = True)
-        
-        spine_submesh_split_filtered = spine_submesh_split_filtered[spine_idx]
-        spines_sdf=spines_sdf[spine_idx]
-        spines_mesh_idx = spines_mesh_idx[spine_idx]
-
-            
-        if verbose:
-            print(f"After soma_vertex_nullification: # of spines = {len(spine_submesh_split_filtered)}")
-            
-    
-    """
-    Purpose:
-    --------
-    Creates spine objects from all the remaining spine objects (will do head/neck segmentaiton)
-    """
-    # Creating the spine objects
-    spine_objs = [spu.Spine(
-        mesh = k,
-        mesh_face_idx = k_idx,
-        sdf = s
-    ) for k,k_idx,s in zip(spine_submesh_split_filtered,spines_mesh_idx,spines_sdf,)]
-    
-    
-    if verbose:
-        print(f"Final Number of Spine Objects = {len(spine_objs)}")
-        
-    return spine_objs
 
 
 
@@ -3372,112 +2610,6 @@ def spine_volume_to_spine_area(spine_obj):
         return 0
     return (spine_obj.volume/spu.volume_divisor)/(spine_obj.area/spu.area_divisor)
 
-def filter_spine_objs_by_size_bare_minimum(
-    spine_objs,
-    spine_n_face_threshold: int = None,#6,
-    spine_sk_length_threshold: float = None,#306.6,
-    filter_by_volume_threshold: float = None,#900496.186,
-    bbox_oriented_side_max_min: int = None,#300,
-    sdf_mean_min: float = None,#0,
-    spine_volume_to_spine_area_min: float = None,
-    verbose = False,
-    ):
-    """
-    Purpose
-    -----------
-    Filters the spine objects for minimum feature requirements.
-
-    Pseudocode
-    ----------------
-    1) Apply a list of simple attribute “greater than” queries to filter down the spine objects.
-
-
-    Global Parameters to Set
-    ----------------
-    spine_n_face_threshold_bare_min: 
-        minimum number of faces for a valid spine mesh
-
-    spine_sk_length_threshold_bare_min: 
-        minimum surface skeletal length (units) of a valid spine mesh
-
-    filter_by_volume_threshold_bare_min:
-        minimum volume (units) of a valid spine mesh
-
-    bbox_oriented_side_max_min_bare_min:
-        minimum side length (uints) of the oriented bounding box surrounding the spine mesh for valid spines
-
-    sdf_mean_min_bare_min: 
-        minimum mean sdf value (computed in the shaft/spine clustering step performed by the cgal clustering algorithm) for valid spine meshes
-
-    spine_volume_to_spine_area_min_bare_min:
-        minimum ratio of mesh volume (units^3) to mesh area (units^2) for valid spine meshes
-
-    Notes
-    --------
-    1) Visualize the spines after these filtering
-
-
-    Parameters
-    ----------
-    spine_objs : _type_
-        _description_
-    spine_n_face_threshold : int, optional
-        _description_, by default None
-    spine_sk_length_threshold : float, optional
-        _description_, by default None
-    filter_by_volume_threshold : float, optional
-        _description_, by default None
-    bbox_oriented_side_max_min : int, optional
-        _description_, by default None
-    sdf_mean_min : float, optional
-        _description_, by default None
-    spine_volume_to_spine_area_min : float, optional
-        _description_, by default None
-    verbose : bool, optional
-        _description_, by default False
-
-    Returns
-    -------
-    _type_
-        _description_
-    """
-    if len(spine_objs) == 0:
-        return spine_objs
-    
-    if spine_n_face_threshold is None:
-        spine_n_face_threshold = spine_n_face_threshold_bare_min_global
-        
-    if spine_sk_length_threshold is None:
-        spine_sk_length_threshold = spine_sk_length_threshold_bare_min_global
-        
-    if filter_by_volume_threshold is None:
-        filter_by_volume_threshold = filter_by_volume_threshold_bare_min_global
-        
-    if bbox_oriented_side_max_min is None:
-        bbox_oriented_side_max_min = bbox_oriented_side_max_min_bare_min_global
-        
-    if sdf_mean_min is None:
-        sdf_mean_min = sdf_mean_min_bare_min_global
-        
-    if spine_volume_to_spine_area_min is None:
-        spine_volume_to_spine_area_min = spine_volume_to_spine_area_min_bare_min_global
-        
-        
-    #print(f"filter_by_volume_threshold = {filter_by_volume_threshold}")
-    sp_objs_filt = spu.filter_spine_objs_from_restrictions(
-        spine_objs,
-        restrictions = [
-            f"n_faces >= {spine_n_face_threshold}",
-            f"(skeletal_length >= {spine_sk_length_threshold}) or (skeletal_length != skeletal_length)",
-            f"(volume >= {filter_by_volume_threshold}) or (volume != volume)",
-            f"sdf_mean > {sdf_mean_min}",
-            f"bbox_oriented_side_max > {bbox_oriented_side_max_min}",
-            f"spine_volume_to_spine_area >= {spine_volume_to_spine_area_min}",
-        ],
-        verbose = verbose,
-    )
-
-    return sp_objs_filt
     
     
 
@@ -3727,280 +2859,11 @@ def bbox_max_z_nm_from_compartment(
         oriented=bbox_oriented,
     )
 
-def spine_compartment_mesh_functions(
-    compartments = ("spine","head",'neck',),
-    stats_functions = (
-        "width_ray_from_compartment",
-        "width_ray_80_perc_from_compartment",
-        "area_from_compartment",
-        "volume_from_compartment",
-        "skeletal_length_from_compartment",
-        "n_faces",
-        "bbox_min_x_nm_from_compartment",
-        "bbox_min_y_nm_from_compartment",
-        "bbox_min_z_nm_from_compartment",
-        
-        "bbox_max_x_nm_from_compartment",
-        "bbox_max_y_nm_from_compartment",
-        "bbox_max_z_nm_from_compartment",
-    ),
-    verbose = True
-    ):
-
-    """
-    Purpose: To generate the size 
-    functions for all compartments: spine,head,neck,
-
-    Pseudocode: 
-    1) Iterate through all compartments
-    2) print out the formatted function
-    """
-
-    function_names = []
-    function_declaration_str = ""
-    for comp in compartments:
-        function_declaration_str += (f"#--- Mesh Attribute Functions for {comp} -----\n")
-        for st in stats_functions: 
-            func_name = f"{comp}_{st.replace('_from_compartment','')}"
-            function_names.append(func_name)
-            function_declaration_str += (
-            f"@property\ndef {func_name}(self,**kwargs):\n"
-            f"    return {st}(self,compartment = '{comp}',**kwargs)\n\n"
-            )
-
-    if verbose:
-        print(f"{function_declaration_str}")
-    return function_names
 
     
-def plot_spines_objs_with_head_neck_and_coordinates(
-    spine_objs,
-    branch_obj=None,
-    mesh = None,
-    head_color = "red",
-    neck_color = "aqua",
-    no_head_color = "black",
-    base_coordinate_color = "pink",
-    center_coordinate_color = "orange",
-    mesh_alpha = 0.8,
-    verbose = False
-    ):
-    """
-    Purpose: Want to plot from a list of spines
-    all of the head,necks, centroids and 
-    coordinates of spines
-
-    Pseudocode: 
-    For each spine:
-    a) get the head/neck and put into mesh lists
-    b) Get the coordinates and mesh_center and put into scatter
-    3) Plot all  with the branch mesh
-    """
 
 
-    if branch_obj is None:
-        mesh = mesh
-    else:
-        mesh = branch_obj.mesh
-        
-    head_meshes = []
-    neck_meshes = []
-    no_head_meshes = []
-    base_coords = []
-    center_coords = []
-    for s in spine_objs:
-        if s.n_heads == 0:
-            no_head_meshes.append(s.no_head_mesh)
-        else:
-            head_meshes.append(s.head_mesh)
-            neck_meshes.append(s.neck_mesh)
-        center_coords.append(s.mesh_center)
-        if s.coordinate is None:
-            continue
-        base_coords.append(s.coordinate)
-        
-    #print(f"head_meshes = {head_meshes}")
 
-    base_coords = np.array(base_coords).reshape(-1,3)
-    center_coords = np.array(center_coords).reshape(-1,3)
-    
-    # concatenating the meshes
-    head_meshes = [tu.combine_meshes(head_meshes)]
-    neck_meshes = [tu.combine_meshes(neck_meshes)]
-    no_head_meshes = [tu.combine_meshes(no_head_meshes)]
-    
-    if verbose:
-        print(f"head_meshes = {head_meshes}")
-        print(f"neck_meshes = {neck_meshes}")
-        print(f"no_head_meshes = {no_head_meshes}")
-
-    colors = (
-        [head_color]*len(head_meshes) +
-        [neck_color]*len(neck_meshes) + 
-        [no_head_color]*len(no_head_meshes)
-    )
-
-def spine_objs_bare_minimum_filt_with_attr_from_branch_obj(
-    branch_obj=None,
-    soma_verts_on_limb=None,
-    soma_kdtree_on_limb=None,
-    plot_unfiltered_spines = False,
-    plot_filtered_spines = False,
-    verbose = False,
-    
-    #for calculatin distance of spine
-    soma_center = None,
-    upstream_skeletal_length = None,
-    
-    #for branch features
-    branch_features = None,
-    mesh = None,
-    skeleton = None,
-    **kwargs
-    ):
-    """
-    Purpose
-    -----------
-    Performs spine detection on a branch object or a branch mesh (optionally with a skeleton)
-
-    Purpose Detailed
-    -----------------------
-
-    Pseudocode
-    ----------------
-    1) Generates spine objects
-    2) Calculate spine attributes for each spine object
-    3) Apply bare minimum spine attribute filtering (filter_spine_objs_by_size_bare_minimum)
-
-    
-        
-    Analysis Roadmap
-    ----------------
-    spu.spine_objs_bare_minimum_filt_with_attr_from_branch_obj
-        spu.spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_obj
-        
-            spu.get_spine_meshes_unfiltered_from_mesh
-                spu.get_spine_meshes_unfiltered_from_mesh
-                    spu.split_mesh_into_spines_shaft:
-                        tu.mesh_segmentation
-                            VISUALIZATION: visualization that enough chopped up
-                            PARAMETER CHANGE:
-                                smoothness_threshold
-                                clusters_threshold
-
-                        spu.restrict_meshes_to_shaft_meshes_without_coordinates
-                            VISUALIZATION: look at initial shaft seaparation (c)
-                            PARAMETER CHANGE:
-                                shaft_close_hole_area_top_2_mean_max
-                                shaft_mesh_volume_max
-                                shaft_mesh_n_faces_min
-
-                VISUALIZATION: individual spines prior to individual spine filtering
-
-            VISUALIZATION: spines after filtering (or each step after filtering)
-            PARAMETER CHANGE:
-                # -- border filtering
-                filter_out_border_spines
-                border_percentage_threshold
-                # -- skeleton filtering
-                skeleton_endpoint_nullification
-                skeleton_endpoint_nullification_distance
-                # -- soma filtering
-                soma_vertex_nullification: bool
-
-
-        filter_spine_objs_by_size_bare_minimum
-            VISUALIZATION: spines before and after substitution
-            PARAMETER CHANGE:                
-                spine_n_face_threshold_bare_min
-                spine_sk_length_threshold_bare_min
-                filter_by_volume_threshold_bare_min
-                bbox_oriented_side_max_min_bare_min
-                sdf_mean_min_bare_min
-                spine_volume_to_spine_area_min_bare_min
-                
-        spu.calculate_spine_attributes_for_list
-            spu.calculate_spine_attributes:
-                spu.calculate_head_neck:
-                    VISUALIZATION: spine head/neck subdivision
-                    PARAMETER CHANGE:
-                        head_smoothness
-                        head_ray_trace_min
-                        head_face_min
-                        only_allow_one_connected_component_neck
-
-    """
-
-
-    if mesh is None:
-        mesh = branch_obj.mesh
-    if skeleton is None and branch_obj is not None:
-        skeleton = branch_obj.skeleton
-    
-    if soma_kdtree_on_limb is None and soma_verts_on_limb is not None:
-        soma_kdtree_on_limb = KDTree(soma_verts_on_limb)
-    sp_objs = spu.spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_obj(
-        branch_obj=branch_obj,
-        soma_kdtree = soma_kdtree_on_limb,
-        verbose = verbose,
-        plot = plot_unfiltered_spines,
-        mesh=mesh,
-        skeleton = skeleton,
-    )
-    
-    #raise Exception("")
-
-    sp_objs = spu.calculate_spine_attributes_for_list(
-        sp_objs,
-        calculate_coordinates=False,
-    )
-
-    if verbose:
-        print(f"Before filtering len(sp_objs) = {len(sp_objs)}")
-
-    #filters the spine objects
-    sp_objs_filt = spu.filter_spine_objs_by_size_bare_minimum(sp_objs)
-    if verbose:
-        print(f"AFTER filtering len(sp_objs_filt) = {len(sp_objs_filt)}")
-
-
-    #calculates the center and closest face idx
-    sp_objs_filt = spu.calculate_spine_attributes_for_list(
-        sp_objs_filt,
-        branch_obj = branch_obj,
-        calculate_coordinates=True,
-        calculate_head_neck = True,
-        verbose_time=False,
-        soma_center=soma_center,
-        upstream_skeletal_length=upstream_skeletal_length,
-        mesh = mesh,
-        **kwargs
-    )
-
-    if plot_filtered_spines:
-        spu.plot_spines_objs_with_head_neck_and_coordinates(
-            sp_objs_filt,
-            branch_obj = branch_obj,
-            mesh = mesh
-        )
-
-        
-    return sp_objs_filt
-
-
-def id_from_compartment_index(
-    compartment,
-    index = 0):
-    if compartment == "shaft":
-        return -3
-    elif compartment == "no_head":
-        return -2
-    elif compartment == "neck":
-        return -1
-    elif compartment == "head":
-        return 0 + index
-    else:
-        raise Exception("")
         
 def compartment_index_from_id(id):
     if id == -3:
@@ -4015,190 +2878,18 @@ def compartment_index_from_id(id):
         raise Exception("")
         
         
-def compartment_idx_for_mesh_face_idx_of_spine(spine_obj):
-    """
-    Purpose: Create a face map for that spines mesh_face_idx
-    from the head,neck, and no_label 
     
-    Ex: 
-    spine_obj = output_spine_objs[5]
-    spu.plot_head_neck(spine_obj)
-    tu.split_mesh_into_face_groups(
-        spine_obj.mesh,
-        spu.compartment_idx_for_mesh_face_idx_of_spine(spine_obj),
-        plot=True,
-    )
-    """
-    empty_array = np.ones(len(spine_obj.mesh.faces))
-    if spine_obj.n_heads == 0:
-        return empty_array * id_from_compartment_index("no_head")
-    else:
-        curr_idx = empty_array * id_from_compartment_index("neck")
-        curr_idx[spine_obj.head_face_idx] = spine_obj.head_mesh_splits_face_idx
-        return curr_idx
-    
-def face_idx_map_from_spine_objs(
-    spine_objs,
-    branch_obj = None,
-    mesh = None, 
-    no_spine_index = -1,
-    plot = False,
-    ):
-    """
-    Purpose: from a branch
-    mesh and spine objs on that branch mesh
-    create an array (N,2) that maps every face to the shaft
-    or a spine index and the compartment
-    """
-    if mesh is None:
-        mesh = branch_obj.mesh
-
-
-    face_map = np.ones((len(branch_obj.mesh.faces),2))*no_spine_index
-    face_map[:,1] = spu.id_from_compartment_index("shaft")
-    for j,s in enumerate(spine_objs):
-        face_map[s.mesh_face_idx,0] = j
-        face_map[s.mesh_face_idx,1] = spu.compartment_idx_for_mesh_face_idx_of_spine(s)
-
-    if plot:
-        tu.split_mesh_into_face_groups(
-            branch_obj.mesh,
-            face_map[:,1],
-            plot = True,
-        )
-
-    return face_map
 
     
 
-def synapse_df_with_spine_match(
-    branch_obj,
-    spine_objs,
-    plot_face_idx_map = False,
-    attributes_to_append = (
-    "volume",
-    "width_ray_80_perc",
-    "area"
-    ),
-
-    attribute_rename_dict = dict(
-        volume = "spine_volume"
-    ),
-    spine_id_column = "spine_id",
-    spine_compartment_column ="spine_compartment",
-    verbose = False,
-    #filter_away_non_spine_synapses = True,
-    ):
-    """
-    Purpose: Create a dataframe that maps all
-    syanpses on the branch to the spine id and
-    size of the spine id
-
-    Pseudocode: 
-    1) Creae an array the same size as # of faces
-    of branch where the values are (spine_id, comp #)
-    2) Use the synapse objects of branch
-    """
-
-
-    face_idx_map = spu.face_idx_map_from_spine_objs(
-        spine_objs = spine_objs,
-        branch_obj = branch_obj,
-        plot = plot_face_idx_map,
-    )
-
-
-    syn_df = pd.DataFrame()
-
-    if verbose:
-        print(f"# of synases = {len(syn_df)}")
-    
-    return syn_df
 
     
 
 
                         
-def spine_objs_and_synapse_df_computed_from_branch_idx(
-    branch_obj=None,
-    limb_obj = None,
-    branch_idx = None,
-    soma_verts_on_limb = None,
-    soma_kdtree_on_limb = None,
-    upstream_skeletal_length = None,
-    plot_branch_mesh_before_spine_detection = False,
-    
-    #spine detection phase:
-    plot_unfiltered_spines  = False,
-    plot_filtered_spines = False,
-    
-    #branch features
-    branch_features = None,
-    
-    verbose = False,
-    verbose_computation = False,
-    **kwargs
-    ):
-    """
-    Purpose: from a branch object
-    will generate spine objects and the
-    synapse df of synaspes onto spines
-    """
-    
-    if not verbose_computation:
-        tqu.turn_off_tqdm()
-    if limb_obj is not None and branch_idx is not None:
-        upstream_skeletal_length = nst.total_upstream_skeletal_length(limb_obj,branch_idx)
-        branch_obj = limb_obj[branch_idx]
 
 
-    if soma_kdtree_on_limb is None:
-        if soma_verts_on_limb is None:
-            soma_verts_on_limb =limb_obj.current_touching_soma_vertices
-        soma_kdtree_on_limb = KDTree(soma_verts_on_limb)
 
-    #raise Exception("")
-    output_spine_objs = spu.spine_objs_bare_minimum_filt_with_attr_from_branch_obj(
-        branch_obj,
-        soma_kdtree_on_limb =soma_kdtree_on_limb,
-        plot_unfiltered_spines = plot_unfiltered_spines,
-        plot_filtered_spines = plot_filtered_spines,
-        soma_center = np.mean(soma_verts_on_limb,axis=0),
-        upstream_skeletal_length=upstream_skeletal_length,
-        verbose = verbose_computation,
-        branch_features=branch_features,
-    )
-
-
-    syn_df = spu.synapse_df_with_spine_match(
-        branch_obj,
-        spine_objs = output_spine_objs,
-        verbose = verbose_computation,
-    )
-
-    if verbose:
-        print(f"# of output spines = {len(output_spine_objs)}")
-        print(f"# of spine_synapses = {len(syn_df)}")
-        
-    if not verbose_computation:
-        tqu.turn_on_tqdm()
-
-    return output_spine_objs,syn_df
-
-def spine_id_from_limb_branch_spine_idx(
-    limb_idx,
-    branch_idx,
-    spine_idx = 0):
-    """
-    Purpose: Defines the method used for creating the spine id
-    [limb,2][branches,4][spine,4]
-    """
-    limb_idx = nru.limb_idx(limb_idx)
-    return int(f"{limb_idx}{str(branch_idx).zfill(4)}{str(spine_idx).zfill(4)}")
-
-
-def spine_id_add_from_limb_branch_idx(limb_idx,branch_idx):
-    return spine_id_from_limb_branch_spine_idx(limb_idx,branch_idx)
 
 
 
@@ -4209,152 +2900,24 @@ spine_compartments_no_prefix = [k.replace('spine_','') for k in spine_compartmen
     
 
 
-def features_to_export_for_db():
-    total_features = [
-        "spine_id",
-
-        #coordinates
-        "base_coordinate_x_nm",
-        "base_coordinate_y_nm",
-        "base_coordinate_z_nm",
-        "mesh_center_x_nm",
-        "mesh_center_y_nm",
-        "mesh_center_z_nm",
-        
-        #head features
-        "n_heads",
-        "shaft_border_area",
-    
-        
-        #distances from things
-        "downstream_dist",
-        "upstream_dist",
-        "soma_distance_euclidean",
-        "soma_distance",
-        
-        #branch features
-        "compartment",
-        "branch_width_overall",
-        "branch_skeletal_length",
-        "branch_width_at_base",
-        
-    ]
-
-    #spine size features (and repeat for head/neck)
-    size_features = [
-        "area",
-        "n_faces",
-        "volume",
-        "skeletal_length",
-        "width_ray",
-        "width_ray_80_perc",
-        "bbox_oriented_side_max",
-        "bbox_oriented_side_middle",
-        "bbox_oriented_side_min",
-#         "bbox_min_x_nm",
-#         "bbox_min_y_nm",
-#         "bbox_min_z_nm",
-#         "bbox_max_x_nm",
-#         "bbox_max_y_nm",
-#         "bbox_max_z_nm",
-    ]
-    
-    for prefix in ["spine","head","neck"]:
-        total_features+= [f"{prefix}_{k}" for k in size_features]
-
-    return total_features
 
     
     
 # ---- function ofr extracting new spine_objs from neuron_obj ---
 
 
-def plot_spine_coordinates_from_spine_df(
-    mesh,
-    spine_df,
-    coordinate_types = (
-        "base_coordinate",
-        "mesh_center",
-        "head_bbox_max",
-        "head_bbox_min",
-        "neck_bbox_max",
-        "neck_bbox_min",
-    )
-    ):
-    
-    """
-    Ex: 
-    scats = spu.plot_spine_coordinates_from_spine_df(
-        mesh = neuron_obj.mesh,
-        spine_df=spine_df,
-    )
-    """
-
-    scatters = [pu.coordinates_from_df(
-        spine_df,k,filter_away_nans = True ) for k in 
-        coordinate_types
-    ]
     
     
     #return scatters
     
     
     
-def synapse_spine_match_df_filtering(
-    syn_df):
-    """
-    Purpose: To map columns and 
-    filter away columns of synapse df
-    for database write
-    """
-
-    if len(syn_df) == 0:
-        return syn_df
-    
-    syn_df_renamed = pu.map_column_with_dict_slow(
-        syn_df,
-        column = "spine_compartment",
-        dict_map = {-3:"shaft",-2:"no_head",-1:'neck'},
-        default_value = "head",
-        verbose = True,
-        in_place=False
-    )
-    
-    syn_df_renamed = syn_df_renamed[["syn_id","spine_id","spine_compartment","spine_volume","area","width_ray_80_perc"]]
-    syn_df_renamed = pu.rename_columns(
-        syn_df_renamed,
-        dict(syn_id = "synapse_id",
-             area = "spine_area",
-            width_ray_80_perc = "spine_width_ray_80_perc")
-    )
-
-    return syn_df_renamed
 
 area_divisor = 1_000_000
 scale_dict_default = dict(
     volume = 1/1_000_000_000,
     area = 1/1_000_000
 )
-def scale_stats_df(
-    df,
-    scale_dict = scale_dict_default,
-    in_place = False,
-    ):
-    """
-    Purpose: Want to scale certain columns
-    of dataframe by divisors if have keyword
-    """
-    if not in_place:
-        df = df.copy()
-    
-    
-    for k,scale in scale_dict.items():
-        for col in df.columns:
-            if k in col:
-                df.loc[~df[col].isna(),col] = df.loc[~df[col].isna(),col].astype('int')*scale
-                
-                
-    return df
 
 
 
@@ -4656,51 +3219,6 @@ def split_mesh_into_spines_shaft(
         return spine_meshes,spine_meshes_idx,shaft_meshes,shaft_meshes_idx
 
     
-def synapse_attribute_dict_from_synapse_df(
-    df,
-    attribute = "synapse_coords",
-    suffix = None,
-    verbose = False,):
-    """
-    Purpose: To extract the coordinates of 
-    all the spine categories from a synapse_spine_df
-
-    Psuedocode: 
-    Iterate through all of the spine categories
-    1) Restrict the dataframe to just categories
-    2) Extract coordinates
-    3) Put in dictionary
-    """
-    if suffix is None:
-        suffix = f"_{attribute}"
-    coordinate_dict = dict()
-    for cat in spu.spine_compartments:
-        curr_cat = cat.replace(f"spine_","")
-        if len(df) > 0:
-            curr_df = df.query(f"spine_compartment=='{curr_cat}'")
-        else:
-            curr_df = []
-            
-        if attribute == "synapse_coords":
-            if len(curr_df) == 0:
-                coords = np.array([]).reshape(-1,3)
-            else:
-                coords = pu.coordinates_from_df(curr_df,name = "synapse")
-        elif attribute == "synapse_id":
-            if len(curr_df) == 0:
-                coords = np.array([]).reshape(-1)
-            else:
-                coords = curr_df["synapse_id"].to_numpy()
-        else:
-            raise Exception("")
-        
-        coordinate_dict[f"{cat}{suffix}"] = coords
-    
-    if verbose:
-        for k,v in coordinate_dict.items():
-            print(f"{k}:{len(v)}")
-    
-    return coordinate_dict
 
 
     
@@ -4708,14 +3226,7 @@ def synapse_attribute_dict_from_synapse_df(
 
 
 
-def spine_compartment_synapses(df,compartment):
-    compartment= nu.to_list(compartment)
-    return df.query(f"spine_compartment in {list(compartment)}")
 
-def shaft_synapses(df):
-    return spine_compartment_synapses(df,compartment="shaft")
-def n_shaft_synapses(df):
-    return len(shaft_synapses(df))
 
 
 
@@ -4766,8 +3277,6 @@ spine_features_n_syn_head_neck = (
 
 
 
-def number_of_columns(df):
-    return [k for k in df.columns if "_n_" in k or k[:2] == 'n_']
 
 
 # ----------------- Parameters ------------------------
@@ -4879,43 +3388,8 @@ def _calculate_upstream_downstream_dist_from_up_idx(attr_obj, up_idx):
     attr_obj.downstream_dist = attr_obj.endpoints_dist[down_idx]
     attr_obj.upstream_dist = attr_obj.endpoints_dist[1 - down_idx]
 
-def _branch_attr_soma_distances_on_limb(limb_obj, branch_attr, calculate_endpoints_dist_if_empty=True, verbose=False):
-    bu.set_branches_endpoints_upstream_downstream_idx_on_limb(limb_obj)
-    for branch_idx in limb_obj.get_branch_names():
-        branch_obj = limb_obj[branch_idx]
-        upstream_dist = nst.total_upstream_skeletal_length(limb_obj, branch_idx)
-        upstream_endpoint_idx = branch_obj.endpoints_upstream_downstream_idx[0]
-        curr_attr_list = getattr(branch_obj, branch_attr)
-        if curr_attr_list is not None:
-            for attr_obj in curr_attr_list:
-                if attr_obj.endpoints_dist is None or attr_obj.endpoints_dist[upstream_endpoint_idx] == -1:
-                    if calculate_endpoints_dist_if_empty:
-                        _calculate_endpoints_dist(branch_obj, attr_obj)
-                        bu.set_endpoints_upstream_downstream_idx_on_branch(limb_obj, branch_idx)
-                        down_idx = branch_obj.endpoints_upstream_downstream_idx[1]
-                        attr_obj.downstream_dist = attr_obj.endpoints_dist[down_idx]
-                        attr_obj.upstream_dist = attr_obj.endpoints_dist[1 - down_idx]
-                    else:
-                        raise Exception("Endpoint distance was not calculated yet")
-                _calculate_upstream_downstream_dist_from_up_idx(attr_obj, upstream_endpoint_idx)
-                attr_obj.soma_distance = attr_obj.upstream_dist + upstream_dist
-    return limb_obj
 
-def _neuron_soma_distance_euclidean(neuron_obj, branch_attr, verbose=False):
-    soma_center = neuron_obj["S0"].mesh_center
-    for attr_obj in getattr(neuron_obj, branch_attr):
-        attr_obj.soma_distance_euclidean = np.linalg.norm(soma_center - attr_obj.coordinate)
 
-def _set_limb_branch_idx_to_attr(neuron_obj, branch_attr):
-    for limb_idx in neuron_obj.get_limb_names(return_int=True):
-        limb_obj = neuron_obj[limb_idx]
-        for branch_idx in limb_obj.get_branch_names():
-            branch_obj = limb_obj[branch_idx]
-            attr_list = getattr(branch_obj, branch_attr)
-            if attr_list is not None:
-                for s in attr_list:
-                    s.limb_idx = limb_idx
-                    s.branch_idx = branch_idx
 
 # ---
 

@@ -2929,31 +2929,10 @@ def find_sibling_child_skeleton_angle(curr_limb_obj,
 
             
     
-def limb_to_soma_mapping(current_neuron):
-    """
-    Purpose: Will create a mapping of 
-    limb --> soma_idx --> list of soma touching groups
-    
-    """
-    limb_soma_touch_dictionary = dict()
-    for curr_limb_idx,curr_limb in enumerate(current_neuron):
-        limb_soma_touch_dictionary[curr_limb_idx] = dict()
-        for st_info in curr_limb.all_concept_network_data:
-            curr_soma_idx = st_info["starting_soma"]
-            curr_soma_group_idx = st_info["soma_group_idx"]
-            if curr_soma_idx not in limb_soma_touch_dictionary[curr_limb_idx].keys():
-                limb_soma_touch_dictionary[curr_limb_idx][curr_soma_idx] = []
-            limb_soma_touch_dictionary[curr_limb_idx][curr_soma_idx].append(curr_soma_group_idx)
-            
-    return limb_soma_touch_dictionary
 
     
     
-def all_starting_dicts_by_soma(curr_limb,soma_idx):
-    return [k for k in curr_limb.all_concept_network_data if k["starting_soma"] == soma_idx]
 
-def convert_int_names_to_string_names(limb_names,start_letter="L"):
-    return [f"{start_letter}{k}" for k in limb_names]
 
 def convert_string_names_to_int_names(limb_names):
     return [int(k[1:]) for k in limb_names]
@@ -3051,27 +3030,6 @@ def get_matching_concept_network_data(limb_obj,soma_idx=None,soma_group_idx=None
     
 # ----------- 1/15: For Automatic Axon and Apical Classification ---------------#
                     
-def clear_all_branch_labels(neuron_obj,labels_to_clear="all",limb_branch_dict=None):
-    if labels_to_clear != "all" and not nu.is_array_like(labels_to_clear):
-        labels_to_clear = [labels_to_clear]
-        
-    for l_name in neuron_obj.get_limb_node_names():
-        
-        if limb_branch_dict is not None and l_name not in limb_branch_dict.keys():
-            continue
-        else:
-            l = neuron_obj[l_name]
-        
-        for b_name in l.get_branch_names():
-            if limb_branch_dict is not None and b_name not in limb_branch_dict[l_name]:
-                continue
-            else:
-                b = neuron_obj[l_name][b_name]
-            
-            if labels_to_clear == "all":
-                b.labels=[]
-            else:
-                b.labels = list(np.setdiff1d(b.labels,labels_to_clear))
 
             
     
@@ -3200,30 +3158,6 @@ def skeletal_distance_from_soma(curr_limb,
     return return_dict
     
 
-def find_branch_with_specific_coordinate(limb_obj,
-                                        coordinates):
-    """
-    Purpose: To find all branch idxs whos skeleton contains a certain coordinate
-    
-    """
-    
-    coordinates = np.array(coordinates).reshape(-1,3)
-    
-    network_branches = [k.skeleton for k in limb_obj]
-    
-    final_branch_idxs = []
-    for e in coordinates:
-        curr_branch_idx = sk.find_branch_skeleton_with_specific_coordinate(network_branches,e)
-        if len(curr_branch_idx) > 0:
-            final_branch_idxs.append(curr_branch_idx)
-    
-    if len(final_branch_idxs) > 0:
-        final_branch_idxs = np.concatenate(final_branch_idxs)
-    
-    if len(final_branch_idxs)>0:
-        final_branch_idxs = np.sort(final_branch_idxs)
-    
-    return final_branch_idxs
 
 
 
@@ -3463,216 +3397,12 @@ def feature_over_limb_branch_dict(neuron_obj,
 
 
 
-def limb_branch_after_limb_branch_removal(neuron_obj,
-                                      limb_branch_dict,
-                             return_removed_limb_branch = False,
-                             verbose=False
-                            ):
-
-    """
-    Purpose: To take a branches that should be deleted from
-    different limbs in a limb branch dict then to determine the leftover branches
-    of each limb that are still connected to the starting node
-
-
-
-    Pseudocode:
-    For each starting node
-    1) Get the starting node
-    2) Get the directional conept network and turn it undirected
-    3) Find the total branches that will be deleted and kept
-    once the desired branches are removed (only keeping the ones 
-    still connected to the starting branch)
-    4) add the removed and kept branches to the running limb branch dict
-
-    """
-    
-
-    limb_branch_dict_kept = dict()
-    limb_branch_dict_removed = dict()
-
-    for limb_name in neuron_obj.get_limb_node_names():
-        limb_obj = neuron_obj[limb_name]
-        branch_names = limb_obj.get_branch_names()
-
-        if limb_name not in limb_branch_dict.keys():
-            limb_branch_dict_kept[limb_name] = branch_names
-            continue
-
-
-
-        nodes_to_remove = limb_branch_dict[limb_name]
-
-        G = nx.Graph(limb_obj.concept_network_directional)
-        nodes_to_keep = limb_obj.current_starting_node
-
-        kept_branches,removed_branches = xu.nodes_in_kept_groups_after_deletion(G,
-                                            nodes_to_keep,
-                                               nodes_to_remove=nodes_to_remove,
-                                            return_removed_nodes = True
-                                               ) 
-        if len(kept_branches)>0:
-            limb_branch_dict_kept[limb_name] = np.array(kept_branches)
-        if len(removed_branches) > 0:
-            limb_branch_dict_removed[limb_name] = np.array(removed_branches)
-
-    if return_removed_limb_branch:
-        return limb_branch_dict_removed
-    else:
-        return limb_branch_dict_kept
     
 # ------ 2/1: Utils for a lot of the edge functions ----------- #
-def limb_edge_dict_with_function(neuron_obj,
-                                edge_function,
-                                verbose=False,
-                                **kwargs):
 
-    """
-    Purpose: To create a limb_edge dictionary
-    based on a function that generates cuts for a certain limb
+
+
     
-    Funciton must pass back: edges_to_create,edges_to_delete
-
-    Pseudocode: 
-    Iterate through all of the limbs of a neuron
-    a. Get the cuts that should be created and deleted
-    b. If either is non-empty then add to the limb_edge dictionary
-
-    return limb_edge dictionary
-    """
-
-
-    limb_edge_dict = dict()
-    for limb_name in neuron_obj.get_limb_node_names():
-
-        limb_obj = neuron_obj[limb_name]
-
-        edges_to_create,edges_to_delete = edge_function(limb_obj,
-                                          verbose=verbose,**kwargs)
-
-        if verbose:
-            print(f"\n--- Working on Limb {limb_name} ---\n"
-                 f"edges_to_create = {edges_to_create}\n"
-                 f"edges_to_create = {edges_to_create}")
-
-        edges_to_create = list(nu.unique_rows(edges_to_create))
-        edges_to_delete = list(nu.unique_rows(edges_to_delete))
-        
-        if len(edges_to_create)>0 or len(edges_to_delete):
-            limb_edge_dict[limb_name] = dict(edges_to_create=edges_to_create,
-                                            edges_to_delete=edges_to_delete)
-        
-            
-
-    return limb_edge_dict    
-
-
-
-def branches_on_limb_after_edges_deleted_and_created(
-    limb_obj,
-    edges_to_delete=None,
-    edges_to_create=None,
-    return_removed_branches = False,
-    verbose=False):                       
-
-    """
-    Purpose: To take a edges of concept network that should 
-    be created or destroyed and then returning the branches that still remain
-    and those that were deleted
-    """
-
-    original_branches = list(limb_obj.concept_network.nodes())
-    
-    if edges_to_delete is not None:
-        edges_to_delete = list(edges_to_delete)
-    
-    if edges_to_create is not None:
-        edges_to_create = list(edges_to_create)
-        
-
-    new_concept_network = xu.create_and_delete_edges(limb_obj.concept_network,
-        edges_to_delete=edges_to_delete,
-        edges_to_create=edges_to_create,
-        return_copy=True,
-            )
-
-    kept_branches,removed_branches = xu.nodes_in_kept_group(new_concept_network,
-                                                nodes_to_keep=limb_obj.current_starting_node,
-                                                return_removed_nodes = True,
-                                                            verbose=False,
-                                                   )
-    if verbose:
-        print("After edges deleted and created: ")
-        print(f"kept_branches= {kept_branches}")
-        print(f"removed_branches = {removed_branches}")
-        
-    if return_removed_branches:
-        return kept_branches,removed_branches
-    else:
-        return kept_branches    
-    
-def limb_branch_after_limb_edge_removal(neuron_obj,
-                                      limb_edge_dict,
-                             return_removed_limb_branch = False,
-                             verbose=False
-                            ):
-
-    """
-    Purpose: To take a branches that should be deleted from
-    different limbs in a limb branch dict then to determine the leftover branches
-    of each limb that are still connected to the starting node
-
-
-
-    Pseudocode:
-    For each starting node
-    1) Get the starting node
-    2) Get the directional conept network and turn it undirected
-    3) Find the total branches that will be deleted and kept
-    once the desired branches are removed (only keeping the ones 
-    still connected to the starting branch)
-    4) add the removed and kept branches to the running limb branch dict
-
-    """
-    
-
-    limb_branch_dict_kept = dict()
-    limb_branch_dict_removed = dict()
-
-    for limb_name in neuron_obj.get_limb_node_names():
-        if verbose:
-            print(f"\n--- Working on Limb {limb_name} ---\n")
-                  
-        limb_obj = neuron_obj[limb_name]
-        branch_names = limb_obj.get_branch_names()
-
-        if limb_name not in limb_edge_dict.keys():
-            limb_branch_dict_kept[limb_name] = branch_names
-            if verbose:
-                print("skipping because was not in the limb_edge dict")
-            continue
-
-
-
-        edges_to_delete = limb_edge_dict[limb_name].get("edges_to_delete",[])
-        edges_to_create = limb_edge_dict[limb_name].get("edges_to_create",[])
-
-
-        kept_branches,removed_branches = branches_on_limb_after_edges_deleted_and_created(
-                                            limb_obj,
-                                            edges_to_delete=edges_to_delete,
-                                            edges_to_create=edges_to_create,
-                                            return_removed_branches = True,
-                                            verbose=verbose)
-        if len(kept_branches)>0:
-            limb_branch_dict_kept[limb_name] = kept_branches
-        if len(removed_branches) > 0:
-            limb_branch_dict_removed[limb_name] = removed_branches
-
-    if return_removed_limb_branch:
-        return limb_branch_dict_removed
-    else:
-        return limb_branch_dict_kept
     
     
 
@@ -3851,24 +3581,6 @@ def limb_branch_intersection(limb_branch_dict_list):
 
 # ----------- For rules with doubling back, width jumps, high degree nodes, train track crossings -------- #
 
-def high_degree_branching_coordinates_on_limb(limb_obj,
-                                              min_degree_to_find=5,
-                                             exactly_equal=False,
-                                             verbose=False):
-    """
-    Purpose: To find high degree coordinates on a limb
-    
-    """
-    
-    
-    #1) Get the limb skeleton
-    #2) Convert the limb skeleton to a graph
-    #limb_sk_gr = sk.convert_skeleton_to_graph(limb.skeleton)
-    
-    return sk.high_degree_coordinates_on_skeleton(limb_obj.skeleton,
-                                                 min_degree_to_find=min_degree_to_find,
-                                                  exactly_equal=exactly_equal,
-                                                 verbose=verbose)
 
     
 
@@ -3949,25 +3661,6 @@ def soma_centers(neuron_obj,
         
     return current_soma_means
     
-def check_points_inside_soma_bbox(neuron_obj,
-                             coordinates,
-                            soma_name="S0",
-                            voxel_adjustment=False,
-                             verbose=False
-                            ):
-    """
-    Purpose: Test if points are inside soma bounding box
-    
-    """
-    if voxel_adjustment:
-        divisor = voxel_to_nm_scaling
-    else:
-        divisor = [1,1,1]
-    inside_point_idxs = tu.check_coordinates_inside_bounding_box(neuron_obj[soma_name].mesh,
-                                         coordinates=coordinates,
-                                          bbox_coordinate_divisor=divisor,
-                                         verbose=verbose)
-    return inside_point_idxs
 
     
 
@@ -4055,39 +3748,6 @@ def original_mesh_face_to_limb_branch(neuron_obj,
     
     
 
-def distance_to_soma_from_coordinate_close_to_branch(neuron_obj,
-                                                     coordinate,
-                                                    limb_idx,
-                                                    branch_idx,
-                                                    limb_graph=None,
-                                                    destination_node=None):
-    """
-    Purpose: To find the distance traced along the skeleton to the soma
-    of a coordinate close to a specific branch on a limb of a neuron
-    
-    """
-    curr_limb = neuron_obj[limb_idx]
-    if limb_graph is None:
-        limb_graph = sk.convert_skeleton_to_graph(curr_limb.skeleton)
-    
-    if destination_node is None:
-        curr_starting_coordinate = curr_limb.current_starting_coordinate
-        destination_node = xu.get_graph_node_by_coordinate(curr_limb_graph,
-                                    curr_starting_coordinate,
-                                    return_single_value=True)
-        
-    curr_branch_skeleton = curr_limb[branch_idx].skeleton
-
-    syn_coord_sk = sk.closest_skeleton_coordinate(curr_branch_skeleton,
-                            coordinate)
-
-    output_distance = sk.skeleton_path_between_skeleton_coordinates(
-                starting_coordinate = syn_coord_sk,
-                skeleton_graph = limb_graph,
-                destination_node = destination_node,
-                only_skeleton_distance = True,)
-    
-    return output_distance
 
 
 
@@ -4121,50 +3781,6 @@ def shared_skeleton_endpoints_for_connected_branches(limb_obj,
     return shared_endpoints
 
 
-def closest_branch_endpoint_to_limb_starting_coordinate(limb_obj,
-                                                        branches,
-                                                       ):
-    """
-    Purpose: Will get the closest endpoints
-    out of all the branches to the starting coordinate
-    of limb
-
-    Pseudocode:
-    1) Get the limb graph and starting coordinate
-    2) Get the endpoints of all of the branches
-    3) Find the closest endpoint to the starting coordinate
-    using the skeleton search function
-    
-    
-    Ex:
-    
-    axon_limb_dict = neuron_obj.axon_limb_branch_dict
-    axon_limb_name = list(axon_limb_dict.keys())[0]
-
-    limb_obj = neuron_obj[axon_limb_name]
-    branches = axon_limb_dict[axon_limb_name]
-
-    nru.closest_branch_endpoint_to_limb_starting_coordinate(limb_obj,
-                                                        branches,
-                                                           )
-    
-    """
-    
-
-    #1) Get the limb graph and starting coordinate
-    curr_limb_sk = limb_obj.skeleton
-    curr_limb_st_coord = limb_obj.current_starting_coordinate
-
-    #2) Get the endpoints of all of the branches
-    all_endpoints = np.array([limb_obj[b].endpoints for b in branches]).reshape(-1,3)
-
-    #3) Find the closest endpoint to the starting coordinate
-    #using the skeleton search function
-    coord_1,coord_2 = sk.shortest_path_between_two_sets_of_skeleton_coordiantes(curr_limb_sk,
-                                                            [curr_limb_st_coord],
-                                                             all_endpoints,
-                                                             return_closest_coordinates=True)
-    return coord_2
 
     
 
@@ -5197,19 +4813,6 @@ def most_upstream_branch(limb_obj,branches,verbose = False):
 def limb_branch_from_candidate(candidate):
     return {candidate['limb_idx']:candidate["branches"]}
 
-def candidate_from_branches(limb_obj,
-                           branches,
-                            limb_idx,
-                           ):
-    candidate = dict(limb_idx=nru.get_limb_string_name(limb_idx),
-                    branches=branches)
-    if branches is not None and len(branches)>0:
-        most_upstream = nru.most_upstream_branch(limb_obj,branches)
-    else:
-        most_upstream = None
-        
-    candidate["start_node"] = most_upstream
-    return candidate
     
     
 
@@ -5284,33 +4887,6 @@ def skeletal_length_over_candidate(neuron_obj,
                                                nru.limb_branch_from_candidate(candidate),
                                                verbose = verbose)
 
-def all_downstream_branches_from_candidate(neuron_obj,
-                                        candidate,
-                                        include_candidate_branches=False,
-                                        verbose = False):
-    """
-    Purpose: To get all of the branches downstream of a candidate
-    """
-    
-    '''
-    all_downs = np.concatenate([cnu.all_downtream_branches(neuron_obj[candidate["limb_idx"]],
-                                           k) for k in candidate["branches"]])
-    if include_candidate_branches:
-        all_downs = np.concatenate([all_downs,candidate["branches"]])
-    else:
-        all_downs = np.setdiff1d(all_downs,candidate["branches"])
-        
-    downstream_nodes = np.unique(all_downs)
-    
-    if verbose:
-        print(f"downstream_nodes = {downstream_nodes}")
-        
-    return downstream_nodes
-    '''
-    return cnu.all_downstream_branches_from_branches(neuron_obj[candidate["limb_idx"]],
-                                                    branches = candidate["branches"],
-                                                    include_original_branches=include_candidate_branches,
-                                                    verbose = verbose)
 
 
 
@@ -5582,28 +5158,9 @@ def downstream_labels(limb_obj,branch_idx,
             
 
             
-def all_soma_names_from_limb(limb_obj):
-    return list(np.unique([f'S{k["starting_soma"]}' for k in limb_obj.all_concept_network_data]))
 
     
 
-def soma_idx_and_group_from_name(soma_name):
-    split_name = soma_name.split("_")
-    return int(split_name[0][1:]),int(split_name[1])
-def concept_network_data_from_soma(limb_obj,
-                                   soma_name = None,
-                                   soma_idx=None,
-                                   soma_group_idx=None,
-                                  data_name=None):
-    if soma_name is not None:
-        soma_idx,soma_group_idx = nru.soma_idx_and_group_from_name(soma_name)
-        
-    concept_data = limb_obj.get_concept_network_data_by_soma_and_idx(soma_idx,soma_group_idx)
-    
-    if data_name is not None:
-        return concept_data[data_name]
-    else:
-        return concept_data
     
 
 def shortest_path(limb_obj,start_branch_idx,destiation_branch_idx,
@@ -5616,61 +5173,6 @@ def get_soma_meshes(neuron_obj):
     
     
 # ---------- 10/22 -------------
-def skeleton_nodes_from_limb_branch(
-    neuron_obj,
-    limb_branch_dict,
-    downsample_size = 1500,
-    downsample_factor = None,
-    plot_skeletons_before_downsampling = False,
-    plot_nodes = False,
-    scatter_size = 0.2,
-    verbose = False,
-    ):
-    """
-    Purpose: To convert a limb branch dict
-    into a list of points from the skeleton
-    (and have an option to downsample the number of skeletons)
-
-    downsample_facto
-
-    """
-
-    if type(limb_branch_dict) == dict:
-        limb_branch_sks = nru.skeleton_over_limb_branch_dict(
-            neuron_obj,
-            limb_branch_dict,
-            stack_skeletons = False
-        )
-    elif nu.is_array_like(limb_branch_dict):
-        limb_branch_sks = [neuron_obj[k].skeleton for k in limb_branch_dict]
-
-
-    if downsample_factor is not None:
-        if verbose:
-            print(f"Downsampling nodes by a factor of {downsample_factor}")
-        nodes = sk.convert_skeleton_to_nodes(
-            sk.stack_skeletons(limb_branch_sks)
-        )
-        nodes = nodes[::downsample_factor]
-    elif downsample_size is not None:
-        if verbose:
-            print(f"Downsampling to segment lengths of {downsample_size}")
-        limb_branch_sks_resized = [sk.resize_skeleton_branch(
-            k,
-            segment_width=downsample_size) for k in limb_branch_sks]
-        nodes = sk.convert_skeleton_to_nodes(
-            sk.stack_skeletons(limb_branch_sks_resized)
-        )
-    else:
-        if verbose:
-            print(f"No downsampling applied")
-        nodes = sk.convert_skeleton_to_nodes(
-            sk.stack_skeletons(limb_branch_sks)
-        )
-
-
-    
-    return nodes
 
 
 
@@ -5740,87 +5242,6 @@ def branch_neighbors_mesh(limb_obj,
 
     
     
-def filter_away_neuron_limbs(
-    neuron_obj,
-    limb_idx_to_filter,
-    plot_limbs_to_filter = False,
-    verbose = False,
-    in_place = False,
-    plot_final_neuron= False,
-    ):
-    """
-    Purpose: To filter away limbs 
-    specific
-
-    Application: To filter away limbs that
-    are below a certain skeletal length
-
-    Pseudocode: 
-    1) Find the new mapping of the old limb idx to new limb idx
-    2) Create the new preprocessing dict of the neuron
-
-    soma_to_piece_connectivity
-    limb_correspondence
-    limb_meshes
-    limb_mehses_face_idx
-    limb_labels
-    limb_concept_networks
-    limb_network_stating_info
-
-
-    3) Delete and rename the nodes of the graph
-    """
-
-
-    if in_place == False:
-        neuron_obj = copy.deepcopy(neuron_obj)
-
-    limb_idxs = np.array(neuron_obj.get_limb_names(return_int=True))
-
-
-    keep_idx = np.setdiff1d(limb_idxs,limb_idx_to_filter)
-    map_idx = {k:i for i,k in enumerate(keep_idx) }
-    if verbose:
-        print(f"map_idx= {map_idx}")
-
-
-    #2) Create the new preprocessing dict of the neuron
-    soma_to_piece_connectivity_new = dict()
-    for soma_idx,soma_limbs in neuron_obj.preprocessed_data["soma_to_piece_connectivity"].items():
-        soma_to_piece_connectivity_new[soma_idx] = [map_idx[k] for k in soma_limbs if k in keep_idx]
-
-    neuron_obj.preprocessed_data["soma_to_piece_connectivity"] = soma_to_piece_connectivity_new
-
-    list_attr = ["limb_meshes","limb_mehses_face_idx"]
-    dict_attr = ["limb_correspondence",     
-                "limb_labels",
-                "limb_concept_networks",
-                "limb_network_stating_info",
-                ]
-    for l in list_attr:
-        neuron_obj.preprocessed_data[l] = [k for i,k in enumerate(neuron_obj.preprocessed_data[l]) if i in keep_idx]
-        if verbose:
-            print(f"{l}_new = {len(neuron_obj.preprocessed_data[l])}")
-    for d in dict_attr:
-        neuron_obj.preprocessed_data[d] = {map_idx[k]:v for k,v in 
-                               neuron_obj.preprocessed_data[d].items() if k in keep_idx}
-        if verbose:
-            print(f"{d}_new = {neuron_obj.preprocessed_data[d].keys()}")
-
-
-    #3) Delete and rename the nodes of the graph
-    map_idx_limbs_names = {f"L{k}":f"L{v}" for k,v in map_idx.items()}
-    if verbose:
-        print(f"map_idx_limbs_names= {map_idx_limbs_names}")
-
-    from datasci_tools import networkx_utils as xu
-    neuron_obj.concept_network.remove_nodes_from([f"L{k}" for k in limb_idx_to_filter])
-    xu.relabel_node_names(neuron_obj.concept_network,map_idx_limbs_names)
-    if verbose:
-        print(f"neuron_obj.concept_network.nodes at end = {neuron_obj.concept_network.nodes}")
-
-    
-    return neuron_obj
 
 
 
@@ -5977,114 +5398,10 @@ def recalculate_endpoints_and_order_skeletons_over_neuron(neuron_obj):
     
 
     
-def limb_correspondence_on_limb(
-    limb_obj,
-    width_name = "width"):
-    
-    limb_corr = dict()
-    #for idx,b in enumerate(self):
-    for idx in limb_obj.get_branch_names():
-        b = limb_obj[idx]
-        
-        if width_name == "width":
-            curr_width = b.width
-        else:
-            curr_width = b.width_new[width_name]
-
-        limb_corr[idx] = dict(branch_skeleton=b.skeleton,
-                              width_from_skeleton = curr_width,
-                             branch_mesh = b.mesh,
-                             branch_face_idx = b.mesh_face_idx,
-                             )
-
-
-    return limb_corr
 
 
 
 
-def translate_neuron_obj(
-    neuron_obj,
-    translation = None,
-    new_center = None,
-    in_place = False,
-    verbose = False,
-    plot_final_neuron = False,
-    align_synapses=True,
-    **kwargs):
-    """
-    Purpose: To rotate all of the meshes
-    and skeletons of a neuron object
-    
-    Ex: 
-    neuron_obj_rot = copy.deepcopy(neuron_obj)
-    mesh_center = neuron_obj["S0"].mesh_center
-    for i in range(0,10):
-        neuron_obj_rot = hvu.align_neuron_obj(neuron_obj_rot,
-                                             mesh_center=mesh_center,
-                                             verbose =True)
-    
-    Ex: 
-    neuron_obj_1 = nru.translate_neuron_obj(
-        neuron_obj_h01_aligned,
-        new_center=neuron_obj_m65["S0"].mesh_center,
-        plot_final_neuron = True)
-    
-    """
-    if not in_place:
-        neuron_obj = copy.deepcopy(neuron_obj)
-
-    if translation is None:
-        translation = new_center - neuron_obj["S0"].mesh_center
-
-    if verbose:
-        print(f"translation = {translation}")
-        
-    for j,limb_obj in enumerate(neuron_obj):
-        for branch_obj in limb_obj:
-            branch_obj.mesh = tu.translate_mesh(branch_obj.mesh,translation = translation)
-            branch_obj.mesh_center = tu.mesh_center_vertex_average(branch_obj.mesh)
-
-            branch_obj.skeleton = branch_obj.skeleton + translation
-            branch_obj.endpoints = branch_obj.endpoints + translation
-            
-            
-            #doing the spine alignment
-            if branch_obj.spines is not None:
-                branch_obj.spines = [tu.translate_mesh(k,translation = translation) for k in branch_obj.spines]
-            
-            if branch_obj.spines_obj is not None:
-                for s_obj in branch_obj.spines_obj:
-                    s_obj.mesh = tu.translate_mesh(s_obj.mesh,translation = translation)
-                
-                        
-        #changing the concept network
-        all_concept_network_data = []
-        att_to_change = ["starting_endpoints","starting_coordinate","touching_soma_vertices"]
-        
-        for k in limb_obj.all_concept_network_data:
-            new_data = copy.deepcopy(k)
-            for att in att_to_change:
-                new_data[att] = k[att] + translation
-            all_concept_network_data.append(new_data)
-            
-        for att in att_to_change:
-            setattr(limb_obj,f"current_{att}",getattr(limb_obj,f"current_{att}") + translation)
-
-        limb_obj.mesh = tu.translate_mesh(limb_obj.mesh,translation = translation)
-        limb_obj.all_concept_network_data = copy.deepcopy(all_concept_network_data)
-        limb_obj.set_concept_network_directional()
-        
-    neuron_obj.mesh = tu.translate_mesh(neuron_obj.mesh,translation)
-
-        
-    #finishing soma mesh stuff
-    for s_name in neuron_obj.get_soma_node_names():
-        neuron_obj[s_name].mesh = tu.translate_mesh(neuron_obj[s_name].mesh,translation)
-        
-        neuron_obj[s_name].mesh_center = neuron_obj[s_name].mesh_center + translation
-
-    return neuron_obj
 
 
 def non_axon_like_limb_branch_on_dendrite(
@@ -6151,125 +5468,9 @@ def calculate_decomposition_products(
 # ----------- for aligning neuron ---------
 align_attr = "align_matrix"
 
-def align_array(array,align_matrix = None,**kwargs):
-    return nu.align_array(array,align_matrix = align_matrix)
 
-def align_mesh(mesh,align_matrix = None,**kwargs):
-    #print(f"inside align mesh function = {align_matrix}")
-    return meshu.align_mesh(mesh,align_matrix=align_matrix)
 
-def align_skeleton(skeleton,align_matrix = None,**kwargs):
-    return nu.align_array(array=skeleton,align_matrix = align_matrix)
 
-def align_neuron_obj_from_align_matrix(
-    neuron_obj,
-    align_matrix=None,
-    align_synapses = True,
-    verbose = False,
-    align_array = align_array,
-    align_mesh=align_mesh,
-    align_skeleton=align_skeleton,
-    in_place = False,
-    **kwargs
-    ):
-    
-    
-    if align_matrix is None:
-        align_matrix = getattr(neuron_obj,align_attr,None)
-    
-    if align_matrix is None:
-        return neuron_obj
-    
-
-    if not in_place:
-        neuron_obj = copy.deepcopy(neuron_obj)
-        
-    
-    for j,limb_obj in enumerate(neuron_obj):
-        for branch_obj in limb_obj:
-            branch_obj.mesh = align_mesh(
-                                branch_obj.mesh,
-                                align_matrix=align_matrix,
-                                verbose = False
-            )
-
-            branch_obj.mesh_center = tu.mesh_center_vertex_average(branch_obj.mesh)
-
-            branch_obj.skeleton = align_skeleton(
-                                branch_obj.skeleton,
-                                align_matrix=align_matrix,
-                                verbose = False
-            )
-            branch_obj.endpoints = align_array(branch_obj.endpoints,
-                                                    align_matrix=align_matrix,)
-            
-            
-            
-            #doing the spine alignment
-            if branch_obj.spines is not None:
-                branch_obj.spines = [align_mesh(k,align_matrix=align_matrix) for k in branch_obj.spines]
-            
-            if branch_obj.spines_obj is not None:
-                for s_obj in branch_obj.spines_obj:
-                    s_obj.mesh = align_mesh(s_obj.mesh,align_matrix=align_matrix)
-                    
-                    if s_obj._head_mesh_splits is not None:
-                        for i,kk in enumerate(s_obj._head_mesh_splits):
-                            s_obj._head_mesh_splits[i] = align_mesh(kk,align_matrix=align_matrix)
-                    
-            if branch_obj.boutons is not None:
-                branch_obj.boutons = [align_mesh(k,align_matrix=align_matrix) for k in branch_obj.boutons]
-                
-            if branch_obj.web is not None:
-                branch_obj.web = align_mesh(branch_obj.web,align_matrix=align_matrix) 
-                
-                        
-            
-        
-        #changing the concept network
-        all_concept_network_data = []
-        att_to_change = ["starting_endpoints","starting_coordinate","touching_soma_vertices"]
-        
-        for k in limb_obj.all_concept_network_data:
-            new_data = copy.deepcopy(k)
-            for att in att_to_change:
-                new_data[att] = align_array(k[att],align_matrix=align_matrix,)
-            all_concept_network_data.append(new_data)
-            
-        for att in att_to_change:
-            setattr(limb_obj,f"current_{att}",align_array(
-                getattr(limb_obj,f"current_{att}"),align_matrix=align_matrix,))
-
-        limb_obj.mesh = align_mesh(
-                                limb_obj.mesh,
-                                align_matrix=align_matrix,
-                                verbose = False
-            )
-        limb_obj.all_concept_network_data = copy.deepcopy(all_concept_network_data)
-        limb_obj.set_concept_network_directional()
-        
-    #print(f'align_matrix = {align_matrix}')
-    #print(f"verts before:\n{neuron_obj.mesh.vertices}")
-    neuron_obj.mesh = align_mesh(
-                                neuron_obj.mesh,
-                                align_matrix=align_matrix,
-                                verbose = False
-                                )
-    #print(f"-->verts after:\n{neuron_obj.mesh.vertices}")
-        
-    #finishing soma mesh stuff
-    for s_name in neuron_obj.get_soma_node_names():
-        neuron_obj[s_name].mesh = align_mesh(
-            neuron_obj[s_name].mesh ,
-            align_matrix=align_matrix,
-        )
-        
-        neuron_obj[s_name].mesh_center = tu.mesh_center_vertex_average(neuron_obj[s_name].mesh)
-        #print(f"neuron_obj[s_name].mesh_center = {neuron_obj[s_name].mesh_center}")
-        
-    neuron_obj.align_matrix = align_matrix
-        
-    return neuron_obj
 
 
     
