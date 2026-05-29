@@ -5,8 +5,8 @@
 
 См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md).
 
-**Текущий размер:** `neurd/` — 16 файлов `*.py`.
-**Unit-тесты:** 59 passed, 0 failed, 1 skipped.
+**Текущий размер:** `neurd/` — 16 файлов `*.py`, ~29.6k строк (после Фазы 9 dead-code).
+**Unit-тесты:** 59 passed, 0 failed, 1 skipped. **Характеризационный тест:** 4 passed.
 
 ---
 
@@ -46,7 +46,7 @@ code_structure_tools     → code_structure_tools
 | Модуль | LOC | Назначение |
 |---|---|---|
 | [neuron.py](neurd/neuron.py) | 3455 | Классы `Neuron`, `Limb`, `Branch`, `Soma` |
-| [neuron_utils.py](neurd/neuron_utils.py) | 9584 | Утилиты нейрона (самый импортируемый) |
+| [neuron_utils.py](neurd/neuron_utils.py) | 5834 | Утилиты нейрона (самый импортируемый) |
 | [branch_utils.py](neurd/branch_utils.py) | 1610 | Утилиты ветвей |
 | [limb_utils.py](neurd/limb_utils.py) | 742 | Утилиты лимбов |
 | [concept_network_utils.py](neurd/concept_network_utils.py) | 1758 | Граф-утилиты концепт-сети |
@@ -58,13 +58,13 @@ code_structure_tools     → code_structure_tools
 |---|---|---|
 | [preprocess_neuron.py](neurd/preprocess_neuron.py) | 5193 | Декомпозиция меша на лимбы/ветви |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 1786 | Идентификация сомы |
-| [spine_utils.py](neurd/spine_utils.py) | 6442 | Обнаружение шипиков |
+| [spine_utils.py](neurd/spine_utils.py) | 3419 | Обнаружение шипиков |
 
 ### C. Поиск и статистика
 | Модуль | LOC | Назначение |
 |---|---|---|
-| [neuron_searching.py](neurd/neuron_searching.py) | 2080 | Поиск ветвей по критериям |
-| [neuron_statistics.py](neurd/neuron_statistics.py) | 3727 | Скелетная статистика, расстояния |
+| [neuron_searching.py](neurd/neuron_searching.py) | 1816 | Поиск ветвей по критериям |
+| [neuron_statistics.py](neurd/neuron_statistics.py) | 2180 | Скелетная статистика, расстояния |
 
 ### D. Вспомогательные
 | Модуль | LOC | Назначение |
@@ -155,5 +155,5 @@ Core-модули их не импортировали; gate `pytest tests/unit/
 2. **Замена `meshlabserver`** на in-process (open3d/trimesh) — Decimator, Poisson, FillHoles, Interior.
    Теперь безопасно: контракт декомпозиции запинен тестом.
 3. **Оптимизация памяти** — `Branch.__init__` делает deepcopy submesh (главный драйвер RAM).
-4. **Распутывание клубка** — 18 циклов module-load среди 12 модулей; начать с dead-code внутри
-   `neuron_utils`/`spine_utils`/`neuron_statistics` (теперь под защитой характеризационного теста).
+4. ✅ **Dead-code в 4 больших файлах** срезан (Фаза 9, −8584 LOC). Осталось: остальные core-файлы
+   (`neuron`, `preprocess_neuron`, `branch_utils`, …) + распутывание клубка (18 циклов module-load).
