@@ -480,13 +480,6 @@ def axon_segments_after_checks(neuron_obj,
                                                            print_flag=False),
                                        functions_list=current_functions_list)
     
-    if plot_axon:
-        nviz.visualize_neuron(neuron_obj,
-                              visualize_type=["mesh"],
-                             limb_branch_dict=final_axon_like_classification,
-                             mesh_color="red",
-                              mesh_color_alpha=1,
-                             mesh_whole_neuron=True)
     return final_axon_like_classification
 
 
@@ -1526,9 +1519,6 @@ def query_neuron(
         
         limb_to_branch = nst.limb_branch_from_stats_df(filtered_returned_df)
         
-        if plot_limb_branch_dict:
-            print(f"Plotting limb_to_branch = {limb_to_branch}")
-            nviz.plot_limb_branch_dict(concept_network_old,limb_to_branch)
         
         if limb_branch_dict_restriction is not None:
             limb_to_branch = nru.limb_branch_intersection([limb_branch_dict_restriction,limb_to_branch])
@@ -1916,20 +1906,12 @@ def restrict_by_branch_and_upstream_skeletal_length(neuron_obj,
     if limb_branch_dict_restriction is None:
         limb_branch_dict_restriction = neuron_obj.limb_branch_dict
     
-    if plot_initial_limb_branch_restriction:
-        print(f"initial limb branch restriction")
-        nviz.plot_limb_branch_dict(neuron_obj,
-                                  limb_branch_dict_restriction)
 
     if branch_skeletal_length_min is not None:
         limb_branch_dict_restriction = ns.query_neuron(neuron_obj,
                                                       functions_list = ["skeletal_length"],
                                 query=f"skeletal_length > {branch_skeletal_length_min}",
                                     limb_branch_dict_restriction=limb_branch_dict_restriction)
-        if plot_branch_skeletal_length_min:
-            print(f"branch_skeletal_length_min = {limb_branch_dict_restriction}")
-            nviz.plot_limb_branch_dict(neuron_obj,
-                                      limb_branch_dict_restriction)
             
     if upstream_skeletal_length_min is not None:
         limb_branch_dict_restriction = ns.query_neuron(neuron_obj,
@@ -1937,10 +1919,6 @@ def restrict_by_branch_and_upstream_skeletal_length(neuron_obj,
                                 query=f"total_upstream_skeletal_length > {upstream_skeletal_length_min}",
                                                        function_kwargs = dict(include_branch=include_branch),
                                     limb_branch_dict_restriction=limb_branch_dict_restriction)
-        if plot_upstream_skeletal_length_min:
-            print(f"upstream_skeletal_length_min = {limb_branch_dict_restriction}")
-            nviz.plot_limb_branch_dict(neuron_obj,
-                                      limb_branch_dict_restriction)
 
     return limb_branch_dict_restriction
 
@@ -2353,7 +2331,6 @@ from . import concept_network_utils as cnu
 from . import error_detection as ed
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import synapse_utils
 from . import synapse_utils as syu
 from . import width_utils as wu

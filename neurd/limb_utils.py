@@ -373,15 +373,6 @@ def most_usptream_endpoints_of_branches_on_limb(
     
     #coordinates = np.vstack(coordinates).reshape(-1,3)
     
-    if plot:
-        nviz.plot_objects(
-            limb_obj.mesh,
-            meshes = [limb_obj[k].mesh for k in branches_idx],
-            meshes_colors = "blue",
-            scatters=coordinates,
-            scatters_colors="red",
-            scatter_size=scatter_size,
-            **kwargs)
         
     return coordinates
 
@@ -683,7 +674,6 @@ from . import branch_utils as bu
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import concept_network_utils as cnu
 
 #--- from datasci_tools ---

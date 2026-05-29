@@ -1400,7 +1400,6 @@ class Limb:
         
         Example: 
         
-        from neurd import neuron_visualizations as nviz
 
         curr_limb_obj = recovered_neuron.concept_network.nodes["L1"]["data"]
         print(xu.get_starting_node(curr_limb_obj.concept_network_directional))
@@ -1409,9 +1408,6 @@ class Limb:
         print(curr_limb_obj.current_starting_endpoints)
         print(curr_limb_obj.current_starting_soma)
         
-        nviz.plot_concept_network(curr_limb_obj.concept_network_directional,
-                         arrow_size=5,
-                         scatter_size=3)
                          
         curr_limb_obj.set_concept_network_directional(starting_soma=1,print_flag=False)
         
@@ -1421,9 +1417,6 @@ class Limb:
         print(curr_limb_obj.current_starting_endpoints)
         print(curr_limb_obj.current_starting_soma)
 
-        nviz.plot_concept_network(curr_limb_obj.concept_network_directional,
-                                 arrow_size=5,
-                                 scatter_size=3)
         
         Example 8/4:
         uncompressed_neuron_revised.concept_network.nodes["L1"]["data"].set_concept_network_directional(starting_soma=0,width_source="width",print_flag=True)
@@ -2156,7 +2149,6 @@ class Neuron:
 
     # # ----------------- Calculating the Spines and Width ----------- #
     # current_neuron.calculate_spines(print_flag=True)
-    # #nviz.plot_spines(current_neuron)
 
     # current_neuron.calculate_new_width(no_spines=False,
     #                                        distance_by_mesh_center=True)

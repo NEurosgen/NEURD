@@ -471,19 +471,16 @@ def original_mesh_soma(
     restr_mesh_to_test = restricted_big_mesh
 
 
-    #nviz.plot_objects(restricted_big_mesh)
 
     #2) Remove all interior pieces
     orig_mesh_to_map,inside_pieces = tu.remove_mesh_interior(restr_mesh_to_test,return_removed_pieces=True,size_threshold_to_remove=300)
 
     """ Old way that did a lot of splits: but not doing splits anymore
-#     #nviz.plot_objects(restr_without_interior)
 #     split_meshes = tu.split_significant_pieces(restr_without_interior,
 #                                                significance_threshold=mesh_significance_threshold,connectivity="edges")
 
 #     split_meshes = [restr_without_interior]
 
-#     #nviz.plot_objects(meshes=split_meshes)
 
 #     #5) Find the Meshes that contain the soma
 #     containing_mesh_indices = find_soma_centroid_containing_meshes(soma_mesh_list,
@@ -509,7 +506,6 @@ def original_mesh_soma(
                               match_threshold = match_distance_threshold,
                               return_mesh=True)
 
-    #nviz.plot_objects(prelim_soma_mesh)
 
     #7) Split the new mesh and take the largest
     split_meshes_after_backtrack = tu.split_significant_pieces(prelim_soma_mesh,
@@ -1770,7 +1766,6 @@ from datasci_tools import system_utils as su
 from datasci_tools import pipeline
 
 from . import soma_extraction_utils as sm
-from . import neuron_visualizations as nviz
 from . import parameter_utils as paru
 def output_global_parameters_glia(**kwargs):
     return paru.category_param_from_module(

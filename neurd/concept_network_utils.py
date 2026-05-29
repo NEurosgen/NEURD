@@ -689,8 +689,6 @@ def skeleton_upstream_downstream(limb_obj,
     verbose = verbose,
      **kwargs)
 
-    if plot_skeleton:
-        nviz.plot_objects(skeletons=[skel])
         
     return skel
 
@@ -779,20 +777,6 @@ def synapses_upstream_downstream(limb_obj,
     if verbose:
         print(f"# of syns = {len(syns)}")
 
-    if plot_synapses:
-        downstream_nodes = [k for k in nodes if k != branch_idx]
-        branch_idx_color = "red"
-        d_color = "blue"
-        scatter_color = "yellow"
-        scatter_size = 1
-        print(f"branch_idx ({branch_idx}): {branch_idx_color}\n {direction} nodes ({downstream_nodes}): {d_color}")
-        
-        nviz.plot_objects(limb_obj[branch_idx].mesh,
-                         main_mesh_color=branch_idx_color,
-                         meshes = [limb_obj[k].mesh for k in downstream_nodes],
-                         meshes_colors=d_color,
-                         scatters=[[s.coordinate for s in syns]],
-                         scatter_size=scatter_size)
     if return_nodes:
         return syns,nodes
     else:
@@ -1355,23 +1339,11 @@ def skeleton_downstream_restricted(limb_obj,
     if verbose:
         print(f"upstream_coordinate = {upstream_coordinate}")
 
-    if plot_downstream_skeleton:
-        print(f"Plotting Downstream skeleton:")
-        nviz.plot_objects(limb_obj.mesh,
-                         skeletons=[downstream_sk],
-                         scatters=[upstream_coordinate],
-                         scatter_size=1)
 
     restr_sk = sk.restrict_skeleton_to_distance_from_coordinate(downstream_sk,
                coordinate = upstream_coordinate,
                distance_threshold=downstream_skeletal_length)
 
-    if plot_restricted_skeleton:
-        print(f"Plotting Restricted skeleton:")
-        nviz.plot_objects(limb_obj.mesh,
-                         skeletons=[restr_sk],
-                         scatters=[upstream_coordinate],
-                         scatter_size=1)
 
     return restr_sk
 
@@ -1446,10 +1418,6 @@ def width_downstream_restricted(limb_obj,
         if verbose:
             print(f"ref_mesh after spine_remove = {ref_mesh}")
 
-    if plot_restricted_skeleton:
-        print(f"Plotting Restricted skeleton:")
-        nviz.plot_objects(ref_mesh,
-                         skeletons=[restr_sk],)
 
     new_width = wu.new_width_from_mesh_skeleton(restr_sk,
                                 ref_mesh,
@@ -1825,7 +1793,6 @@ def downstream_nodes_with_skip_distance(
 from . import axon_utils as au   
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import width_utils as wu  
 
 #--- from mesh_tools ---
