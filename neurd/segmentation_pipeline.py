@@ -44,6 +44,10 @@ def segmentation_pipeline(
     products.set_stage_attrs(stage="soma_identification", attr_dict=soma_products)
 
     # --- Decomposition (skeletonization, branches, raw spine detection) ---
+    # Mirrors process_all_neurons: build the Neuron straight from the mesh.
+    # The segmented pieces and their skeletons live on the object after this;
+    # the downstream `calculate_decomposition_products` stats step is omitted
+    # (it aggregates axon/synapse/centroid stats that the slim build removed).
     neuron_obj = neuron.Neuron(
         mesh=mesh,
         segment_id=segment_id,
@@ -51,6 +55,5 @@ def segmentation_pipeline(
         suppress_preprocessing_print=not verbose,
         suppress_output=not verbose,
     )
-    neuron_obj.calculate_decomposition_products(store_in_obj=True)
 
     return neuron_obj

@@ -2482,7 +2482,7 @@ def stats_dict_over_limb_branch(
     
     Ex: 
     from neurd import neuron_statistics as nst
-    nst.stats_dict_over_limb_branch(
+    stats_dict_over_limb_branch(
         neuron_obj = neuron_obj_proof,
         limb_branch_dict = limb_branch_dict)
     """
@@ -2527,7 +2527,7 @@ def features_from_neuron_skeleton_and_soma_center(
     
         
     
-    return nst.features_from_skeleton_and_soma_center(
+    return features_from_skeleton_and_soma_center(
     skeleton,
     soma_center = soma_center,#neuron_obj["S0"].mesh_center,
     skeleton_aligned = skeleton_aligned,
@@ -2813,12 +2813,12 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
     if voxel_adjustment_vector is None:
         voxel_adjustment_vector = voxel_to_nm_scaling
     
-    sk_dict = nst.stats_dict_over_limb_branch(
+    sk_dict = stats_dict_over_limb_branch(
         neuron_obj,
         limb_branch_dict=limb_branch_dict,
         stats_to_compute=["skeletal_length","n_branches"])
 
-    sk_dict_2 = nst.features_from_neuron_skeleton_and_soma_center(
+    sk_dict_2 = features_from_neuron_skeleton_and_soma_center(
         neuron_obj,
         verbose = verbose,
         limb_branch_dict=limb_branch_dict,
@@ -2829,7 +2829,7 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
     sk_dict["n_limbs"] = neuron_obj.n_limbs
     
     if include_centroids:
-        cent_stats = nst.centroid_stats_from_neuron_obj(neuron_obj,
+        cent_stats = centroid_stats_from_neuron_obj(neuron_obj,
                                                        voxel_adjustment_vector=voxel_adjustment_vector)
         sk_dict.update(cent_stats)
     
@@ -3075,8 +3075,8 @@ def neuron_stats(
                     n_vertices = neuron_obj.n_vertices,
                     n_faces = neuron_obj.n_faces,
 
-                    axon_length = neuron_obj.axon_length,
-                    axon_area = neuron_obj.axon_area,
+                    # axon_length/axon_area dropped: axon labeling removed in Phase 5
+                    # (nru.axon_length/axon_area no longer exist).
 
                     max_soma_volume = neuron_obj.max_soma_volume,
                     max_soma_n_faces = neuron_obj.max_soma_n_faces,
@@ -3102,7 +3102,7 @@ def neuron_stats(
                     width_no_spine_90_perc=neuron_obj.width_no_spine_90_perc,  # 90th percentile for width with spines removed
 
                     n_spines=neuron_obj.n_spines,
-                    n_boutons=neuron_obj.n_boutons,
+                    # n_boutons dropped: bouton detection (axon-based) removed in Phase 5.
 
                     spine_density=neuron_obj.spine_density, # n_spines/ skeletal_length
                     spines_per_branch=neuron_obj.spines_per_branch,
@@ -3127,7 +3127,7 @@ def neuron_stats(
             del stats_dict[s]
 
     if include_skeletal_stats:
-        sk_dict = nst.features_from_neuron_skeleton_and_soma_center(neuron_obj,
+        sk_dict = features_from_neuron_skeleton_and_soma_center(neuron_obj,
                                               verbose = False,
                                               features_to_exclude=("length","n_branches"),
                                              )
@@ -3135,7 +3135,7 @@ def neuron_stats(
 
 
     if include_centroids:
-        cent_stats = nst.centroid_stats_from_neuron_obj(neuron_obj,
+        cent_stats = centroid_stats_from_neuron_obj(neuron_obj,
                                                        voxel_adjustment_vector=voxel_adjustment_vector)
         stats_dict.update(cent_stats)
 

@@ -2513,13 +2513,12 @@ class Neuron:
                 print(f"--- 3a) Finshed generating soma_meshes_face_idx: {time.time() - neuron_start_time}")
                 neuron_start_time =time.time()
 
-            for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume,curr_synapses) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes)):
+            for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes)):
                 Soma_obj = Soma(curr_soma,
                                 mesh_face_idx=curr_soma_face_idx,
                                 sdf=current_sdf,
                                 volume_ratio=curr_volume_ratio,
-                               volume=curr_volume,
-                               synapses = curr_synapses)
+                               volume=curr_volume)
                 
                 print(f"--- 3b) Finished soma creation: {time.time() - neuron_start_time}")
                 neuron_start_time =time.time()
