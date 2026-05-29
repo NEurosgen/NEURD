@@ -19,26 +19,19 @@ from tests.unit import skip_if_datasci_tools_unusable
 
 skip_if_datasci_tools_unusable()
 
-# Core clump (DEPS_PLAN §0) + graph_filters (PRE-3 fix lives there).
+# Core modules kept after Phase-5 refactor (cluster modules removed).
 CORE_MODULES = [
-    "apical_utils",
-    "axon_utils",
     "branch_utils",
-    "cell_type_utils",
-    "classification_utils",
     "concept_network_utils",
-    "error_detection",
-    "graph_filters",
     "limb_utils",
     "neuron_searching",
+    "neuron_simplification",
     "neuron_statistics",
     "neuron_utils",
-    "neuron_visualizations",
     "preprocess_neuron",
-    "proofreading_utils",
     "soma_extraction_utils",
     "spine_utils",
-    "synapse_utils",
+    "width_utils",
 ]
 
 

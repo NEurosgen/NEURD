@@ -23,8 +23,6 @@ import trimesh
 from trimesh.ray import ray_pyembree
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
-from . import microns_volume_utils as mvu
-from . import h01_volume_utils as hvu
 
 soma_face_offset = 2
 
@@ -6834,211 +6832,6 @@ def min_width_upstream(limb_obj,
 
     return min_path_width
 
-def pair_branch_connected_components(limb_obj,
-        branches = None,
-        conn_comp = None,
-        plot_conn_comp_before_combining = False,
-        pair_method = "skeleton_angle",
-
-        #for the skeleton angle pairing
-        match_threshold = 70,
-        thick_width_threshold = 200,
-        comparison_distance_thick = 3000,
-        offset_thick = 1000,
-        comparison_distance_thin = 1500,
-        offset_thin = 0,
-        plot_intermediates = False,
-                                    verbose = False,
-                                    **kwargs):
-
-    """
-    Purpose: To pair branches of a subgraph
-    together if they match skeleton angles 
-    or some other criteria
-
-    Application: for grouping 
-    red/blue splits together
-
-    Arguments: 
-    1) Limb object
-    2) branches to check for connectivity (or the connected components precomputed)
-
-    Pseudocode: 
-    0) Compute the connected components if not already done
-    1) For each connected component: 
-    a. Find path of connected component back to the starting node
-    b. If path only of size 1 then just return either error branches or connected components
-    c. Get the border error branch and the border parent branch from the path
-    d) add the border error branch to a dictionary mapping parent to border branch and the conn comp it belongs to
-
-    2) For each parent branch:
-    - if list is longer than 1
-      a. match the border error branches to each other to see if should be connected
-      ( have argument to set the function to use for this)
-      b. If have any matches then add the pairings to a list of lists, else add to a seperate list
-
-    3. Use the pairings to create new connected components if any should be combined
-
-
-    Example: 
-    nru.pair_branch_connected_components(limb_obj=neuron_obj[1],
-    branches = limb_branch_dict["L1"],
-    conn_comp = None,
-    plot_conn_comp_before_combining = False,
-    pair_method = "pair_all",
-                                verbose = True)
-                                
-                                
-    Example 2: 
-    nru.pair_branch_connected_components(limb_obj=neuron_obj[1],
-    #branches = limb_branch_dict["L1"],
-    conn_comp = xu.connected_components(limb_obj.concept_network_directional.subgraph(limb_branch_dict["L1"]),
-                       ),
-    plot_conn_comp_before_combining = False,
-                                verbose = True)
-    """
-
-
-    G = nx.Graph(limb_obj.concept_network_directional)
-    #0) Compute the connected components if not already done
-    if conn_comp is None:
-        conn_comp = xu.connected_components(G.subgraph(branches))
-    else:
-        if len(conn_comp)>0:
-            branches = nu.concatenate_lists(conn_comp)
-        else:
-            branches = []
-
-    if verbose:
-        print(f"conn_comp = {conn_comp}")
-        print(f"branches = {branches}")
-
-    if plot_conn_comp_before_combining:
-        print(f"plot connected components before combined")
-        nx.draw(G.subgraph(branches),with_labels=True)
-        plt.show()
-
-    """    
-    1) For each connected component: 
-    a. Find path of connected component back to the starting node
-    b. If path only of size 1 then just return either error branches or connected components
-    c. Get the border error branch and the border parent branch from the path
-    d) add the border error branch to a dictionary mapping parent to border branch and the conn comp it belongs to
-    """
-    parent_to_branch_borders = dict()
-
-    for j,c in enumerate(conn_comp):
-        short_path,st,end = xu.shortest_path_between_two_sets_of_nodes(G,c,[limb_obj.current_starting_node])
-    #     if verbose:
-    #         print(f"short_path,st,end= {short_path,st,end}")
-
-        if len(short_path)<2:
-            continue
-
-        parent_border = short_path[1]
-        branch_border = st
-
-        if parent_border not in parent_to_branch_borders:
-            parent_to_branch_borders[parent_border] = dict(branch_idx = [branch_border],
-                                                         conn_comp_idx = [j],
-                                                          branch_to_comp_map = {branch_border:j})
-        else:
-            parent_to_branch_borders[parent_border]["branch_idx"].append(branch_border)
-            parent_to_branch_borders[parent_border]["conn_comp_idx"].append(j)
-            parent_to_branch_borders[parent_border]["branch_to_comp_map"][branch_border] = j
-
-
-    if verbose:
-        print(f"parent_to_branch_borders = {parent_to_branch_borders}")
-
-    """
-    2) For each parent branch:
-    - if list is longer than 1
-      a. match the border error branches to each other to see if should be connected
-      ( have argument to set the function to use for this)
-      b. If have any matches then add the pairings to a list of lists, else add to a seperate list
-    """
-    conn_comp_pairings = []
-    for parent_idx,border_info in parent_to_branch_borders.items():
-        if len(border_info["branch_idx"])<2:
-            continue
-
-        #a. match the border error branches to each other to see if should be connected
-        if pair_method == "pair_all":
-            conn_comp_pairings.append(border_info["conn_comp_idx"])
-            #conn_comp_pairings.append(border_info["branch_idx"])
-        elif pair_method == "skeleton_angle":
-            parent_width = nru.width(limb_obj[parent_idx])
-
-            if parent_width > thick_width_threshold:
-                comparison_distance = comparison_distance_thick
-                offset = offset_thick
-            else:
-                comparison_distance = comparison_distance_thin
-                offset = offset_thin
-
-
-            curr_branches = border_info["branch_idx"]
-            try:
-                matched_edges, matched_edges_angles = ed.matched_branches_by_angle(limb_obj,
-                                                               branches = border_info["branch_idx"],
-                                                            offset=offset,
-                                                            comparison_distance = comparison_distance,
-                                                            match_threshold = match_threshold,
-                                                            verbose = False,
-                                                            plot_intermediates = plot_intermediates,
-                                                            plot_match_intermediates = False,
-                                                            less_than_threshold = True
-                                                            )
-            except Exception as e:
-                if verbose:
-                    print(f"Hit an error when doing matched_branches_by_angle: {str(e)}")
-                matched_edges = []
-
-            if len(matched_edges)>0:
-                match_G = xu.edges_and_weights_to_graph(matched_edges)
-                match_G_conn_comp = xu.connected_components(match_G)
-                for m_comp in match_G_conn_comp:
-                    m_comp_conn_idx = [border_info["branch_to_comp_map"][k] for k in m_comp]
-
-                    conn_comp_pairings.append(m_comp_conn_idx)
-
-
-            if verbose:
-                print(f"parent_width = {parent_width}, comparison_distance = {comparison_distance}, offset = {offset}")
-                print(f"matched_edges = {matched_edges}")
-        else:
-            raise Exception(f"Unimplemented pair_method = {pair_method}")
-
-    if verbose:
-        print(f"conn_comp_pairings = {conn_comp_pairings}")
-
-    """
-    3. Use the pairings to create new connected components if any should be combined
-
-    """
-    all_conn_comp_idx = np.arange(len(conn_comp))
-    conn_comp_ar = np.array(conn_comp)
-    final_comp_comp_from_pair = [list(np.concatenate(conn_comp_ar[k]))
-                                 for k in conn_comp_pairings]
-    if len(final_comp_comp_from_pair)>0:
-        conn_comp_idx_from_pairs = np.hstack(conn_comp_pairings)
-    else:
-        conn_comp_idx_from_pairs = []
-
-    conn_comp_idx_leftover = np.delete(all_conn_comp_idx,conn_comp_idx_from_pairs)
-    conn_comp_from_leftover = [conn_comp[k] for k in conn_comp_idx_leftover]
-
-    conn_comp_combined = final_comp_comp_from_pair + conn_comp_from_leftover
-
-
-    if verbose:
-        print(f"final_comp_comp_from_pair = {final_comp_comp_from_pair}")
-        print(f"conn_comp_idx_leftover = {conn_comp_idx_leftover}")
-        print(f"conn_comp_from_leftover = {conn_comp_from_leftover}")
-        print(f"conn_comp_combined = {conn_comp_combined}")
-
-    return conn_comp_combined
 
 '''def restrict_skeleton_from_start_plus_offset_upstream_old(
     limb_obj,
@@ -8147,82 +7940,6 @@ def starting_node_from_soma(limb_obj,
                                           soma_group_idx=soma_group_idx,
                                           soma_name = soma_name,
                                   data_name="starting_node")
-
-def starting_node_combinations_of_limb_sorted_by_microns_midpoint(neuron_obj,
-                                                        limb_idx,
-                                                        only_multi_soma_paths = False,
-                                                        return_soma_names = False,
-                                                        verbose = False):
-    """
-    Purpose: To sort the error
-    connections of a limb by the 
-    distance of the soma to the midpoint
-    of the microns dataset
-
-    Pseudocode: 
-    0) Compute the distance of each some to the dataset midpoint
-    1) Get all of the possible connection pathways
-    2) Construct the distance matrix for the pathways
-    3) Order the connection pathways across their rows independent
-    4) Order the rows of the connections pathways
-    5) Filter for only different soma pathways if requested
-    """
-
-    #0) Compute the distance of each some to the dataset midpoint
-    limb_obj = neuron_obj[limb_idx]
-    midpoint_dist_dict = mru.soma_distances_from_microns_volume_bbox_midpoint(neuron_obj)
-
-    if verbose:
-        print(f"midpoint_dist_dict = {midpoint_dist_dict}")
-        print(f"All somas attached to limb = {nru.all_soma_names_from_limb(limb_obj)}")
-
-
-    #1) Get all of the possible connection pathways
-
-
-    begginning_soma_paths = np.array(nru.all_soma_soma_connections_from_limb(
-        limb_obj,
-        verbose = False,
-        only_multi_soma_paths = only_multi_soma_paths))
-
-    if verbose:
-        print(f"begginning_soma_paths= \n{begginning_soma_paths}")
-
-    if len(begginning_soma_paths) > 1: 
-        midpoint_dist = np.array([[midpoint_dist_dict[k.split("_")[0]] 
-                              for k in v] for v in begginning_soma_paths])
-        if verbose:
-            print(f"midpoint_dist =\n {midpoint_dist}")
-
-
-        #3) Order the connection pathways across their rows independent
-
-        row_idx,col_idx = nu.argsort_rows_of_2D_array_independently(midpoint_dist)
-        begginning_soma_paths_row_ord = begginning_soma_paths[row_idx,col_idx]
-        midpoint_dist_row_ord = midpoint_dist[row_idx,col_idx]
-
-        if verbose:
-            print(f"midpoint_dist_row_ord =\n {midpoint_dist_row_ord}")
-            print(f"begginning_soma_paths_row_ord =\n {begginning_soma_paths_row_ord}")
-
-        #4) Order the rows of the connections pathways
-        row_order = nu.argsort_multidim_array_by_rows(midpoint_dist_row_ord)
-        begginning_soma_paths_final = begginning_soma_paths_row_ord[row_order]
-
-        if verbose:
-            print(f"begginning_soma_paths_final=\n {begginning_soma_paths_final}")
-    else:
-        begginning_soma_paths_final= begginning_soma_paths
-
-
-    if not return_soma_names:
-        begginning_soma_paths_final = np.array([[nru.starting_node_from_soma(limb_obj,k) for k in v] for v in begginning_soma_paths_final])
-        if verbose:
-            print(f"Starting path combinations = \n")
-            print(f"{begginning_soma_paths_final}")
-
-    return begginning_soma_paths_final
-
 
 def shortest_path(limb_obj,start_branch_idx,destiation_branch_idx,
                  plot_path=False):
@@ -9821,9 +9538,7 @@ global_parameters_dict_default = dict(
     skeletal_length_max_n_spines = 3000,
 )
 
-attributes_dict_default = dict(
-    voxel_to_nm_scaling = mvu.voxel_to_nm_scaling
-)    
+attributes_dict_default = dict()
 
 
 # ------- microns -----------
@@ -9836,27 +9551,18 @@ global_parameters_dict_h01 = dict(
     skeletal_length_max_n_spines = 6_000
 )
 
-attributes_dict_h01 = dict(
-    voxel_to_nm_scaling = hvu.voxel_to_nm_scaling
-)
+attributes_dict_h01 = dict()
 
 
 
 #--- from neurd_packages ---
 
 from . import concept_network_utils as cnu
-from . import error_detection as ed
-from . import h01_volume_utils as hvu
-from . import microns_volume_utils as mru
-from . import microns_volume_utils as mvu
-from . import neuron 
 from . import neuron
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import preprocess_neuron as pre
-from . import proofreading_utils as pru
 from . import soma_extraction_utils as sm
-
 from . import width_utils as wu
 
 #--- from mesh_tools ---
