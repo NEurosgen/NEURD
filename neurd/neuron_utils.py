@@ -12,17 +12,13 @@ Purpose of this file: To help the development of the neuron object
 '''
 import copy
 from copy import deepcopy
-import itertools
-from importlib import reload
-import matplotlib.pyplot as plt
 import networkx as nx
-from pathlib import Path
-from scipy.spatial import KDTree
+
 import time
-import trimesh
+
 from trimesh.ray import ray_pyembree
 from datasci_tools import numpy_dep as np
-from datasci_tools import general_utils as gu
+
 
 soma_face_offset = 2
 
@@ -232,12 +228,12 @@ def convert_concept_network_to_directional(concept_network,
     plt.show()
     xu.set_node_attributes_dict(example_concept_network,{1:dict(starting_coordinate=np.array([1,2,3]))})
 
-    directional_ex_concept_network = nru.convert_concept_network_to_directional(example_concept_network,no_cycles=True)
+    directional_ex_concept_network = convert_concept_network_to_directional(example_concept_network,no_cycles=True)
     nx.draw(directional_ex_concept_network,with_labels=True)
     plt.show()
 
     node_widths = {1:0.5,2:0.61,3:0.73,4:0.88,5:.9,6:0.4}
-    directional_ex_concept_network = nru.convert_concept_network_to_directional(example_concept_network,no_cycles=True,node_widths=node_widths)
+    directional_ex_concept_network = convert_concept_network_to_directional(example_concept_network,no_cycles=True,node_widths=node_widths)
     nx.draw(directional_ex_concept_network,with_labels=True)
     plt.show()
     """
@@ -674,1138 +670,33 @@ def branches_to_concept_network(curr_branch_skeletons,
 
 
 
-""" Older function definition
-def generate_limb_concept_networks_from_global_connectivity(
-    limb_idx_to_branch_meshes_dict,
-    limb_idx_to_branch_skeletons_dict,
-    soma_idx_to_mesh_dict,
-    soma_idx_connectivity,
-    current_neuron,
-    return_limb_labels=True
-    ): 
-"""
 
             
 #for finding the closest endpoint
-def generate_limb_concept_networks_from_global_connectivity(
-        limb_correspondence,
-        soma_meshes,
-        soma_idx_connectivity,
-        current_neuron,
-        limb_to_soma_starting_endpoints = None,
-        return_limb_labels=True
-        ):
-    
-    
-    """
-    ****** Could significantly speed this up if better picked the 
-    periphery meshes (which now are sending all curr_limb_divided_meshes)
-    sent to 
-    
-    tu.mesh_pieces_connectivity(main_mesh=current_neuron,
-                                        central_piece = curr_soma_mesh,
-                                    periphery_pieces=curr_limb_divided_meshes)
-    *********
-    
-    
-    Purpose: To create concept networks for all of the skeletons
-             based on our knowledge of the mesh
-
-        Things it needs: 
-        - branch_mehses
-        - branch skeletons
-        - soma meshes
-        - whole neuron
-        - soma_to_piece_connectivity
-
-        What it returns:
-        - concept networks
-        - branch labels
-        
-    
-    Pseudocode: 
-    1) Get all of the meshes for that limb (that were decomposed)
-    2) Use the entire neuron, the soma meshes and the list of meshes and find out shich one is touching the soma
-    3) With the one that is touching the soma, find the enpoints of the skeleton
-    4) Find the closest matching endpoint
-    5) Send the deocmposed skeleton branches to the branches_to_concept_network function
-    6) Graph the concept graph using the mesh centers
-
-    Example of Use: 
-    
-    from neurd import neuron
-    neuron = reload(neuron)
-
-    #getting mesh and skeleton dictionaries
-    limb_idx_to_branch_meshes_dict = dict()
-    limb_idx_to_branch_skeletons_dict = dict()
-    for k in limb_correspondence.keys():
-        limb_idx_to_branch_meshes_dict[k] = [limb_correspondence[k][j]["branch_mesh"] for j in limb_correspondence[k].keys()]
-        limb_idx_to_branch_skeletons_dict[k] = [limb_correspondence[k][j]["branch_skeleton"] for j in limb_correspondence[k].keys()]      
-
-    #getting the soma dictionaries
-    soma_idx_to_mesh_dict = dict()
-    for k,v in enumerate(current_mesh_data[0]["soma_meshes"]):
-        soma_idx_to_mesh_dict[k] = v
-
-    soma_idx_connectivity = current_mesh_data[0]["soma_to_piece_connectivity"]
-
-
-    limb_concept_networkx,limb_labels = neuron.generate_limb_concept_networks_from_global_connectivity(
-        limb_idx_to_branch_meshes_dict = limb_idx_to_branch_meshes_dict,
-        limb_idx_to_branch_skeletons_dict = limb_idx_to_branch_skeletons_dict,
-        soma_idx_to_mesh_dict = soma_idx_to_mesh_dict,
-        soma_idx_connectivity = soma_idx_connectivity,
-        current_neuron=current_neuron,
-        return_limb_labels=True
-        )
-    
-
-    """
-    print("********************************** generate_limb_concept_networks_from_global_connectivity****************************")
-    # ------------ 7/17 Added preprocessing Step so can give the function more generic arguments ---------------- #
-    #getting mesh and skeleton dictionaries
-    limb_idx_to_branch_meshes_dict = dict()
-    limb_idx_to_branch_skeletons_dict = dict()
-    for k in limb_correspondence.keys():
-        limb_idx_to_branch_meshes_dict[k] = [limb_correspondence[k][j]["branch_mesh"] for j in limb_correspondence[k].keys()]
-        limb_idx_to_branch_skeletons_dict[k] = [limb_correspondence[k][j]["branch_skeleton"] for j in limb_correspondence[k].keys()]      
-
-    #getting the soma dictionaries
-    soma_idx_to_mesh_dict = dict()
-    for k,v in enumerate(soma_meshes):
-        soma_idx_to_mesh_dict[k] = v
-
-
-
-
-    
-    
-    
-    
-
-    
-    
-    if set(list(limb_idx_to_branch_meshes_dict.keys())) != set(list(limb_idx_to_branch_skeletons_dict.keys())):
-        raise Exception("There was a difference in the keys for the limb_idx_to_branch_meshes_dict and limb_idx_to_branch_skeletons_dict")
-        
-    global_concept_time = time.time()
-    
-    total_limb_concept_networks = dict()
-    total_limb_labels = dict()
-    soma_mesh_faces = dict()
-    for limb_idx in limb_idx_to_branch_meshes_dict.keys():
-        local_concept_time = time.time()
-        print(f"\n\n------Working on limb {limb_idx} -------")
-        curr_concept_network = dict()
-        
-        curr_limb_divided_meshes = limb_idx_to_branch_meshes_dict[limb_idx]
-        #curr_limb_divided_meshes_idx = [v["branch_face_idx"] for v in limb_correspondence[limb_idx].values()]
-        curr_limb_divided_skeletons = limb_idx_to_branch_skeletons_dict[limb_idx]
-        print(f"inside loop len(curr_limb_divided_meshes) = {len(curr_limb_divided_meshes)}"
-             f" len(curr_limb_divided_skeletons) = {len(curr_limb_divided_skeletons)}")
-        
-        #find what mesh piece was touching
-        touching_soma_indexes = []
-        for k,v in soma_idx_connectivity.items():
-            if limb_idx in v:
-                touching_soma_indexes.append(k)
-        
-        if len(touching_soma_indexes) == 0:
-            raise Exception("Did not find touching soma index")
-        if len(touching_soma_indexes) >= 2:
-            print("Merge limb detected")
-            
-        
-        for soma_idx in touching_soma_indexes:
-            print(f"--- Working on soma_idx: {soma_idx}----")
-            curr_soma_mesh = soma_idx_to_mesh_dict[soma_idx]
-            
-            
-            
-            if soma_idx in list(soma_mesh_faces.keys()):
-                soma_info = soma_mesh_faces[soma_idx]
-            else:
-                soma_info = curr_soma_mesh
-                
-            #filter the periphery pieces
-            original_idxs = np.arange(0,len(curr_limb_divided_meshes))
-            
-            periph_filter_time = time.time()
-            distances_periphery_to_soma = np.array([tu.closest_distance_between_meshes(curr_soma_mesh,k) for k in curr_limb_divided_meshes])
-            periphery_distance_threshold = 2000
-            
-            original_idxs = original_idxs[distances_periphery_to_soma<periphery_distance_threshold]
-            filtered_periphery_meshes = np.array(curr_limb_divided_meshes)[distances_periphery_to_soma<periphery_distance_threshold]
-            
-            print(f"Total time for filtering periphery meshes = {time.time() - periph_filter_time}")
-            periph_filter_time = time.time()
-            
-            if len(filtered_periphery_meshes) == 0:
-                raise Exception("There were no periphery meshes within a threshold distance of the mesh")
-            
-
-            touching_pieces,touching_vertices,central_piece_faces = tu.mesh_pieces_connectivity(main_mesh=current_neuron,
-                                        central_piece = soma_info,
-                                        periphery_pieces = filtered_periphery_meshes,
-                                                         return_vertices=True,
-                                                        return_central_faces=True
-                                                                                 )
-            soma_mesh_faces[soma_idx] = central_piece_faces
-            
-            #fixing the indexes so come out the same
-            touching_pieces = original_idxs[touching_pieces]
-            print(f"touching_pieces = {touching_pieces}")
-            print(f"Total time for mesh connectivity = {time.time() - periph_filter_time}")
-            
-            
-            if len(touching_pieces) >= 2:
-                print("**More than one touching point to soma, touching_pieces = {touching_pieces}**")
-                
-                """ 9/17: Want to pick the one with the starting endpoint if exists
-                Pseudocode: 
-                1) Get the starting endpoint if exists
-                2) Get the endpoints of all the touching branches
-                3) Get the index (if any ) of the branch that has this endpoint in skeleton
-                4) Make that the winning index
-                
-                
-                
-                """
-                if not limb_to_soma_starting_endpoints is None:
-                    print("Using new winning piece based on starting coordinate")
-                    ideal_starting_coordinate = limb_to_soma_starting_endpoints[limb_idx][soma_idx]
-                    touching_pieces_branches = [neuron.Branch(curr_limb_divided_skeletons[k]).endpoints for k in touching_pieces]
-                    print("trying to use new find_branch_skeleton_with_specific_coordinate")
-                    winning_piece_idx = sk.find_branch_skeleton_with_specific_coordinate(touching_pieces_branches,
-                                                                  current_coordinate=ideal_starting_coordinate)[0]
-                    
-                else:
-                    # picking the piece with the most shared vertices
-                    len_touch_vertices = [len(k) for k in touching_vertices]
-                    winning_piece_idx = np.argmax(len_touch_vertices)
-                    
-                print(f"winning_piece_idx = {winning_piece_idx}")
-                touching_pieces = [touching_pieces[winning_piece_idx]]
-                print(f"Winning touching piece = {touching_pieces}")
-                touching_pieces_soma_vertices = touching_vertices[winning_piece_idx]
-            else:
-                touching_pieces_soma_vertices = touching_vertices[0]
-            if len(touching_pieces) < 1:
-                raise Exception("No touching pieces")
-            
-            #print out the endpoints of the winning touching piece
-            
-                
-            #3) With the one that is touching the soma, find the enpoints of the skeleton
-            print(f"Using touching_pieces[0] = {touching_pieces[0]}")
-            touching_branch = neuron.Branch(curr_limb_divided_skeletons[touching_pieces[0]])
-            endpoints = touching_branch.endpoints
-            
-            
-            """  OLDER WAY OF FINDING STARTING ENDPOINT WHERE JUST COMPARES TO SOMA CENTER
-            print(f"Touching piece endpoints = {endpoints}")
-            soma_midpoint = np.mean(curr_soma_mesh.vertices,axis=0)
-
-            #4) Find the closest matching endpoint
-            closest_idx = np.argmin([np.linalg.norm(soma_midpoint-k) for k in endpoints])
-            closest_endpoint = endpoints[closest_idx]
-            
-            """
-            
-
-            closest_endpoint = None
-            if not limb_to_soma_starting_endpoints is None:
-                """  # -----------  9/16 -------------- #
-                Will pick the starting coordinate that was given if it was on the winning piece
-                """
-                ideal_starting_coordinate = limb_to_soma_starting_endpoints[limb_idx][soma_idx]
-                endpoints_list = endpoints.reshape(-1,3)
-                match_result = nu.matching_rows(endpoints_list,ideal_starting_coordinate)
-                if len(match_result)>0:
-                    closest_endpoint = endpoints_list[match_result[0]]
-            if closest_endpoint is None:
-                """  # -----------  9/1 -------------- #
-                New method for finding 
-                1) Build a KDTree of the winning touching piece soma boundary vertices
-                2) query the endpoints against the vertices
-                3) pick the endpoint that has the closest match
-                """
-                ex_branch_KDTree = KDTree(touching_pieces_soma_vertices)
-                distances,closest_nodes = ex_branch_KDTree.query(endpoints)
-                closest_endpoint = endpoints[np.argmin(distances)]
-            
-            
-
-            
-            
-            
-            print(f"inside inner loop "
-             f"len(curr_limb_divided_skeletons) = {len(curr_limb_divided_skeletons)}")
-            print(f"closest_endpoint WITH NEW KDTREE METHOD= {closest_endpoint}")
-            
-            print(f"About to send touching_soma_vertices = {touching_pieces_soma_vertices}")
-            curr_limb_concept_network = branches_to_concept_network(curr_limb_divided_skeletons,closest_endpoint,np.array(endpoints).reshape(-1,3),
-                                                                   touching_soma_vertices=touching_pieces_soma_vertices)
-            
-            #print(f"Recovered touching vertices = {xu.get_all_nodes_with_certain_attribute_key(curr_limb_concept_network,'touching_soma_vertices')}")
-            curr_concept_network[soma_idx] = curr_limb_concept_network
-            
-            
-            # ----- Some checks that make sure concept mapping went well ------ #
-            #get the node that has the starting coordinate:
-            recovered_touching_piece = xu.get_nodes_with_attributes_dict(curr_limb_concept_network,dict(starting_coordinate=closest_endpoint))
-            
-            print(f"recovered_touching_piece = {recovered_touching_piece}")
-            if recovered_touching_piece[0] != touching_pieces[0]:
-                raise Exception(f"For limb {limb_idx} and soma {soma_idx} the recovered_touching and original touching do not match\n"
-                               f"recovered_touching_piece = {recovered_touching_piece}, original_touching_pieces = {touching_pieces}")
-                                                                         
-
-            print(f"After concept mapping size = {len(curr_limb_concept_network.nodes())}")
-            
-            if len(curr_limb_concept_network.nodes()) != len(curr_limb_divided_skeletons):
-                   raise Exception("The number of nodes in the concept graph and number of branches passed to it did not match\n"
-                                  f"len(curr_limb_concept_network.nodes())={len(curr_limb_concept_network.nodes())}, len(curr_limb_divided_skeletons)= {len(curr_limb_divided_skeletons)}")
-
-            if nx.number_connected_components(curr_limb_concept_network) > 1:
-                raise Exception("There was more than 1 connected components in the concept network")
-            
-#             #for debugging: 
-#             endpoints_dict = xu.get_node_attributes(curr_limb_concept_network,attribute_name="endpoints",return_array=False)
-#             print(f"endpoints_dict = {endpoints_dict}")
-#             print(f"{curr_limb_concept_network.nodes()}")
-            
-            
-            #make sure that the original divided_skeletons endpoints match the concept map endpoints
-            for j,un_resized_b in enumerate(curr_limb_divided_skeletons):
-                """
-                Pseudocode: 
-                1) get the endpoints of the current branch
-                2) get the endpoints in the concept map
-                3) compare
-                - if not equalt then break
-                """
-                #1) get the endpoints of the current branch
-                b_endpoints = neuron.Branch(un_resized_b).endpoints
-                #2) get the endpoints in the concept map
-                graph_endpoints = xu.get_node_attributes(curr_limb_concept_network,attribute_name="endpoints",node_list=[j])[0]
-                #print(f"original_branch_endpoints = {b_endpoints}, concept graph node endpoints = {graph_endpoints}")
-                if not xu.compare_endpoints(b_endpoints,graph_endpoints):
-                    raise Exception(f"The node {j} in concept graph endpoints do not match the endpoints of the original branch\n"
-                                   f"original_branch_endpoints = {b_endpoints}, concept graph node endpoints = {graph_endpoints}")
-                
-                
-        total_limb_concept_networks[limb_idx] = curr_concept_network
-        
-        if len(curr_concept_network) > 1:
-            total_limb_labels[limb_idx] = "MergeError"
-        else:
-            total_limb_labels[limb_idx] = "Normal"
-            
-        print(f"Local time for concept mapping = {time.time() - local_concept_time}")
-
-    print(f"\n\n ----- Total time for concept mapping = {time.time() - global_concept_time} ----")
-        
-        
-    #returning from the function    
-        
-    if return_limb_labels:
-        return total_limb_concept_networks,total_limb_labels
-    else:
-        return total_limb_concept_networks
 
 # ----------------------- End of Concept Networks ------------------------------------- #
     
     
 
-# -----------------------  For the compression of a neuron object ---------------------- #
-def find_face_idx_and_check_recovery(original_mesh,submesh_list,print_flag=False,check_recovery=True):
-    debug = False
-    if len(submesh_list) == 0:
-        if print_flag:
-            print("Nothing in submesh_list sent to find_face_idx_and_check_recovery so just returning empty list")
-            return []
-    submesh_list_face_idx = []
-    for i,sm in enumerate(submesh_list):
-        
-        sm_faces_idx = tu.original_mesh_faces_map(original_mesh=original_mesh, 
-                                   submesh=sm,
-                               matching=True,
-                               print_flag=False,
-                                                 exact_match=True)
-        submesh_list_face_idx.append(sm_faces_idx)
-        if debug:
-            print(f"For submesh {i}: sm.faces.shape = {sm.faces.shape}, sm_faces_idx.shape = {sm_faces_idx.shape}")
-        
-    if check_recovery:
-        recovered_submesh_meshes = [original_mesh.submesh([sm_f],append=True,repair=False) for sm_f in submesh_list_face_idx]
-        #return recovered_submesh_meshes
-
-    
-        for j,(orig_sm,rec_sm) in enumerate(zip(submesh_list,recovered_submesh_meshes)):
-            result = tu.compare_meshes_by_face_midpoints(orig_sm,rec_sm,print_flag=False)
-            if not result:
-                tu.compare_meshes_by_face_midpoints(orig_sm,rec_sm,print_flag=True)
-                raise Exception(f"Submesh {j} was not able to be accurately recovered")
-    
-    return submesh_list_face_idx
     
 
 
 
 
-def smaller_preprocessed_data(neuron_object,print_flag=False):
-    double_soma_obj = neuron_object
-    
-    total_compression_time = time.time()
-    
-    
-    
-    
-    
-    # doing the soma recovery more streamlined
-    compression_time = time.time()
-    soma_meshes_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["soma_meshes"])
-    if print_flag:
-        print(f"Total time for soma meshes compression = {time.time() - compression_time }")
-    compression_time = time.time()
-    #insignificant, non_soma touching and inside pieces just mesh pieces ()
-    insignificant_limbs_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["insignificant_limbs"])
-    not_processed_soma_containing_meshes_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["not_processed_soma_containing_meshes"])
 
-    inside_pieces_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["inside_pieces"])
-
-    non_soma_touching_meshes_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["non_soma_touching_meshes"])
-    
-    if print_flag:
-        print(f"Total time for insignificant_limbs,inside_pieces,non_soma_touching_meshes,not_processed_soma_containing_meshes compression = {time.time() - compression_time }")
-    compression_time = time.time()
-    
-    # recover the limb meshes from the original
-    #------------------------------- THERE IS SOME DISCONNECTED IN THE MESH THAT IS IN PREPROCESSED DATA AND THE ACTUAL LIMB MESH ------------------ #
-    #------------------------------- MAKES SENSE BECAUSE DOING MESH CORRESPONDENCE AFTERWARDS THAT ALTERS THE MESH BRANCHES A BIT, SO JUST PULL FROM THE MESH_FACES_IDX ------------------ #
-
-    limb_meshes_face_idx = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=double_soma_obj.preprocessed_data["limb_meshes"])
-    if print_flag:
-        print(f"Total time for limb_meshes compression = {time.time() - compression_time }")
-    compression_time = time.time()    
-    
-    # limb_correspondence can get rid of branch mesh and just recover from branch_face_idx
-    
-    
-    
-    
-    """
-    Pseudocode: 
-    1) Want to keep skeleton and width
-    2) Generate new branch_face_idx based on the original mesh
-    --> later can recover the branch_mesh from the whole neuron mesh and the new branch_face_idx
-    --> regenerate the and branch_face_idx from the recovered limb mesh and he recovered mesh
-
-
-    """
-    if print_flag:
-        print(f"    Starting Limb Correspondence Compression")
-    new_limb_correspondence = copy.deepcopy(double_soma_obj.preprocessed_data["limb_correspondence"])
-    
-
-    for k in new_limb_correspondence:
-        for j in tqdm(new_limb_correspondence[k]):
-            new_limb_correspondence[k][j]["branch_face_idx_whole_neuron"] = find_face_idx_and_check_recovery(original_mesh=double_soma_obj.mesh,
-                                                           submesh_list=[new_limb_correspondence[k][j]["branch_mesh"]])[0]
-
-            if "branch_face_idx" in new_limb_correspondence[k][j].keys():
-                del new_limb_correspondence[k][j]["branch_face_idx"]
-            if "branch_mesh" in new_limb_correspondence[k][j].keys():
-                del new_limb_correspondence[k][j]["branch_mesh"]
-                
-    if print_flag:
-        print(f"Total time for new_limb_correspondence compression = {time.time() - compression_time }")
-    compression_time = time.time() 
-    
-    
-    # all of the data will be 
-    soma_meshes_face_idx
-
-    # soma_to_piece_connectivity is already small dictionary
-    double_soma_obj.preprocessed_data["soma_to_piece_connectivity"]
-    double_soma_obj.preprocessed_data["soma_sdfs"]
-    
-
-    insignificant_limbs_face_idx
-    inside_pieces_face_idx
-    non_soma_touching_meshes_face_idx
-
-    limb_meshes_face_idx
-
-    new_limb_correspondence
-
-    double_soma_obj.preprocessed_data['limb_labels']
-    double_soma_obj.preprocessed_data['limb_concept_networks']
-    
-    """
-    Algorithm for how to save off the following: 
-    1) width_new (the dictionary where keyword maps to scalar) #save as dict of dict
-    2) width_array (the dictionary where keyword maps to array)# 
-    3) spines(list or none): 
-    4) branch_labels (list): dict of dict
-    
-    How to store the width_new (just a dictionary for all of the widths)
-    width_new_key = just anraveled
-    
-    """
-
-    
-    computed_attribute_dict = double_soma_obj.get_computed_attribute_data()
-    
-    #geting the labels data
-    labels_lookup =double_soma_obj.get_attribute_dict("labels")
-
-    if "soma_volume_ratios" not in double_soma_obj.preprocessed_data.keys():
-        double_soma_obj.preprocessed_data["soma_volume_ratios"] = [double_soma_obj[ll].volume_ratio for ll in double_soma_obj.get_soma_node_names()]
-        
-    if hasattr(double_soma_obj,"original_mesh_idx"):
-        original_mesh_idx=double_soma_obj.original_mesh_idx
-    else:
-        original_mesh_idx = None
-    
-    soma_names = double_soma_obj.get_soma_node_names()
-    
-    
-    pipeline_products = getattr(double_soma_obj,"pipeline_products",None)
-    if pipeline_products is not None:
-        pipeline_products = pipeline_products.export()
-        
-        try:
-            meshu.clear_all_mesh_cache_in_nested_data_struct(pipeline_products)
-        except Exception as e:
-            print(e)
-    
-    compressed_dict = dict(
-                          #saving the original number of faces and vertices to make sure reconstruciton doesn't happen with wrong mesh
-                          original_mesh_n_faces = len(double_soma_obj.mesh.faces),
-                          original_mesh_n_vertices = len(double_soma_obj.mesh.vertices), 
-        
-                          soma_meshes_face_idx=soma_meshes_face_idx,
-
-                          soma_to_piece_connectivity=double_soma_obj.preprocessed_data["soma_to_piece_connectivity"],
-                          soma_volumes=[double_soma_obj[k]._volume for k in soma_names],
-                          
-                          # --- 6/9 Addition: Synapses stored off
-                        
-                          soma_sdfs = double_soma_obj.preprocessed_data["soma_sdfs"],
-                          soma_volume_ratios=double_soma_obj.preprocessed_data["soma_volume_ratios"],
-
-                          insignificant_limbs_face_idx=insignificant_limbs_face_idx,
-                          not_processed_soma_containing_meshes_face_idx = not_processed_soma_containing_meshes_face_idx,
-                          glia_faces = double_soma_obj.preprocessed_data["glia_faces"],
-                          labels = double_soma_obj.labels,
-                          inside_pieces_face_idx=inside_pieces_face_idx,
-                          non_soma_touching_meshes_face_idx=non_soma_touching_meshes_face_idx,
-
-                          limb_meshes_face_idx=limb_meshes_face_idx,
-
-                          new_limb_correspondence=new_limb_correspondence,
-                            
-                          segment_id=double_soma_obj.segment_id,
-                          description=double_soma_obj.description,
-                          decomposition_type=double_soma_obj.decomposition_type,
-            
-                          # don't need these any more because will recompute them when decompressing
-                          #limb_labels= double_soma_obj.preprocessed_data['limb_labels'],
-                          #limb_concept_networks=double_soma_obj.preprocessed_data['limb_concept_networks']
-        
-                          #new spine/width/labels compression
-                          computed_attribute_dict = computed_attribute_dict,
-                          
-                          #For concept network creation
-                          limb_network_stating_info = double_soma_obj.preprocessed_data["limb_network_stating_info"],
-        
-                          #for storing the faces indexed into the original mesh
-                          original_mesh_idx=original_mesh_idx,
-        
-                          nucleus_id = double_soma_obj.nucleus_id,
-                          split_index = double_soma_obj.split_index,
-                          
-                          pipeline_products = pipeline_products,
-                                           
-    )
-    
-    if print_flag:
-        print(f"Total time for compression = {time.time() - total_compression_time }")
-    
-    return compressed_dict
-
-
-def save_compressed_neuron(
-    neuron_object,
-    output_folder="./",
-    file_name="",
-    file_name_append = None,
-    return_file_path=False,
-    export_mesh=False):
-    output_folder = Path(output_folder)
-    
-    if file_name == "":
-        file_name = f"{neuron_object.segment_id}_{neuron_object.description}"
-        
-    if file_name_append is not None:
-        file_name += f"_{file_name_append}"
-    
-    output_path = output_folder / Path(file_name)
-    
-    output_path = Path(output_path)
-    output_path.parents[0].mkdir(parents=True, exist_ok=True)
-    
-    
-    inhib_object_compressed_preprocessed_data = smaller_preprocessed_data(neuron_object,print_flag=True)
-    compressed_size = su.compressed_pickle(inhib_object_compressed_preprocessed_data,output_path,return_size=True)
-    
-    print(f"\n\n---Finished outputing neuron at location: {output_path.absolute()}---")
-    
-    if export_mesh:
-        neuron_object.mesh.export(str(output_path.absolute()) +".off")
-    
-    if return_file_path:
-        return output_path
-    
-    
-
-#For decompressing the neuron
-def decompress_neuron(filepath,original_mesh,
-                     suppress_output=True,
-                     debug_time = False,
-                      using_original_mesh=True,
-                     #error_on_original_mesh_faces_vertices_mismatch=False
-                     ):
-    if suppress_output:
-        print("Decompressing Neuron in minimal output mode...please wait")
-    
-    with su.suppress_stdout_stderr() if suppress_output else su.dummy_context_mgr():
-        
-        decompr_time = time.time()
-        
-        loaded_compression = su.decompress_pickle(filepath)
-        print(f"Inside decompress neuron and decomposition_type = {loaded_compression['decomposition_type']}")
-
-        if debug_time:
-            print(f"Decompress pickle time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-        
-        #creating dictionary that will be used to construct the new neuron object
-        recovered_preprocessed_data = dict()
-
-        """
-        a) soma_meshes: use the 
-        Data: soma_meshes_face_idx 
-        Process: use submesh on the neuron mesh for each
-
-        """
-        if type(original_mesh) == type(Path()) or type(original_mesh) == str:
-            if str(Path(original_mesh).absolute())[-3:] == '.h5':
-                original_mesh = tu.load_mesh_no_processing_h5(original_mesh)
-            else:
-                original_mesh = tu.load_mesh_no_processing(original_mesh)
-        elif type(original_mesh) == type(trimesh.Trimesh()):
-            print("Recieved trimesh as orignal mesh")
-        else:
-            raise Exception(f"Got an unknown type as the original mesh: {original_mesh}")
-            
-        if debug_time:
-            print(f"Getting mesh time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-            
-
-        # ------- 1/23 Addition: where using a saved mesh face idx to index into an original mesh ------#
-        original_mesh_idx = loaded_compression.get("original_mesh_idx",None) 
-        
-        if using_original_mesh:
-            if original_mesh_idx is None:
-                print("The flag for using original mesh was set but no original_mesh_faces_idx stored in compressed data")
-            else:
-                print(f"Original mesh BEFORE using original_mesh_idx = {original_mesh}")
-                original_mesh = original_mesh.submesh([original_mesh_idx],append=True,repair=False)
-                print(f"Original mesh AFTER using original_mesh_idx = {original_mesh}")
-            
-            
-        error_on_original_mesh_faces_vertices_mismatch=False
-        
-        if len(original_mesh.faces) != loaded_compression["original_mesh_n_faces"]:
-            warning_string = (f"Number of faces in mesh used for compression ({loaded_compression['original_mesh_n_faces']})"
-                            f" does not match the number of faces in mesh passed to decompress_neuron function "
-                            f"({len(original_mesh.faces)})")
-            if error_on_original_mesh_faces_vertices_mismatch:
-                raise Exception(warning_string)
-            else:
-                print(warning_string)
-        else:
-            print("Passed faces original mesh check")
-
-        if len(original_mesh.vertices) != loaded_compression["original_mesh_n_vertices"]:
-            warning_string = (f"Number of vertices in mesh used for compression ({loaded_compression['original_mesh_n_vertices']})"
-                            f" does not match the number of vertices in mesh passed to decompress_neuron function "
-                            f"({len(original_mesh.vertices)})")
-            
-            if error_on_original_mesh_faces_vertices_mismatch:
-                raise Exception(warning_string)
-            else:
-                print(warning_string)
-        else:
-            print("Passed vertices original mesh check")
-            
-            
-        if debug_time:
-            print(f"Face and Vertices check time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-
-
-        recovered_preprocessed_data["soma_meshes"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["soma_meshes_face_idx"]]
-        
-        
-
-        """
-        b) soma_to_piece_connectivity
-        Data: soma_to_piece_connectivity
-        Process: None
-
-        c) soma_sdfs
-        Data: soma_sdfs
-        Process: None
-        """
-        recovered_preprocessed_data["soma_to_piece_connectivity"] = loaded_compression["soma_to_piece_connectivity"]
-        recovered_preprocessed_data["soma_sdfs"] = loaded_compression["soma_sdfs"]
-        
-        recovered_preprocessed_data["soma_volumes"] = loaded_compression.get("soma_volumes",None)
-        recovered_preprocessed_data["soma_synapses"] = loaded_compression.get("soma_synapses",
-                                                                    [None]*len(loaded_compression["soma_sdfs"]))
-        recovered_preprocessed_data["mesh_errored_synapses"] = loaded_compression.get("mesh_errored_synapses",[])
-        recovered_preprocessed_data["distance_errored_synapses"] = loaded_compression.get("distance_errored_synapses",[])
-        
-                                                
-        
-        if "soma_volume_ratios" in  loaded_compression.keys():
-            print("using precomputed soma_volume_ratios")
-            recovered_preprocessed_data["soma_volume_ratios"] = loaded_compression["soma_volume_ratios"]
-        else:
-            recovered_preprocessed_data["soma_volume_ratios"] = None
-            
-        if debug_time:
-            print(f"Original Soma mesh time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-
-        """
-        d) insignificant_limbs
-        Data: insignificant_limbs_face_idx
-        Process: use submesh on the neuron mesh for each
-
-        d) non_soma_touching_meshes
-        Data: non_soma_touching_meshes_face_idx
-        Process: use submesh on the neuron mesh for each
-
-        d) inside_pieces
-        Data: inside_pieces_face_idx
-        Process: use submesh on the neuron mesh for each
-        """
-
-        recovered_preprocessed_data["insignificant_limbs"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["insignificant_limbs_face_idx"]]
-        
-        
-        
-        recovered_preprocessed_data["not_processed_soma_containing_meshes"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["not_processed_soma_containing_meshes_face_idx"]]
-        
-        
-        
-        
-        if "glia_faces" in loaded_compression.keys():
-            curr_glia = loaded_compression["glia_faces"]
-        else:
-            curr_glia = np.array([])
-        
-        recovered_preprocessed_data["glia_faces"] = curr_glia
-        
-        
-        if "labels" in loaded_compression.keys():
-            curr_labels = loaded_compression["labels"]
-        else:
-            curr_labels = np.array([])
-        
-        recovered_preprocessed_data["labels"] = curr_labels
-        
-        
-        
-
-        recovered_preprocessed_data["non_soma_touching_meshes"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["non_soma_touching_meshes_face_idx"]]
-
-        recovered_preprocessed_data["inside_pieces"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["inside_pieces_face_idx"]]
-        
-        if debug_time:
-            print(f"Insignificant and Not-processed and glia time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-
-        """
-        e) limb_meshes
-        Data: limb_meshes_face_idx
-        Process: use submesh on the neuron mesh for each
-
-        """
-
-        recovered_preprocessed_data["limb_meshes"] = [original_mesh.submesh([k],append=True,repair=False) for k in loaded_compression["limb_meshes_face_idx"]]
-
-        if debug_time:
-            print(f"Limb meshes time = {time.time() - decompr_time}")
-            decompr_time = time.time()
-        """
-
-        f) limb_correspondence
-        Data: new_limb_correspondence
-        Process: 
-        -- get branch mesh for each item
-        --> later can recover the branch_mesh from the whole neuron mesh and the new branch_face_idx
-        -- get branch_face_idx for each itme
-        --> regenerate the and branch_face_idx from the recovered limb mesh and he recovered mesh
-
-        """
-
-        new_limb_correspondence = loaded_compression["new_limb_correspondence"]
-
-        for k in new_limb_correspondence:
-            print(f"Working on limb {k}")
-            comb_meshes = None
-            for j in tqdm(new_limb_correspondence[k]):
-                print(f"  Working on branch {j}")
-                
-                new_limb_correspondence[k][j]["branch_mesh"] = original_mesh.submesh([new_limb_correspondence[k][j]["branch_face_idx_whole_neuron"]],append=True,repair=False)
-                
-                try:
-                    
-                    new_limb_correspondence[k][j]["branch_face_idx"] = tu.original_mesh_faces_map(original_mesh=recovered_preprocessed_data["limb_meshes"][k], 
-                                               submesh=new_limb_correspondence[k][j]["branch_mesh"] ,
-                                           matching=True,
-                                           print_flag=False,
-                                           exact_match=True)
-                except:
-                    #Then try using the stitched meshes
-                    #possible_non_touching_meshes = [c for c in recovered_preprocessed_data["non_soma_touching_meshes"] if len(c.faces) == len(new_limb_correspondence[k][j]["branch_mesh"].faces)]
-                    possible_non_touching_meshes = [c for c in recovered_preprocessed_data["non_soma_touching_meshes"] if len(c.faces) >= len(new_limb_correspondence[k][j]["branch_mesh"].faces)]
-                    found_match = False
-                    for zz,t_mesh in enumerate(possible_non_touching_meshes):
-                        try:
-                            new_limb_correspondence[k][j]["branch_face_idx"] = tu.original_mesh_faces_map(original_mesh=t_mesh, 
-                                                   submesh=new_limb_correspondence[k][j]["branch_mesh"] ,
-                                               matching=True,
-                                               print_flag=False,
-                                               exact_match=True)
-                            found_match=True
-                            break
-                        except:
-                            print(f"Viable Non soma touching mesh({zz}): {t_mesh} was not a match")
-                    if not found_match:
-                        if comb_meshes is None:
-                            comb_meshes = [recovered_preprocessed_data["limb_meshes"][k]] + list(recovered_preprocessed_data["non_soma_touching_meshes"])
-                            comb_meshes = tu.combine_meshes(comb_meshes)
-                        #print(f"comb_meshes = {comb_meshes}")
-                        new_limb_correspondence[k][j]["branch_face_idx"] = tu.original_mesh_faces_map(
-                                original_mesh=comb_meshes, 
-                                                   submesh=new_limb_correspondence[k][j]["branch_mesh"],
-                                               matching=True,
-                                               print_flag=False,
-                                               exact_match=True)
-#                         except:
-#                             raise Exception(f'Could Not find matching faces on decompression of mesh {new_limb_correspondence[k][j]["branch_mesh"]}')
-                    
-
-
-                if "branch_face_idx_whole_neuron" in new_limb_correspondence[k][j].keys():
-                    del new_limb_correspondence[k][j]["branch_face_idx_whole_neuron"]
-
-        recovered_preprocessed_data["limb_correspondence"] = new_limb_correspondence
-
-        if debug_time:
-            print(f"Limb Correspondence = {time.time() - decompr_time}")
-            decompr_time = time.time()
-
-        # ------------------ This is old way of restoring the limb concept networks but won't work now ------------- #
-        
-        '''
-        """
-        g) limb_concept_networks, limb_labels:
-        Data: All previous data
-        Process: Call the funciton that creates the concept_networks using all the data above
-        """
-
-        limb_concept_networks,limb_labels = generate_limb_concept_networks_from_global_connectivity(
-                limb_correspondence = recovered_preprocessed_data["limb_correspondence"],
-                #limb_idx_to_branch_meshes_dict = limb_idx_to_branch_meshes_dict,
-                #limb_idx_to_branch_skeletons_dict = limb_idx_to_branch_skeletons_dict,
-
-                soma_meshes=recovered_preprocessed_data["soma_meshes"],
-                soma_idx_connectivity=recovered_preprocessed_data["soma_to_piece_connectivity"] ,
-                #soma_idx_to_mesh_dict = soma_idx_to_mesh_dict,
-                #soma_idx_connectivity = soma_idx_connectivity,
-
-                current_neuron=original_mesh,
-                return_limb_labels=True
-                )
-        '''
-        
-        # ----------------- ------------- #
-        """
-        Pseudocode for limb concept networks
-        
-        
-        
-        """
-        
-        limb_network_stating_info = loaded_compression["limb_network_stating_info"]
-        
-        limb_concept_networks=dict()
-        limb_labels=dict()
-
-        for curr_limb_idx,new_limb_correspondence_indiv in new_limb_correspondence.items():
-            limb_to_soma_concept_networks = pre.calculate_limb_concept_networks(new_limb_correspondence_indiv,
-                                                                                limb_network_stating_info[curr_limb_idx],
-                                                                                run_concept_network_checks=True,
-                                                                               )   
 
 
 
-            limb_concept_networks[curr_limb_idx] = limb_to_soma_concept_networks
-            limb_labels[curr_limb_idx]= None
-        
-        if debug_time:
-            print(f"calculating limb networks = {time.time() - decompr_time}")
-            decompr_time = time.time()
-
-        recovered_preprocessed_data["limb_concept_networks"] = limb_concept_networks
-        recovered_preprocessed_data["limb_labels"] = limb_labels
-        recovered_preprocessed_data["limb_network_stating_info"] = limb_network_stating_info
-
-
-        """
-        h) get the segment ids and the original description
-
-        """
-        if "computed_attribute_dict" in loaded_compression.keys():
-            computed_attribute_dict = loaded_compression["computed_attribute_dict"]
-        else:
-            computed_attribute_dict = None
-        #return computed_attribute_dict
-        
-        # ------ 6/11: Adding in the nucleus id 
-        recovered_preprocessed_data["nucleus_id"] = loaded_compression.get("nucleus_id",None)
-        recovered_preprocessed_data["split_index"] = loaded_compression.get("split_index",None)
-        
-        pipeline_products = loaded_compression.get("pipeline_products",None)
-
-        # Now create the neuron from preprocessed data
-        decompressed_neuron = neuron.Neuron(
-            mesh=original_mesh,
-            segment_id=loaded_compression["segment_id"],
-            description=loaded_compression["description"],
-            decomposition_type = loaded_compression["decomposition_type"],
-            preprocessed_data=recovered_preprocessed_data,
-            computed_attribute_dict = computed_attribute_dict,
-            suppress_output=suppress_output,
-            calculate_spines=False,
-            widths_to_calculate=[],
-            original_mesh_idx=original_mesh_idx,
-            pipeline_products=pipeline_products,
-            )
-        if debug_time:
-            print(f"Sending to Neuron Object = {time.time() - decompr_time}")
-            decompr_time = time.time()
-            
-            
-        
-    # if pipeline_products is not None:
-    #     decompressed_neuron.pipeline_products = pipeline_products
     
-    return decompressed_neuron
+ 
 
 # --------------  END OF COMPRESSION OF NEURON ---------------- #
 
 # --------------  7/23 To help with visualizations of neuron ---------------- #
 
-def get_whole_neuron_skeleton(current_neuron,
-                             check_connected_component=True,
-                             print_flag=False):
-    """
-    Purpose: To generate the entire skeleton with limbs stitched to the somas
-    of a neuron object
-    
-    Example Use: 
-    
-    total_neuron_skeleton = nru.get_whole_neuron_skeleton(current_neuron = recovered_neuron)
-    sk.graph_skeleton_and_mesh(other_meshes=[current_neuron.mesh],
-                              other_skeletons = [total_neuron_skeleton])
-                              
-    Ex 2: 
-    nru = reload(nru)
-    returned_skeleton = nru.get_whole_neuron_skeleton(recovered_neuron,print_flag=True)
-    sk.graph_skeleton_and_mesh(other_skeletons=[returned_skeleton])
-    """
-    limb_skeletons_total = []
-    for limb_idx in current_neuron.get_limb_node_names():
-        if print_flag:
-            print(f"\nWorking on limb: {limb_idx}")
-        curr_limb_obj = current_neuron.concept_network.nodes[limb_idx]["data"]
-        #stack the new skeleton pieces with the current skeleton 
-        curr_limb_skeleton = curr_limb_obj.get_skeleton(check_connected_component=True)
-        if print_flag:
-            print(f"curr_limb_skeleton.shape = {curr_limb_skeleton.shape}")
-        
-        limb_skeletons_total.append(curr_limb_skeleton)
-
-    #get the soma skeletons
-    soma_skeletons_total = []
-    for soma_idx in current_neuron.get_soma_node_names():
-        if print_flag:
-            print(f"\nWorking on soma: {soma_idx}")
-        #get the soma skeletons
-        curr_soma_skeleton = get_soma_skeleton(current_neuron,soma_name=soma_idx)
-        
-        if print_flag:
-            print(f"for soma {soma_idx}, curr_soma_skeleton.shape = {curr_soma_skeleton.shape}")
-        
-        soma_skeletons_total.append(curr_soma_skeleton)
-
-    total_neuron_skeleton = sk.stack_skeletons(limb_skeletons_total + soma_skeletons_total)
-
-    if check_connected_component:
-        sk.check_skeleton_one_component(total_neuron_skeleton)
-
-    return total_neuron_skeleton
-
-def get_whole_neuron_skeleton_smooth(
-    current_neuron,
-    print_flag=False,
-    ):
-    """
-    Purpose: To generate the entire skeleton with limbs stitched to the somas
-    of a neuron object
-    
-    Example Use: 
-    
-    total_neuron_skeleton = nru.get_whole_neuron_skeleton(current_neuron = recovered_neuron)
-    sk.graph_skeleton_and_mesh(other_meshes=[current_neuron.mesh],
-                              other_skeletons = [total_neuron_skeleton])
-                              
-    Ex 2: 
-    nru = reload(nru)
-    returned_skeleton = nru.get_whole_neuron_skeleton(recovered_neuron,print_flag=True)
-    sk.graph_skeleton_and_mesh(other_skeletons=[returned_skeleton])
-    """
-    limb_skeletons_total = []
-    for limb_idx in current_neuron.get_limb_node_names():
-        if print_flag:
-            print(f"\nWorking on limb: {limb_idx}")
-        #stack the new skeleton pieces with the current skeleton 
-        curr_limb_skeleton = current_neuron[limb_idx].skeleton_smooth
-        if print_flag:
-            print(f"curr_limb_skeleton.shape = {curr_limb_skeleton.shape}")
-        
-        limb_skeletons_total.append(curr_limb_skeleton)
-
-    #get the soma skeletons
-    soma_skeletons_total = []
-    for soma_idx in current_neuron.get_soma_node_names():
-        if print_flag:
-            print(f"\nWorking on soma: {soma_idx}")
-        #get the soma skeletons
-        curr_soma_skeleton = get_soma_skeleton(current_neuron,soma_name=soma_idx)
-        
-        if print_flag:
-            print(f"for soma {soma_idx}, curr_soma_skeleton.shape = {curr_soma_skeleton.shape}")
-        
-        soma_skeletons_total.append(curr_soma_skeleton)
-
-    total_neuron_skeleton = sk.stack_skeletons(limb_skeletons_total + soma_skeletons_total)
-    return total_neuron_skeleton
-
-def get_soma_skeleton(current_neuron,soma_name):
-    """
-    Purpose: to return the skeleton for a soma that goes from the 
-    soma center to all of the connecting limb
-    
-    Pseudocode: 
-    1) get all of the limbs connecting to the soma (through the concept network)
-    2) get the starting coordinate for that soma
-    For all of the limbs connected
-    3) Make the soma center to that starting coordinate a segment
-    
-
-    
-    """
-    #1) get all of the limbs connecting to the soma (through the concept network)
-    limbs_connected_to_soma = xu.get_neighbors(current_neuron.concept_network,soma_name,int_label=False)
-    #2) get the starting coordinate for that soma
-    curr_soma_center = current_neuron.concept_network.nodes[soma_name]["data"].mesh_center
-    
-    #For all of the limbs connected
-    #3) Make the soma center to that starting coordinate a segment
-    soma_skeleton_pieces = []
-    for limb_idx in limbs_connected_to_soma:
-        curr_limb_obj = current_neuron.concept_network.nodes[limb_idx]["data"]
-        
-        curr_starting_coordinate = [cn_data["starting_coordinate"] for cn_data in curr_limb_obj.all_concept_network_data
-                                                    if f"S{cn_data['starting_soma']}" == soma_name]
-#         if len(curr_starting_coordinate) != 1:
-#             raise Exception(f"curr_starting_coordinate not exactly one element: {curr_starting_coordinate}")
-        
-        for curr_endpoint in curr_starting_coordinate:
-            new_skeleton_piece = np.vstack([curr_soma_center,curr_endpoint]).reshape(-1,2,3)
-            soma_skeleton_pieces.append(new_skeleton_piece)
-    
-    return sk.stack_skeletons(soma_skeleton_pieces)
 
 
-# def get_soma_skeleton_for_limb(current_neuron,limb_idx):
-#     """
-#     Purpose: To get the extra piece of skeleton
-#     associated with that limb for all of those soma it connects to
-    
 
-#     """
-    
-#     #
-    
-#     soma_to_starting_dict = dict()
-#     for cn_data in curr_limb_obj.all_concept_network_data:
-#         soma_to_starting_dict[cn_data["starting_soma"]] = cn_data["starting_coordinate"]
-
-#     """
-#     will generate the new skeleton stitches
-
-
-#     """
-#     new_skeleton_pieces = []
-#     for curr_soma,curr_endpoint in soma_to_starting_dict.items():
-#         curr_soma_center = current_neuron.concept_network.nodes[f"S{curr_soma}"]["data"].mesh_center
-#         #print(f"curr_soma_center = {curr_soma_center}")
-#         new_skeleton_piece = np.vstack([curr_soma_center,curr_endpoint]).reshape(-1,2,3)
-#         new_skeleton_pieces.append(new_skeleton_piece)
-#         #print(f"new_skeleton_piece = {new_skeleton_piece}")
-
-    
-#     return new_skeleton_pieces
-
-
-def soma_label(name_input, force_int=True):
-    if type(name_input) == str:
-        return name_input
-    if force_int:
-        name_input = int(name_input)
-    if type(name_input) == int:
-        return f"S{name_input}"
-    else:
-        raise Exception(f"Recieved unexpected type ({type(name_input)}) for soma name")
 
 def limb_label(name_input,force_int=True):
     if type(name_input) == str:
@@ -1855,6 +746,58 @@ def branch_mesh_no_spines(branch):
 
 
 # ---------------------- 8/31: For querying and axon searching --------------------------- #
+    
+# --- 9/2: Mesh correspondence that helps deal with the meshparty data  ----
+def sdf_filter(curr_branch,curr_limb,size_threshold=20,
+               return_sdf_mean=False,
+               ray_inter=None,
+              n_std_dev = 1):
+    """
+    Purpose: to eliminate edge parts of meshes that should
+    not be on the branch mesh correspondence
+    
+    Pseudocode
+    The filtering step (Have a size threshold for this maybe?):
+    1) Calculate the sdf values for all parts of the mesh
+    2) Restrict the faces to only thos under mean + 1.5*std_dev
+    3) split the mesh and only keep the biggest one
+
+    Example: 
+    
+    limb_idx = 0
+    branch_idx = 20
+    branch_idx = 3
+    #branch_idx=36
+    filtered_branch_mesh, filtered_branch_mesh_idx = sdf_filter(double_neuron_processed[limb_idx][branch_idx],double_neuron_processed[limb_idx],
+                                                               n_std_dev=1)
+    filtered_branch_mesh.show()
+
+    """
+    
+
+    
+    #1) Calculate the sdf values for all parts of the mesh
+    ray_trace_width_array = tu.ray_trace_distance(curr_limb.mesh,face_inds=curr_branch.mesh_face_idx,ray_inter=ray_inter)
+    ray_trace_width_array_mean = np.mean(ray_trace_width_array[ray_trace_width_array>0])
+    #apply the size threshold
+    if len(curr_branch.mesh.faces)<20:
+        if return_sdf_mean:
+            return curr_branch.mesh,np.arange(0,len(curr_branch.mesh_face_idx)),ray_trace_width_array_mean
+        else:
+            return curr_branch.mesh,np.arange(0,len(curr_branch.mesh_face_idx))
+    
+    #2) Restrict the faces to only thos under mean + 1.5*std_dev
+    ray_trace_mask = ray_trace_width_array < (ray_trace_width_array_mean + n_std_dev*np.std(ray_trace_width_array))
+    filtered_mesh = curr_limb.mesh.submesh([curr_branch.mesh_face_idx[ray_trace_mask]],append=True,repair=False)
+
+    
+    #3) split the mesh and only keep the biggest one
+    filtered_split_meshes, filtered_split_meshes_idx = tu.split(filtered_mesh)
+    
+    if return_sdf_mean:
+        return filtered_split_meshes[0],filtered_split_meshes_idx[0],ray_trace_width_array_mean
+    else:
+        return filtered_split_meshes[0],filtered_split_meshes_idx[0]
     
 
 # ------------------------------ 9/1 To help with mesh correspondence -----------------------------------------------------#
@@ -1932,7 +875,7 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
             segment_mesh_faces[branch_idx] = final_limb_indices
 
         #This ends up fixing any conflicts in labeling
-        face_lookup = gu.invert_mapping(segment_mesh_faces,total_keys=np.arange(0,len(ex_limb.mesh.faces)))
+        face_lookup = invert_mapping(segment_mesh_faces,total_keys=np.arange(0,len(ex_limb.mesh.faces)))
         #original_labels = set(list(itertools.chain.from_iterable(list(face_lookup.values()))))
         #original_labels = gu.get_unique_values_dict_of_lists(face_lookup)
         original_labels = np.arange(0,len(ex_limb))
@@ -1959,197 +902,9 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
             
             
 
-# --- 9/2: Mesh correspondence that helps deal with the meshparty data  ----
-def sdf_filter(curr_branch,curr_limb,size_threshold=20,
-               return_sdf_mean=False,
-               ray_inter=None,
-              n_std_dev = 1):
-    """
-    Purpose: to eliminate edge parts of meshes that should
-    not be on the branch mesh correspondence
-    
-    Pseudocode
-    The filtering step (Have a size threshold for this maybe?):
-    1) Calculate the sdf values for all parts of the mesh
-    2) Restrict the faces to only thos under mean + 1.5*std_dev
-    3) split the mesh and only keep the biggest one
-
-    Example: 
-    
-    limb_idx = 0
-    branch_idx = 20
-    branch_idx = 3
-    #branch_idx=36
-    filtered_branch_mesh, filtered_branch_mesh_idx = sdf_filter(double_neuron_processed[limb_idx][branch_idx],double_neuron_processed[limb_idx],
-                                                               n_std_dev=1)
-    filtered_branch_mesh.show()
-
-    """
-    
-
-    
-    #1) Calculate the sdf values for all parts of the mesh
-    ray_trace_width_array = tu.ray_trace_distance(curr_limb.mesh,face_inds=curr_branch.mesh_face_idx,ray_inter=ray_inter)
-    ray_trace_width_array_mean = np.mean(ray_trace_width_array[ray_trace_width_array>0])
-    #apply the size threshold
-    if len(curr_branch.mesh.faces)<20:
-        if return_sdf_mean:
-            return curr_branch.mesh,np.arange(0,len(curr_branch.mesh_face_idx)),ray_trace_width_array_mean
-        else:
-            return curr_branch.mesh,np.arange(0,len(curr_branch.mesh_face_idx))
-    
-    #2) Restrict the faces to only thos under mean + 1.5*std_dev
-    ray_trace_mask = ray_trace_width_array < (ray_trace_width_array_mean + n_std_dev*np.std(ray_trace_width_array))
-    filtered_mesh = curr_limb.mesh.submesh([curr_branch.mesh_face_idx[ray_trace_mask]],append=True,repair=False)
-
-    
-    #3) split the mesh and only keep the biggest one
-    filtered_split_meshes, filtered_split_meshes_idx = tu.split(filtered_mesh)
-    
-    if return_sdf_mean:
-        return filtered_split_meshes[0],filtered_split_meshes_idx[0],ray_trace_width_array_mean
-    else:
-        return filtered_split_meshes[0],filtered_split_meshes_idx[0]
-    
     
 # --------- 9/9 Helps with splitting the mesh limbs ------------ #
 
-
-        
-def compute_all_concept_network_data_from_limb(curr_limb,current_neuron_mesh,soma_meshes,soma_restriction=None,
-                                              print_flag=False):
-    ex_limb = curr_limb
-    
-    curr_limb_divided_meshes = [ex_limb[k].mesh for k in ex_limb.get_branch_names()]
-    curr_limb_divided_skeletons = [ex_limb[k].skeleton for k in ex_limb.get_branch_names()]
-
-
-    """ Old way of doing it which required the neuron
-    if soma_restriction is None:
-        soma_restriction_names = current_neuron.get_soma_node_names()
-    else:
-        soma_restriction_names = [soma_label(k) for k in soma_restriction]
-
-    soma_restriction_names_ints = [int(k[1:]) for k in soma_restriction_names]
-    soma_mesh_list = [current_neuron.concept_network.nodes[k]["data"].mesh for k in soma_restriction_names]
-    """
-    
-    if soma_restriction is None:
-        soma_mesh_list = soma_meshes
-        soma_restriction_names_ints = list(np.arange(0,len(soma_mesh_list)))
-    else:
-        soma_mesh_list = [k for i,k in soma_meshes if i in soma_restriction]
-        soma_restriction_names_ints = soma_restriction
-
-
-    derived_concept_network_data = []
-    for soma_idx,soma_mesh in zip(soma_restriction_names_ints,soma_mesh_list):
-        periph_filter_time = time.time()
-
-        original_idxs = np.arange(0,len(curr_limb_divided_meshes))
-
-
-        distances_periphery_to_soma = np.array([tu.closest_distance_between_meshes(soma_mesh,k) for k in curr_limb_divided_meshes])
-        periphery_distance_threshold = 2000
-
-        original_idxs = original_idxs[distances_periphery_to_soma<periphery_distance_threshold]
-        filtered_periphery_meshes = np.array(curr_limb_divided_meshes)[distances_periphery_to_soma<periphery_distance_threshold]
-
-
-        touching_pieces,touching_vertices,central_piece_faces = tu.mesh_pieces_connectivity(main_mesh=current_neuron_mesh,
-                                    central_piece = soma_mesh,
-                                    periphery_pieces = filtered_periphery_meshes,
-                                                     return_vertices=True,
-                                                    return_central_faces=True
-                                                                             )
-        if print_flag:
-            print(f"Total time for mesh connectivity = {time.time() - periph_filter_time}")
-        #print(f"touching_pieces = {original_idxs[touching_pieces[0]]}")
-        if len(touching_pieces) > 0:
-            touching_pieces = original_idxs[touching_pieces]
-            if print_flag:
-                print(f"touching_pieces = {touching_pieces}")
-
-
-            if len(touching_pieces) >= 2:
-                if print_flag:
-                    print("**More than one touching point to soma, touching_pieces = {touching_pieces}**")
-                # picking the piece with the most shared vertices
-                len_touch_vertices = [len(k) for k in touching_vertices]
-                winning_piece_idx = np.argmax(len_touch_vertices)
-                if print_flag:
-                    print(f"winning_piece_idx = {winning_piece_idx}")
-                touching_pieces = [touching_pieces[winning_piece_idx]]
-                if print_flag:
-                    print(f"Winning touching piece = {touching_pieces}")
-                touching_pieces_soma_vertices = touching_vertices[winning_piece_idx]
-            else:
-                touching_pieces_soma_vertices = touching_vertices[0]
-            if len(touching_pieces) < 1:
-                raise Exception("No touching pieces")
-
-            #3) With the one that is touching the soma, find the enpoints of the skeleton
-            if print_flag:
-                print(f"Using touching_pieces[0] = {touching_pieces[0]}")
-            touching_branch = neuron.Branch(curr_limb_divided_skeletons[touching_pieces[0]])
-            endpoints = touching_branch.endpoints
-
-            """  # -----------  9/1 -------------- #
-            New method for finding 
-            1) Build a KDTree of the winning touching piece soma boundary vertices
-            2) query the endpoints against the vertices
-            3) pick the endpoint that has the closest match
-            """
-            ex_branch_KDTree = KDTree(touching_pieces_soma_vertices)
-            distances,closest_nodes = ex_branch_KDTree.query(endpoints)
-            closest_endpoint = endpoints[np.argmin(distances)]
-
-            derived_concept_network_data.append(dict(starting_soma=soma_idx,
-                                                    starting_node=touching_pieces[0],
-                                                     starting_endpoints=endpoints,
-                                                     starting_coordinate=closest_endpoint,
-                                                    touching_soma_vertices=touching_pieces_soma_vertices
-                                               ))
-    return derived_concept_network_data
-
-def error_limb_indexes(neuron_obj):
-    return np.where(np.array([len(limb.all_concept_network_data) for limb in neuron_obj])>1)[0]
-
-def same_soma_multi_touching_limbs(neuron_obj,return_n_touches=False):
-    same_soma_multi_touch_limbs = []
-
-    touch_dict = dict()
-    for curr_limb_idx, curr_limb in enumerate(neuron_obj):
-        if len(curr_limb.all_concept_network_data) > 0:
-            touching_somas = [k["starting_soma"] for k in curr_limb.all_concept_network_data]
-            soma_mapping = gu.invert_mapping(touching_somas)
-
-            for soma_idx,touch_idxs in soma_mapping.items():
-                if len(touch_idxs) > 1:
-                    if curr_limb_idx not in touch_dict.keys():
-                        touch_dict[curr_limb_idx] = dict()
-
-                    same_soma_multi_touch_limbs.append(curr_limb_idx)
-                    touch_dict[curr_limb_idx][soma_idx] = len(touch_idxs)
-                    break
-                
-    if return_n_touches:
-        return touch_dict
-    else:
-        return np.array(same_soma_multi_touch_limbs)
-                     
-
-def multi_soma_touching_limbs(neuron_obj):
-    multi_soma_touch_limbs = []
-
-    for curr_limb_idx, curr_limb in enumerate(neuron_obj):
-        if len(curr_limb.all_concept_network_data) > 0:
-            touching_somas = [k["starting_soma"] for k in curr_limb.all_concept_network_data]
-            soma_mapping = gu.invert_mapping(touching_somas)
-            if len(soma_mapping.keys()) > 1:
-                multi_soma_touch_limbs.append(curr_limb_idx)
-
-    return np.array(multi_soma_touch_limbs)
 
 
 
@@ -2157,8 +912,7 @@ def multi_soma_touching_limbs(neuron_obj):
 
 
 
-def n_error_limbs(neuron_obj):
-    return len(error_limb_indexes(neuron_obj))
+
 
 def n_somas(neuron_obj):
     return len(neuron_obj.get_soma_node_names())
@@ -2286,7 +1040,7 @@ def n_spines(neuron_obj,skeletal_length_max=None):
 #                     sk_len_array.append(curr_skeletal_length)
 #                 neuron_obj.spines_skeletal_length = np.array(sk_len_array)
                 
-                neuron_obj.spines_skeletal_length = nru.calculate_spines_skeletal_length(neuron_obj)
+                neuron_obj.spines_skeletal_length = calculate_spines_skeletal_length(neuron_obj)
                                                                             
                 #neuron_obj.spines_skeletal_length = np.array([sk.calculate_skeleton_distance(sk.surface_skeleton(k)) for k in neuron_obj.spines])
             valid_spine_idx = np.where(np.array(neuron_obj.spines_skeletal_length)<skeletal_length_max)[0]
@@ -2605,7 +1359,7 @@ def branch_boundary_transition(curr_limb,
         
     (base_final_skeleton,
     base_final_widths,
-    base_final_seg_lengths) = nru.align_and_restrict_branch(base_branch,
+    base_final_seg_lengths) = align_and_restrict_branch(base_branch,
                               common_endpoint=common_endpoint,
                                  width_name=width_name,
                                  width_name_backup=width_name_backup,
@@ -2799,7 +1553,7 @@ def branch_boundary_transition(curr_limb,
         
         (upstream_final_skeleton,
          upstream_final_widths,
-        upstream_final_seg_lengths) = nru.align_and_restrict_branch(curr_limb[upstream_node_original],
+        upstream_final_seg_lengths) = align_and_restrict_branch(curr_limb[upstream_node_original],
                                   common_endpoint=common_endpoint_original,
                                 width_name=width_name,
                                  offset=offset,
@@ -3262,7 +2016,7 @@ def clean_neuron_all_concept_network_data(neuron_obj,verbose=False):
             print(f"\n\n---- Working on Limb {j} ----")
             
             
-        cleaned_network = nru.clean_all_concept_network_data(curr_limb.all_concept_network_data,
+        cleaned_network = clean_all_concept_network_data(curr_limb.all_concept_network_data,
                                                                           verbose=verbose)
         
         if verbose:
@@ -3280,7 +2034,7 @@ def clean_neuron_all_concept_network_data(neuron_obj,verbose=False):
         if verbose:
             print(f"cleaned_network = {cleaned_network}")
             
-        new_limb_network = nru.all_concept_network_data_to_limb_network_stating_info(cleaned_network)
+        new_limb_network = all_concept_network_data_to_limb_network_stating_info(cleaned_network)
         
         if verbose:
             print(f"\n---------\nnew_limb_network = {new_limb_network}\n---------\n")
@@ -3433,7 +2187,7 @@ def branches_within_skeletal_distance(limb_obj,
     Ex: 
     start_branch = 53
         
-    viable_downstream_nodes = nru.branches_within_skeletal_distance(limb_obj = current_neuron[6],
+    viable_downstream_nodes = branches_within_skeletal_distance(limb_obj = current_neuron[6],
                                 start_branch = start_branch,
                                 max_distance_from_start = 50000,
                                 verbose = False,
@@ -3582,15 +2336,6 @@ def limb_branch_intersection(limb_branch_dict_list):
 # ----------- For rules with doubling back, width jumps, high degree nodes, train track crossings -------- #
 
 
-    
-
-    
-    
-    
-    
-
-
-
 def max_soma_volume(neuron_obj,
                     divisor = 1_000_000_000):
     """
@@ -3666,85 +2411,6 @@ def soma_centers(neuron_obj,
 
 # ---- 2/15: For helping with backtracking synapses back to the somas -------- #
 
-def original_mesh_face_to_limb_branch(neuron_obj,
-                                      original_mesh=None,
-                                      original_mesh_kdtree=None,
-                                      add_soma_label = True,
-                                     verbose = False
-                                     ):
-    """
-    Pupose: To create a mapping from the original mesh faces
-    to which limb and branch it corresponds to 
-    
-    
-    Ex:
-    original_mesh_face_idx_to_limb_branch = nru.original_mesh_face_to_limb_branch(neuron_obj,
-                                 original_mesh)
-    
-    matching_faces  = np.where((original_mesh_face_idx_to_limb_branch[:,0]==3) & 
-            (original_mesh_face_idx_to_limb_branch[:,1]== 2))[0]
-    
-    
-    """
-    if original_mesh is None:
-        original_mesh = neuron_obj.mesh
-    if original_mesh_kdtree is None:
-        if verbose:
-            print(f"Having ot generate KDTree from scratch")
-        original_mesh_kdtree = KDTree(original_mesh.triangles_center)
-
-    original_mesh_face_idx_to_limb_branch = np.ones((len(original_mesh.faces),2))*np.nan    
-    
-    t_time = time.time()
-    for limb_idx,limb_obj in enumerate(neuron_obj):
-        if verbose:
-            print(f"\nStarting Limb {limb_idx}")
-        for branch_idx,branch_obj in enumerate(limb_obj):
-            st = time.time() 
-            #1) Can create a mapping of the original mesh face
-            original_mesh_faces = tu.original_mesh_faces_map(original_mesh,
-                                                    branch_obj.mesh,
-                                                    exact_match=True,
-                                                    original_mesh_kdtree=original_mesh_kdtree)
-
-
-
-            #2) Map original mesh face --> [limb,branch]
-            original_mesh_face_idx_to_limb_branch[original_mesh_faces] = [limb_idx,branch_idx]
-
-
-            if verbose:
-                print(f"-- Time for L{limb_idx}_B{branch_idx}: {time.time() - st} ---")
-    
-    if add_soma_label:
-        offset = nru.soma_face_offset
-        soma_idxs = nru.convert_string_names_to_int_names(neuron_obj.get_soma_node_names())
-        for s_idx in soma_idxs:
-            curr_label = -1*(s_idx + offset)
-            if verbose:
-                print(f"\nApplying Soma Label {s_idx}")
-                
-            st = time.time() 
-            #1) Can create a mapping of the original mesh face
-            original_mesh_faces = tu.original_mesh_faces_map(original_mesh,
-                                                    neuron_obj[f"S{s_idx}"].mesh,
-                                                    exact_match=True,
-                                                    original_mesh_kdtree=original_mesh_kdtree)
-
-
-
-            #2) Map original mesh face --> [limb,branch]
-            original_mesh_face_idx_to_limb_branch[original_mesh_faces] = [curr_label,curr_label]
-
-            if verbose:
-                print(f"-- Time for Soma Label {s_idx} ---")
-                
-        
-    if verbose:
-        print(f"\n\nTotal time for mapping: {time.time() - t_time}")
-        
-    return original_mesh_face_idx_to_limb_branch
-        
     
     
 
@@ -3762,7 +2428,7 @@ def shared_skeleton_endpoints_for_connected_branches(limb_obj,
     branches that are connected in the concept network
     
     Ex:
-    nru.shared_skeleton_endpoints_for_connected_branches(neuron_obj[5],
+    shared_skeleton_endpoints_for_connected_branches(neuron_obj[5],
                                                 0,1,
                                                 verbose=True)
     
@@ -3795,7 +2461,7 @@ def limb_branch_dict_to_skeleton(neuron_obj,limb_branch_dict):
     2) Stack the skeletons
     
     """
-    branch_skeletons = nru.feature_over_limb_branch_dict(neuron_obj,
+    branch_skeletons = feature_over_limb_branch_dict(neuron_obj,
                                        limb_branch_dict,
                                        feature="skeleton",
                                   keep_seperate=True,
@@ -3804,11 +2470,11 @@ def limb_branch_dict_to_skeleton(neuron_obj,limb_branch_dict):
 
 def axon_skeleton(neuron_obj):
     axon_limb_branch_dict = neuron_obj.axon_limb_branch_dict
-    return nru.limb_branch_dict_to_skeleton(neuron_obj,axon_limb_branch_dict)
+    return limb_branch_dict_to_skeleton(neuron_obj,axon_limb_branch_dict)
 
 def dendrite_skeleton(neuron_obj):
     dendrite_limb_branch_dict = neuron_obj.dendrite_limb_branch_dict
-    return nru.limb_branch_dict_to_skeleton(neuron_obj,dendrite_limb_branch_dict)
+    return limb_branch_dict_to_skeleton(neuron_obj,dendrite_limb_branch_dict)
 
 
 def mesh_without_mesh_attribute(obj,
@@ -3840,76 +2506,6 @@ def mesh_without_boutons(obj):
     return mesh_without_mesh_attribute(obj,
                                       mesh_attribute="boutons")
 
-
-def coordinates_to_closest_limb_branch(neuron_obj,
-                                     coordinates,
-                                      original_mesh = None,
-                                      original_mesh_kdtree = None,
-                                       return_distances_to_limb_branch=False,
-                                       return_closest_faces = False,
-                                       verbose = False,):
-    """
-    Purpose: To map a coordinate to the closest limb branch idx
-    of a neuron object
-    
-    Pseudocode: 
-    A) Create the mapping of original face idx to (limb,branch)
-    B) Map Coordinate to the original face idx to get
-    c) Find mapping of Coordinate to --> (limb,branch)
-    """
-    
-    if len(coordinates) == 0:
-        coord_limb_branch_map = np.array([],dtype="int").reshape(-1,2)
-        distance_to_limb_branch = np.array([])
-        closest_faces = np.array([],dtype="int")
-        if not return_closest_faces and not return_distances_to_limb_branch:
-            return coord_limb_branch_map
-        
-        return_value = [coord_limb_branch_map]
-        if return_distances_to_limb_branch:
-            return_value.append(distance_to_limb_branch)
-        if return_closest_faces:
-            return_value.append(closest_faces)
-        
-        return return_value
-    
-    if original_mesh is None:
-        original_mesh = neuron_obj.mesh_from_branches
-    if original_mesh_kdtree is None:
-        if verbose:
-            print(f"Having ot generate KDTree from scratch")
-        original_mesh_kdtree = KDTree(original_mesh.triangles_center)
-        
-    # Part A: Get Mapping from original mesh faces to limb/branch
-    face_to_limb_branch = nru.original_mesh_face_to_limb_branch(neuron_obj,
-                                                               original_mesh,
-                                                               original_mesh_kdtree)
-    
-    
-    
-    all_syn_coord = np.array(coordinates).reshape(-1,3)
-    
-    # Part B: Map Synapses to the original faces
-    dist,closest_face = original_mesh_kdtree.query(all_syn_coord)
-    
-    if verbose:
-        print(f"dist = {dist}")
-        print(f"closest_face = {closest_face}")
-    
-    #c) Find mapping of Coordinate to --> (limb,branch)
-    coord_limb_branch_map = face_to_limb_branch[closest_face]
-    
-    if not return_closest_faces and not return_distances_to_limb_branch:
-        return coord_limb_branch_map
-    return_value = [coord_limb_branch_map]
-    if return_distances_to_limb_branch:
-        return_value.append(dist)
-    if return_closest_faces:
-        return_value.append(closest_face)
-        
-    return return_value
-
-closest_branch_to_coordinates = coordinates_to_closest_limb_branch
 
 
 
@@ -3949,16 +2545,28 @@ def boutons_above_thresholds(branch_obj,return_idx=False,
         return [k for i,k in enumerate(branch_obj.boutons) if i in boutons_idx]
 
     
-    
 
-def limb_mesh_from_branches(
-    limb_obj,
-    plot = False,):
-    
+def limb_mesh_from_branches(limb_obj,
+                             plot_mesh=False):
+    """
+    Purpose: To reconstruct the mesh of neuron
+    from all of the branch obejcts
+
+    Pseudocode:
+    Iterate through all the limbs:
+        iterate through all the branches
+            add to big list
+
+    Add some to big list
+
+    concatenate list into mesh
+    """
+
     neuron_mesh_list = []
+    
     for branch_obj in limb_obj:
         neuron_mesh_list.append(branch_obj.mesh)
-        
+
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
     return neuron_mesh_from_branches
     
@@ -3988,54 +2596,8 @@ def neuron_mesh_from_branches(neuron_obj,
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
     return neuron_mesh_from_branches
 
-def limb_mesh_from_branches(limb_obj,
-                             plot_mesh=False):
-    """
-    Purpose: To reconstruct the mesh of neuron
-    from all of the branch obejcts
 
-    Pseudocode:
-    Iterate through all the limbs:
-        iterate through all the branches
-            add to big list
 
-    Add some to big list
-
-    concatenate list into mesh
-    """
-    from mesh_tools import trimesh_utils as tu
-
-    neuron_mesh_list = []
-    
-    for branch_obj in limb_obj:
-        neuron_mesh_list.append(branch_obj.mesh)
-
-    neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
-    return neuron_mesh_from_branches
-
-def non_soma_touching_meshes_not_stitched(neuron_obj,
-                                          return_meshes=True):
-                                          
-    """
-    Purpose: Find floating meshes not used
-
-    Pseudocode: 
-    1) construct the neuron mesh from branches
-    2) restrict the non_soma touching pieces by the neuron_mesh
-    3) Return either the meshes or indexes
-    """
-
-    #1) construct the neuron mesh from branches
-    n_mesh = nru.neuron_mesh_from_branches(neuron_obj)
-
-    #2) restrict the non_soma touching pieces by the neuron_mesh
-    floating_meshes_non_incorporated = tu.restrict_mesh_list_by_mesh(neuron_obj.non_soma_touching_meshes,
-                                  restriction_mesh=n_mesh,
-                                  percentage_threshold=0.2,
-                                  match_threshold = 5,
-                                  return_under_threshold=True,
-            return_meshes=return_meshes)
-    return floating_meshes_non_incorporated
 
 
 def all_downstream_branches(limb_obj,
@@ -4109,7 +2671,7 @@ def skeletal_length_over_downstream_branches(limb_obj,
     Will compute how much skeleton there is downstream of a certain node
     
     """
-    downstream_branches = list(nru.all_downstream_branches(limb_obj,branch_idx))
+    downstream_branches = list(all_downstream_branches(limb_obj,branch_idx))
     
     if nodes_to_exclude is not None:
         downstream_branches = list(np.setdiff1d(downstream_branches,nodes_to_exclude))
@@ -4117,7 +2679,7 @@ def skeletal_length_over_downstream_branches(limb_obj,
     if include_branch_skeletal_length:
         downstream_branches.append(branch_idx)
         
-    sk_sum =nru.feature_over_branches(limb_obj,
+    sk_sum =feature_over_branches(limb_obj,
                               branch_list = downstream_branches,
                               feature_name="skeletal_length",
                               combining_function = combining_function,
@@ -4139,59 +2701,7 @@ def skeletal_length_over_downstream_branches(limb_obj,
 def upstream_node(limb_obj,branch):
     return xu.upstream_node(limb_obj.concept_network_directional,branch)
 
-'''
-def upstream_endpoint(limb_obj,
-                     branch_idx,
-                     verbose = False,
-                     return_endpoint_index=False):
-    """
-    Pseudocode: 
-    1) Find the upsream node
-    2a) if upstream node is None then use the current current starting node
-    2b) if upstream node, find the common skeleton point between the 2
 
-    Ex: 
-    
-    limb_obj = neuron_obj[2]
-    for branch_idx in limb_obj.get_branch_names():
-        k = nru.upstream_endpoint(limb_obj = limb_obj,
-        branch_idx = branch_idx,
-        verbose = True,
-                             return_endpoint_index = True)
-        total_dist = nst.total_upstream_skeletal_length(limb_obj,branch_idx)
-        print(f"k = {k}")
-        print(f"total upstream dist = {total_dist}\n")
-    """
-
-    upstream_node = nru.upstream_node(limb_obj,branch_idx)
-    if verbose:
-        print(f"upstream_node for {branch_idx}: {upstream_node}")
-
-    if upstream_node is None:
-        common_endpoint = limb_obj.current_starting_coordinate
-    else:
-        shared_endooints = nru.shared_skeleton_endpoints_for_connected_branches(limb_obj,
-                                                        branch_idx,
-                                                        upstream_node,
-                                                        check_concept_network_connectivity=False).reshape(-1,3)
-        common_endpoint = shared_endooints[0]
-
-        if verbose:
-            print(f"shared_endooints = {shared_endooints}")
-
-    if verbose:
-        print(f"common_endpoint = {common_endpoint}")
-        
-    if return_endpoint_index:
-        endpoint_index = nu.matching_row_index(limb_obj[branch_idx].endpoints,common_endpoint)
-        if verbose:
-            print(f"endpoints = {limb_obj[branch_idx].endpoints}")
-            print(f"return_endpoint_index = {endpoint_index}")
-        return endpoint_index
-        
-        
-    return common_endpoint
-'''
 
 def neighbor_endpoint(limb_obj,
                      branch_idx,
@@ -4208,7 +2718,7 @@ def neighbor_endpoint(limb_obj,
     
     limb_obj = neuron_obj[2]
     for branch_idx in limb_obj.get_branch_names():
-        k = nru.upstream_endpoint(limb_obj = limb_obj,
+        k = upstream_endpoint(limb_obj = limb_obj,
         branch_idx = branch_idx,
         verbose = True,
                              return_endpoint_index = True)
@@ -4217,14 +2727,14 @@ def neighbor_endpoint(limb_obj,
         print(f"total upstream dist = {total_dist}\n")
     """
 
-    upstream_node = nru.upstream_node(limb_obj,branch_idx)
+    upstream_node = upstream_node(limb_obj,branch_idx)
     if verbose:
         print(f"upstream_node for {branch_idx}: {upstream_node}")
 
     if upstream_node is None:
         common_endpoint = limb_obj.current_starting_coordinate
     else:
-        shared_endooints = nru.shared_skeleton_endpoints_for_connected_branches(limb_obj,
+        shared_endooints = shared_skeleton_endpoints_for_connected_branches(limb_obj,
                                                         branch_idx,
                                                         upstream_node,
                                                         check_concept_network_connectivity=False).reshape(-1,3)
@@ -4307,39 +2817,6 @@ def upstream_downstream_endpoint_idx(
 def downstream_nodes(limb_obj,branch):
     return xu.downstream_nodes(limb_obj.concept_network_directional,branch)
 
-def n_downstream_nodes(limb_obj,branch):
-    return len(nru.downstream_nodes(limb_obj,branch))
-    
-def width(branch_obj,
-         axon_flag=None,
-         width_name_backup="no_spine_median_mesh_center",
-         width_name_backup_2 = "median_mesh_center",
-         verbose = False):
-    """
-    Will extract the width from a branch that
-    tries different width types
-    """
-    if axon_flag is None:
-        if "axon" or "axon-like" in branch_obj.labels:
-            axon_flag = True
-        else:
-            axon_flag = False
-    
-    if axon_flag:
-        width_name = "no_bouton_median"
-    else:
-        width_name = "no_spine_median_mesh_center"
-    
-    widths_to_try = [width_name,width_name_backup,width_name_backup_2]
-    for w_name in widths_to_try:
-        if w_name in branch_obj.width_new.keys():
-            if verbose:
-                print(f"Using width {w_name}")
-            return branch_obj.width_new[w_name]
-    
-    if verbose:
-        print(f"Using generic width because None of the widths found: {widths_to_try}")
-    return branch_obj.width
     
     
 def branch_path_to_node(limb_obj,
@@ -4369,7 +2846,7 @@ def branch_path_to_node(limb_obj,
 
     Example: 
     for k in limb_obj.get_branch_names():
-        nru.branch_path_to_start_node(limb_obj = neuron_obj[0],
+        branch_path_to_start_node(limb_obj = neuron_obj[0],
         branch_idx = k,
         include_branch_idx = False,
         skeletal_length_min = 2000,
@@ -4379,7 +2856,7 @@ def branch_path_to_node(limb_obj,
     Ex: How to find path from one branch to another after starting
     from a certain soma
     
-    nru.branch_path_to_node(neuron_obj[0],
+    branch_path_to_node(neuron_obj[0],
                        start_idx = 109,
                        destination_idx = 164,
                        starting_soma_for_di_graph = "S0",
@@ -4436,7 +2913,7 @@ def branch_path_to_start_node(limb_obj,
     if verbose:
         print(f"start_idx = {start_idx}")
     
-    return nru.branch_path_to_node(limb_obj,
+    return branch_path_to_node(limb_obj,
                              branch_idx,
                             destination_idx=start_idx,
                              include_branch_idx = include_branch_idx,
@@ -4444,246 +2921,8 @@ def branch_path_to_start_node(limb_obj,
                             skeletal_length_min = skeletal_length_min,
                             verbose = verbose)
 
-def branch_path_to_soma(limb_obj,branch_idx,plot = False,):
-    path = xu.shortest_path(nx.Graph(limb_obj.concept_network_directional),limb_obj.current_starting_node,branch_idx)
-    return path
     
 
-
-'''def restrict_skeleton_from_start_plus_offset_upstream_old(
-    limb_obj,
-    branch_idx,
-    starting_endpoint=None,
-    offset=500,
-    comparison_distance=2000,
-    skeleton_segment_size=100,
-    width_name= "no_spine_median_mesh_center",
-    width_name_backup = "no_spine_median_mesh_center",
-    return_width = False,
-    plot_skeleton = False,
-    verbose = False):
-    
-    """
-    Purpose: To Get the upstream skeleton (that potentially goes past the current branch itself)
-    
-    Ex: 
-    restrict_skeleton_from_start_plus_offset_upstream(
-    limb_obj,
-    branch_idx=100,
-    starting_endpoint=None,
-    verbose = True,
-    plot_skeleton=True)
-    
-    """
-
-    if starting_endpoint is None:
-        upstream_common_endpoint = nru.downstream_endpoint(limb_obj,branch_idx)
-    else:
-        upstream_common_endpoint = starting_endpoint
-
-    # ----- Part 2: Do the processing on the upstream nodes -------------- #
-    upstream_offset = offset
-    upstream_comparison = comparison_distance
-    upstream_node = branch_idx
-    upstream_skeleton = []
-    upstream_seg_lengths = []
-    upstream_seg_widths = []
-    curr_limb = limb_obj
-    previous_node = None
-
-    count = 0
-    while upstream_comparison > 0:
-        """
-        Pseudocode:
-        1) Get shared endpoint of upstream and previous node
-        2) resize the upstream skeleton to get it ordered and right scale of width
-        3) Flip the skeleton and width array if needs to be flipped
-        4) if current offset is greater than 0, then restrict skeelton to offset:
-        5a) if it was not long enough:
-            - subtact total length from buffer
-        5b) If successful:
-            - restrit skeleton by comparison distance
-            - Add skeleton, width and skeelton lengths to list
-            - subtract new distance from comparison distance
-            - if comparison distance is 0 or less then break
-        6)  change out upstream node and previous node (because at this point haven't broken outside loop)
-
-        """
-        if verbose:
-            print(f"--- Upstream iteration: {count} -----")
-        upstream_branch = curr_limb[upstream_node]
-
-        #1) Get shared endpoint of upstream and previous node
-        if count == 0:
-            common_endpoint = upstream_common_endpoint
-        else:
-            prev_branch = curr_limb[previous_node]
-            common_endpoint = sk.shared_endpoint(prev_branch.skeleton,upstream_branch.skeleton)
-
-        #2) resize the upstream skeleton to get it ordered and right scale of width
-        upstream_skeleton_ordered = sk.resize_skeleton_branch(upstream_branch.skeleton,skeleton_segment_size)
-        if verbose:
-            print(f"upstream_skeleton_ordered {sk.calculate_skeleton_distance(upstream_skeleton_ordered)} = {upstream_skeleton_ordered}")
-
-
-          # ----------- 1 /5 : To prevent from erroring when indexing into width
-    #         #accounting for the fact that the skeleton might be a little longer thn the width array now
-    #         upstream_width = upstream_branch.width_array[width_name]
-    #         extra_width_segment = [upstream_width[-1]]*(len(upstream_skeleton_ordered)-len(upstream_width))
-    #         upstream_width = np.hstack([upstream_width,extra_width_segment])
-
-        #3) Flip the skeleton and width array if needs to be flipped
-        if np.array_equal(common_endpoint,upstream_skeleton_ordered[-1][-1]):
-            if return_width:
-                try:
-                    upstream_width_ordered = np.flip(upstream_branch.width_array[width_name])
-                except:
-                    upstream_width_ordered = np.flip(upstream_branch.width_array[width_name_backup])
-
-            upstream_skeleton_ordered = sk.flip_skeleton(upstream_skeleton_ordered)
-            flip_flag = True
-        elif np.array_equal(common_endpoint,upstream_skeleton_ordered[0][0]):
-            if return_width:
-                try:
-                    upstream_width_ordered = upstream_branch.width_array[width_name]
-                except:
-                    upstream_width_ordered = upstream_branch.width_array[width_name_backup]
-
-            flip_flag = False
-        else:
-            raise Exception("No matching endpoint")
-
-
-        if verbose: 
-            print(f"flip_flag = {flip_flag}")
-            print(f"upstream_offset = {upstream_offset}")
-
-        #4) if current offset is greater than 0, then restrict skeelton to offset:
-        if upstream_offset > 0:
-            if verbose:
-                print("Restricting to offset")
-            (skeleton_minus_buffer,
-             offset_indexes,
-             offset_success) = sk.restrict_skeleton_from_start(upstream_skeleton_ordered,
-                                                                            upstream_offset,
-                                                                             subtract_cutoff=True)
-        else:
-            if verbose:
-                print("Skipping the upstream offset because 0")
-            skeleton_minus_buffer = upstream_skeleton_ordered
-            offset_indexes = np.arange(len(upstream_skeleton_ordered))
-            offset_success = True
-
-
-        #print(f"skeleton_minus_buffer {sk.calculate_skeleton_distance(skeleton_minus_buffer)} = {skeleton_minus_buffer}")
-
-        """
-        5a) if it was not long enough:
-        - subtact total length from buffer
-        """
-        if not offset_success:
-            upstream_offset -= sk.calculate_skeleton_distance(upstream_skeleton_ordered)
-            if verbose:
-                print(f"Subtracting the offset was not successful so changing to {upstream_offset} and reiterating")
-        else:
-            """
-            5b) If successful:
-            - restrit skeleton by comparison distance
-            - Add skeleton, width and skeelton lengths to list
-            - subtract new distance from comparison distance
-            - if comparison distance is 0 or less then break
-
-            """
-            #making sure the upstream offset is 0 if we were successful
-            upstream_offset = 0
-
-            if verbose:
-                print(f"After subtracting the offset the length is: {sk.calculate_skeleton_distance(skeleton_minus_buffer)}")
-
-            #- restrit skeleton by comparison distance
-            (skeleton_comparison,
-             comparison_indexes,
-             comparison_success) = sk.restrict_skeleton_from_start(skeleton_minus_buffer,
-                                                                            upstream_comparison,
-                                                                             subtract_cutoff=False)
-            #- Add skeleton, width and skeelton lengths to list
-            upstream_skeleton.append(skeleton_comparison)
-            upstream_seg_lengths.append(sk.calculate_skeleton_segment_distances(skeleton_comparison,cumsum=False))
-
-            if return_width:
-                upstream_indices = offset_indexes[comparison_indexes]
-                upstream_seg_widths.append(upstream_width_ordered[np.clip(upstream_indices,0,len(upstream_width_ordered)-1) ])
-
-            # - subtract new distance from comparison distance
-            upstream_comparison -= sk.calculate_skeleton_distance(skeleton_comparison)
-
-            if comparison_success:
-                if verbose:
-                    print(f"Subtracting the comparison was successful and exiting")
-                break
-            else:
-                if verbose:
-                    print(f"Subtracting the comparison was not successful so changing to {upstream_comparison} and reiterating")
-
-        #6)  change out upstream node and previous node (because at this point haven't broken outside loop)
-        previous_node = upstream_node
-        upstream_node = xu.upstream_node(curr_limb.concept_network_directional,upstream_node)
-
-        if verbose:
-            print(f"New upstream_node = {upstream_node}")
-
-        if upstream_node is None:
-            if verbose:
-                print("Breaking because hit None upstream node")
-            break
-
-        count += 1
-
-    upstream_final_skeleton = sk.stack_skeletons(upstream_skeleton)
-    if verbose:
-        print(f"upstream_final_skeleton = {upstream_final_skeleton}")
-
-    # Do a check at the very end and if no skeleton then just take that branches
-    if len(upstream_final_skeleton) <= 0:
-        if verbose:
-            print("No upstream skeletons so doing backup")
-        resize_sk = sk.resize_skeleton_branch(curr_limb[upstream_node_original].skeleton,
-                                                       skeleton_segment_size)
-        upstream_skeleton = [resize_sk]
-        upstream_seg_lengths = [sk.calculate_skeleton_segment_distances(resize_sk,cumsum=False)]
-        
-        if return_width:
-            try:
-                upstream_seg_widths = [curr_limb[upstream_node_original].width_array[width_name]]
-            except:
-                upstream_seg_widths = [curr_limb[upstream_node_original].width_array[width_name_backup]]
-
-        (upstream_final_skeleton,
-         upstream_final_widths,
-        upstream_final_seg_lengths) = nru.align_and_restrict_branch(curr_limb[upstream_node_original],
-                                  common_endpoint=common_endpoint_original,
-                                width_name=width_name,
-                                 offset=offset,
-                                 comparison_distance=comparison_distance,
-                                 skeleton_segment_size=skeleton_segment_size,
-                                  verbose=verbose,
-                                 )
-    else:
-        upstream_final_seg_lengths = np.concatenate(upstream_seg_lengths)
-        if return_width:
-            upstream_final_widths = np.concatenate(upstream_seg_widths)
-
-
-    if return_width:
-        upstream_width_average = nu.average_by_weights(weights = upstream_final_seg_lengths,
-                                values = upstream_final_widths)
-    
-
-    
-    if return_width:
-        return upstream_final_skeleton,upstream_width_average
-    else:
-        return upstream_final_skeleton'''
     
 def restrict_skeleton_from_start_plus_offset_upstream(
     limb_obj,
@@ -4707,9 +2946,9 @@ def restrict_skeleton_from_start_plus_offset_upstream(
     """
     
     if start_coordinate is None:
-        start_coordinate = nru.downstream_endpoint(limb_obj,branch_idx)
+        start_coordinate = downstream_endpoint(limb_obj,branch_idx)
         
-    upstream_node_list = cnu.subgraph_around_branch(limb_obj,
+    upstream_node_list = subgraph_around_branch(limb_obj,
                            branch_idx,
                             downstream_distance = -1,
                            upstream_distance=comparison_distance + offset + 1000,
@@ -4758,16 +2997,16 @@ def restrict_skeleton_from_start_plus_offset_downstream(
     
     
     Ex: 
-    nru.restrict_skeleton_from_start_plus_offset_downstream(limb_obj,97,
+    restrict_skeleton_from_start_plus_offset_downstream(limb_obj,97,
                                                       comparison_distance=100000,
                                                      plot_skeleton=True,
                                                        verbose=True)
     """
     
     if start_coordinate is None:
-        start_coordinate = nru.upstream_endpoint(limb_obj,branch_idx)
+        start_coordinate = upstream_endpoint(limb_obj,branch_idx)
         
-    upstream_node_list = cnu.subgraph_around_branch(limb_obj,
+    upstream_node_list = subgraph_around_branch(limb_obj,
                            branch_idx,
                            downstream_distance=comparison_distance + offset + 1000,
                             upstream_distance=-1,
@@ -4797,25 +3036,6 @@ def restrict_skeleton_from_start_plus_offset_downstream(
 
 
 # --------- 7/28: For the apical classification ------------
-def most_upstream_branch(limb_obj,branches,verbose = False):
-    """
-    Purpose: To find the most upstream branch in 
-    a group of branches
-    
-    Ex: 
-    most_upstream_branch(limb_obj,[ 2,  6, 20, 23, 24, 25, 26, 33])
-    """
-    return xu.most_upstream_node(limb_obj.concept_network_directional,
-                                 branches,
-                                 verbose = verbose,
-                                )
-
-def limb_branch_from_candidate(candidate):
-    return {candidate['limb_idx']:candidate["branches"]}
-
-    
-    
-
 def skeleton_over_limb_branch_dict(neuron_obj,
                                    limb_branch_dict,
                                    stack_skeletons = True,
@@ -4824,12 +3044,12 @@ def skeleton_over_limb_branch_dict(neuron_obj,
     """
     Purpose: To collect the meshes over a limb branch dict
     
-    nru.mesh_over_limb_branch_dict(neuron_obj,
-                              nru.limb_branch_from_candidate(apical_candidates[0]),
+    mesh_over_limb_branch_dict(neuron_obj,
+                              limb_branch_from_candidate(apical_candidates[0]),
                               plot_mesh=True)
     """
 
-    individual_sk = nru.feature_over_limb_branch_dict(neuron_obj,
+    individual_sk = feature_over_limb_branch_dict(neuron_obj,
                                      limb_branch_dict=limb_branch_dict,
                                       keep_seperate = True,
                                      feature="skeleton")
@@ -4840,28 +3060,6 @@ def skeleton_over_limb_branch_dict(neuron_obj,
     return individual_sk
 
 
-def mesh_over_limb_branch_dict(neuron_obj,
-                                   limb_branch_dict,
-                                   combine_meshes = True,
-                                   plot_mesh = False,
-                                  ):
-    """
-    Purpose: To collect the skeletons over a limb branch dict
-    
-    nru.skeleton_over_limb_branch_dict(neuron_obj,
-                              nru.limb_branch_from_candidate(apical_candidates[0]),
-                              plot_skeleton=True)
-    """
-
-    individual_mesh = nru.feature_over_limb_branch_dict(neuron_obj,
-                                     limb_branch_dict=limb_branch_dict,
-                                      keep_seperate = True,
-                                     feature="mesh")
-    if combine_meshes:
-        individual_mesh = tu.combine_meshes(individual_mesh)
-        
-        
-    return individual_mesh
 
 
 
@@ -4870,192 +3068,18 @@ def skeletal_length_over_limb_branch(neuron_obj,
                                     verbose = False):
     """
     Ex: 
-    nru.skeletal_length_over_limb_branch(neuron_obj,
-                                nru.limb_branch_from_candidate(ap_cand))
+    skeletal_length_over_limb_branch(neuron_obj,
+                                limb_branch_from_candidate(ap_cand))
     
     """
-    return nru.sum_feature_over_limb_branch_dict(neuron_obj,
+    return sum_feature_over_limb_branch_dict(neuron_obj,
                                                 limb_branch_dict,
                                                 feature="skeletal_length")
 
 
 
-def skeletal_length_over_candidate(neuron_obj,
-                                  candidate,
-                                  verbose = False):
-    return nru.skeletal_length_over_limb_branch(neuron_obj,
-                                               nru.limb_branch_from_candidate(candidate),
-                                               verbose = verbose)
 
 
-
-
-
-'''
-def fill_in_and_filter_branch_groups_from_upstream_without_branching(limb_obj,
-                                                  branches,
-                                                  start_branch=None,
-                                                   skip_distance = 5000,
-                                                   plot_filtered_branches = False,
-                                                  verbose = False,):
-    """
-    Purpose: To filter a branches in 
-    a candidate for only those
-    within a certain distance of the closest
-    upstream branch (and optimally not the result of a branching point)
-
-    Psuedocode: 
-    1) Compute with the starting branch if not determined
-    2) Make the start branch the current branch
-    3) For range of the number of branches:
-    a. Get the branches that are within certain distance downstream (that also belong to the branches list)
-    b. If no branches then break
-    c. If yes then make sure on the same path
-    
-    
-    Ex: 
-    nru.fill_in_and_filter_branch_groups_from_upstream_without_branching(
-    limb_obj =  neuron_obj[6],
-    branches = [24, 25, 26],
-    start_branch = None,
-    verbose = True,
-    skip_distance = 5000,
-    plot_filtered_branches = True
-    )
-    """
-
-    if start_branch is None:
-        start_branch = xu.most_upstream_node(limb_obj.concept_network_directional,
-                                            branches)
-        if verbose:
-            print(f"Comptued start_branch = {start_branch}")
-    
-    curr_branch = start_branch
-    final_branches = [start_branch]
-
-    G = limb_obj.concept_network_directional
-
-    for i in range(len(branches)):
-
-        down_nodes = cnu.nodes_downstream(limb_obj,
-                        curr_branch,distance=skip_distance,
-                                          nodes_to_include = branches)
-
-        if verbose:
-            print(f"For curr_branch: {curr_branch}")
-            print(f"down_nodes = {down_nodes}")
-
-
-        if len(down_nodes) == 0:
-            break
-
-        if not xu.check_downstream_nodes_on_same_path(G,down_nodes,start_node=curr_branch) and skip_distance > 0:
-            skip_distance = 0
-            down_nodes = cnu.nodes_downstream(limb_obj,
-                        curr_branch,distance=skip_distance,
-                                              nodes_to_include = branches)
-            if verbose:
-                print(f"After skip distance changed to 0: down_nodes = {down_nodes}")
-                
-        if len(down_nodes) == 0:
-            break
-
-        if not xu.check_downstream_nodes_on_same_path(G,down_nodes,start_node=curr_branch):
-            if verbose:
-                print(f"Not all downstream nodes on same path so breaking")
-            break
-
-        most_downstream_node = xu.least_downstream_node(G,down_nodes)
-        if verbose:
-            print(f"most_downstream_node= {most_downstream_node}")
-
-        final_branches = np.union1d(final_branches,
-                                    xu.shortest_path(G,curr_branch,most_downstream_node))
-
-        curr_branch = most_downstream_node
-
-    if verbose:
-        print(f"final_branches = {final_branches} ")
-        
-        
-    return final_branches
-
-
-def candidate_filter_skeletal_length(neuron_obj,
-                                    candidate,
-                                    candidate_skeletal_length_min=18000,
-                                     candidate_skeletal_length_max = None,
-                                     verbose = False,
-                                     **kwargs
-                                    ):
-    sk_len = nst.skeletal_length_over_candidate(neuron_obj,
-                                  candidate)
-    if verbose:
-        print(f"skeletal length = {sk_len}")
-        
-    if  candidate_skeletal_length_min is not None and sk_len < candidate_skeletal_length_min:
-        if verbose:
-            print(f"Filtered away candidate because skeletal length too small")
-        return False
-    
-    if  candidate_skeletal_length_max is not None and sk_len > candidate_skeletal_length_max:
-        if verbose:
-            print(f"Filtered away candidate because skeletal length too large")
-        return False
-    
-    return True
-
-
-    
-    
-    
-def filter_candidates(neuron_obj,
-                     candidates,
-                      filters = ("skeletal_length",),
-                      
-                      #-- arguments for the different filters --
-                      candidate_skeletal_length_min = 18000,
-                      verbose = False,
-                      **kwargs
-                     ):
-    """
-    Purpose: To filter the apical shaft candidates 
-    for base characteristics:
-    a) skeletal length
-
-    -- Not yet implmented --
-    Angle and length between the 
-    start of the candidate and the soma
-    
-    Ex: 
-    nru.filter_candidates(neuron_obj,
-                 candidates=shaft_candidates,
-                 verbose = verbose)
-    """
-
-    filtered_cand = []
-
-    for j,can in enumerate(candidates):
-        if verbose:
-            print(f"\nBase Filtering candidate {j}: {can}")
-
-        cand_lb = nru.limb_branch_from_candidate(can)
-
-        #filter 1) minimum skeletal length
-        if "skeletal_length" in filters:
-            if not nru.candidate_filter_skeletal_length(neuron_obj,
-                                                       candidate=can,
-                                                       candidate_skeletal_length_min=candidate_skeletal_length_min,
-                                                        verbose = verbose,
-                                                       **kwargs):
-                continue
-
-        # ------- more filters would be implemented here
-        if verbose:
-            print(f"candidate {j} made it through filtering")
-        filtered_cand.append(can)
-    return filtered_cand
-'''
 
 def upstream_labels(limb_obj,branch_idx,
                    verbose = False):
@@ -5069,7 +3093,7 @@ def upstream_labels(limb_obj,branch_idx,
     """
     
     
-    upstream_node = nru.upstream_node(limb_obj,branch_idx)
+    upstream_node = upstream_node(limb_obj,branch_idx)
     
     if upstream_node is None:
         labels = []
@@ -5093,12 +3117,12 @@ def upstream_node_has_label(limb_obj,branch_idx,
     2) Return boolean if label of interest is in labels
     
     Ex: 
-    nru.upstream_node_has_label(limb_obj = n_test[1],
+    upstream_node_has_label(limb_obj = n_test[1],
                branch_idx = 9,
                 label = "apical",
                verbose = True)
     """
-    upstream_labels = nru.upstream_labels(limb_obj,
+    upstream_labels = upstream_labels(limb_obj,
                                          branch_idx,
                                          verbose = verbose)
     if label in upstream_labels:
@@ -5108,20 +3132,6 @@ def upstream_node_has_label(limb_obj,branch_idx,
     
 
     
-def label_limb_branch_dict(neuron_obj,
-                          label,
-                           not_matching_labels = None,
-                          match_type="all", #ohter option is any
-                          ):
-    if not nu.is_array_like(label):
-        label = [label]
-    label_limb_branch = ns.query_neuron_by_labels(
-                        neuron_obj,
-                        matching_labels=label,
-                        not_matching_labels=not_matching_labels,
-                        match_type=match_type)
-    return label_limb_branch
-
 def downstream_labels(limb_obj,branch_idx,
                       all_downstream_nodes = False,
                      verbose = False):
@@ -5138,15 +3148,15 @@ def downstream_labels(limb_obj,branch_idx,
     """
     labels = []
     if all_downstream_nodes:
-        d_nodes = nru.all_downstream_branches(limb_obj,branch_idx)
+        d_nodes = all_downstream_branches(limb_obj,branch_idx)
     else:
-        d_nodes = nru.downstream_nodes(limb_obj,branch_idx)
+        d_nodes = downstream_nodes(limb_obj,branch_idx)
         
     if verbose:
         print(f"d_nodes = {d_nodes}")
         
     if len(d_nodes)> 0:
-        labels = np.concatenate(nru.feature_over_branches(limb_obj,d_nodes,"labels"))
+        labels = np.concatenate(feature_over_branches(limb_obj,d_nodes,"labels"))
         labels = np.unique(labels)
         
     if verbose:
@@ -5194,16 +3204,16 @@ def branch_neighbors(
     neighbors = []
     
     if include_parent:
-        parent_node = nru.parent_node(limb_obj,branch_idx,verbose = verbose)
+        parent_node = parent_node(limb_obj,branch_idx,verbose = verbose)
         if parent_node is not None:
             neighbors.append(parent_node)
             
     if include_siblings:
-        sibling_nodes= nru.sibling_nodes(limb_obj,branch_idx,verbose = verbose)
+        sibling_nodes= sibling_nodes(limb_obj,branch_idx,verbose = verbose)
         neighbors += sibling_nodes
         
     if include_children:
-        children_nodes = nru.children_nodes(limb_obj,branch_idx, verbose = verbose)
+        children_nodes = children_nodes(limb_obj,branch_idx, verbose = verbose)
         neighbors += children_nodes
     
     if verbose:
@@ -5218,14 +3228,14 @@ def branch_neighbors_attribute(limb_obj,
                                **kwargs
                            ):
     return [getattr(limb_obj[k],attr)  for k in 
-            nru.branch_neighbors(limb_obj,branch_idx,verbose = verbose,**kwargs)]
+            branch_neighbors(limb_obj,branch_idx,verbose = verbose,**kwargs)]
 
 def branch_neighbors_mesh(limb_obj,
                             branch_idx,
                             verbose = False,
                           **kwargs,
                            ):
-    return tu.combine_meshes(nru.branch_neighbors_attribute(
+    return tu.combine_meshes(branch_neighbors_attribute(
         limb_obj,
         branch_idx,
         "mesh",
@@ -5285,9 +3295,9 @@ def children_nodes(
     branch of a branch_idx
     
     Ex: 
-    nru.children_nodes(limb_obj,7)
+    children_nodes(limb_obj,7)
     """
-    child_nodes = nru.downstream_nodes(limb_obj,branch_idx)
+    child_nodes = downstream_nodes(limb_obj,branch_idx)
     if verbose:
         print(f"child_nodes of branch {branch_idx} = {child_nodes}")
         
@@ -5313,7 +3323,7 @@ def neighborhood_mesh(
         branch_idx,
         plot = True)
     """
-    mesh = nru.branch_neighbors_mesh(
+    mesh = branch_neighbors_mesh(
     limb_obj,
     branch_idx,
     include_siblings=True,
@@ -5347,7 +3357,7 @@ def is_branch_mesh_connected_to_neighborhood(
     limb_idx = 1
     branch_idx = 10
     limb_obj = neuron_obj[limb_idx]
-    nru.is_branch_mesh_connected_to_neighborhood(
+    is_branch_mesh_connected_to_neighborhood(
         limb_obj,
         branch_idx,
         verbose = True
@@ -5358,7 +3368,7 @@ def is_branch_mesh_connected_to_neighborhood(
 
     branch_obj = limb_obj[branch_idx]
 
-    n_mesh  = nru.neighborhood_mesh(limb_obj,
+    n_mesh  = neighborhood_mesh(limb_obj,
                                     branch_idx, 
                                     plot = plot,
                                     verbose = verbose)
@@ -5392,32 +3402,8 @@ def recalculate_endpoints_and_order_skeletons_over_neuron(neuron_obj):
         limb_obj = neuron_obj[limb_idx]
         for branch_idx in limb_obj.get_branch_names():
             #branch_obj = limb_obj[branch_idx]
-            nru.recalculate_endpoints_and_order_skeletons_for_branch(neuron_obj[limb_idx][branch_idx])
-            
-    
-    
+            recalculate_endpoints_and_order_skeletons_for_branch(neuron_obj[limb_idx][branch_idx])
 
-    
-
-
-
-
-
-
-def non_axon_like_limb_branch_on_dendrite(
-    n_obj,
-    plot = False):
-
-    non_axon_like_on_dendrite =  nru.limb_branch_setdiff(
-            [n_obj.dendrite_limb_branch_dict,
-            ns.query_neuron_by_labels(
-                n_obj,
-                matching_labels=["axon-like"],
-            )]
-    )
-
-        
-    return non_axon_like_on_dendrite
 
         
 
@@ -5444,7 +3430,7 @@ def calculate_decomposition_products(
     skeleton = neuron_obj.skeleton
     
     # --- skeleton stats
-    sk_stats = nst.skeleton_stats_from_neuron_obj(
+    sk_stats = skeleton_stats_from_neuron_obj(
             neuron_obj,
             include_centroids=True,
             verbose = verbose,
@@ -5465,315 +3451,10 @@ def calculate_decomposition_products(
     return decomp_products
 
 
-# ----------- for aligning neuron ---------
-align_attr = "align_matrix"
 
-
-
-
-
-
-    
-    
-def most_upstream_conn_comp_node(
-    neuron_obj,
-    limb_branch_dict=None,
-    verbose = False
-    ):
-    """
-    Purpose: Given a limb branch dict, find all of the root branches
-    of the subgraphs
-
-    Pseudocode: 
-    iterating through all of the limbs of the limb branch
-    1) Divide into connected components
-
-        For each connected component:
-        a) Find the most upstream node
-        b) add to the list for this limb branch
-
-    Ex:
-    nru.most_upstream_conn_comp_node_from_limb_branch_dict(
-        limb_branch_dict = n_obj_proof.basal_limb_branch_dict,
-        neuron_obj = n_obj_proof,
-        verbose = True,
-    )
-
-    """
-    if limb_branch_dict is None:
-        limb_branch_dict = neuron_obj.limb_branch_dict
-
-    upstream_nodes_dict = dict()
-    for limb_name,branches_idx in limb_branch_dict.items():
-
-        upstream_nodes_dict[limb_name] = []
-        limb_obj = neuron_obj[limb_name]
-
-        conn_comp = nru.connected_components_from_branches(
-            limb_obj,
-            branches=branches_idx,
-        )
-
-        if verbose:
-            print(f"Working on {limb_name}: # of conn comp = {len(conn_comp)}")
-            print(f" -- most upstream node --")
-        for j,cc in enumerate(conn_comp):
-            most_upstream_node = nru.most_upstream_branch(limb_obj,cc)
-
-            if verbose:
-                print(f"   conn comp {j}: {most_upstream_node}")
-
-            upstream_nodes_dict[limb_name].append(most_upstream_node)
-
-
-    return upstream_nodes_dict
-
-def statistic_per_branch(
-    neuron_obj,
-    stat_func,
-    limb_branch_dict=None,
-    suppress_errors = False,
-    default_value = None,
-    ):
-    """
-    Purpose: Find a statistic for a limb branch dict
-    
-    Pseudocode: 
-    1) 
-    """
-    
-    if limb_branch_dict is None:
-        limb_branch_dict = neuron_obj.limb_branch_dict
-        
-
-    def local_stat(branch_obj):
-        try:
-            if isinstance(stat_func,str):
-                return_value = getattr(branch_obj,stat_func)
-            else:
-                return_value = stat_func(branch_obj)
-        except Exception as e:
-            if suppress_errors:
-                return_value = default_value
-            else:
-                raise Exception(e)
-        return return_value
-        
-    stat_dict = dict([(limb_name,[local_stat(neuron_obj[limb_name][k]) for k in branches]) for limb_name,branches in limb_branch_dict.items()])
-    
-    return stat_dict
-
-def most_upstream_conn_comp_node_stat(
-    neuron_obj,
-    stat_func,
-    limb_branch_dict=None,
-    verbose = False,
-    return_upstream_conn_comp_nodes = False,
-    **kwargs
-    ):
-    """
-    Purpose: calculate the statistic for the most upstream node 
-    of every connected component in a limb branch dict
-    """
-    upstream_limb_branch_dict = nru.most_upstream_conn_comp_node(
-        neuron_obj,
-        limb_branch_dict=limb_branch_dict,
-        verbose = verbose
-    )
-    
-    stats_dict = statistic_per_branch(
-        neuron_obj,
-        stat_func,
-        limb_branch_dict=upstream_limb_branch_dict,
-        **kwargs
-    )
-    
-    if return_upstream_conn_comp_nodes:
-        return stats_dict,upstream_limb_branch_dict
-    else:
-        return stats_dict
-    
-roots_stat = most_upstream_conn_comp_node_stat
-
-def compartment_roots_stat(
-    neuron_obj,
-    compartment,
-    stat_func,
-    verbose = False,
-    return_root_nodes = False,
-    **kwargs
-    ):
-    """
-    Purpose: To compute the statistic for all the
-    root nodes of a certain compartment
-    """
-    return nru.most_upstream_conn_comp_node_stat(
-    neuron_obj,
-    stat_func,
-    limb_branch_dict=nru.label_limb_branch_dict(neuron_obj,compartment),
-    verbose = verbose,
-    return_upstream_conn_comp_nodes = return_root_nodes,
-    **kwargs
-    )
+  
     
 
-
-def compartment_roots_stat_extrema(
-    neuron_obj,
-    compartment,
-    stat_func,
-    extrema = "max",
-    return_limb_branch_idx=False,
-    verbose = False,
-    **kwargs
-    ):
-    """
-    Purpose: to compute the extrema of all of the root statistics
-    for a certain compartment
-    """
-    
-    if isinstance(extrema,str):
-        extrema_func = getattr(np,extrema)
-    else:
-        extrema_func = extrema
-    
-    stat_dict,lb = compartment_roots_stat(
-        neuron_obj,
-        compartment = compartment,
-        stat_func=stat_func,
-        return_root_nodes = True,
-        **kwargs
-    )
-    
-    stats_list = []
-    name_list = []
-    
-    for limb_name in lb:
-        stats_list += stat_dict[limb_name]
-        name_list += [f"{limb_name}_{k}" for k in lb[limb_name]]
-        
-    extrema_idx = getattr(np,f"arg{extrema_func.__name__}")(stats_list)
-    extrema_value = stats_list[extrema_idx]
-    extream_name = name_list[extrema_idx]
-    
-    if verbose:
-        print(f"{extrema_func.__name__} stat = {extrema_value} ({extream_name})")
-        
-    if return_limb_branch_idx:
-        return extrema_value,extream_name
-    else:
-        return extrema_value
-    
-# def compartment_roots_stat_max(
-#     neuron_obj,
-#     compartment,
-#     stat_func,
-#     return_limb_branch_idx=False,
-#     verbose = False,
-#     **kwargs
-#     ):
-    
-#     return compartment_roots_stat_extrema(
-#     neuron_obj,
-#     compartment=compartment,
-#     stat_func=stat_func,
-#     extrema = "max",
-#     return_limb_branch_idx=return_limb_branch_idx,
-#     verbose = verbose,
-#     **kwargs
-#     )
-
- 
-# def compartment_roots_stat_min(
-#     neuron_obj,
-#     compartment,
-#     stat_func,
-#     return_limb_branch_idx=False,
-#     verbose = False,
-#     **kwargs
-#     ):
-    
-#     return compartment_roots_stat_extrema(
-#     neuron_obj,
-#     compartment=compartment,
-#     stat_func=stat_func,
-#     extrema = "min",
-#     return_limb_branch_idx=return_limb_branch_idx,
-#     verbose = verbose,
-#     **kwargs
-#     )
-
-# def compartment_root_skeleton_angle_max(
-#     neuron_obj,
-#     compartment,
-#     return_limb_branch_idx = False,
-#     verbose = False,
-#     **kwargs
-#     ):
-    
-#     return nru.compartment_roots_stat_max(
-#         neuron_obj,
-#         compartment = compartment,
-#         stat_func = bu.skeleton_angle_from_top,
-#         return_limb_branch_idx = return_limb_branch_idx,
-#         verbose = verbose,
-#         **kwargs
-#     )
-    
-# def compartment_root_skeleton_angle_min(
-#     neuron_obj,
-#     compartment,
-#     return_limb_branch_idx = False,
-#     verbose = False,
-#     **kwargs
-#     ):
-    
-#     return nru.compartment_roots_stat_min(
-#         neuron_obj,
-#         compartment = compartment,
-#         stat_func = bu.skeleton_angle_from_top,
-#         return_limb_branch_idx = return_limb_branch_idx,
-#         verbose = verbose,
-#         **kwargs
-#     )
-    
-from functools import partial,update_wrapper
-from . import branch_utils as bu
-
-compartment_roots_stat_max = update_wrapper(
-    partial(compartment_roots_stat_extrema,extrema = "max"),
-    compartment_roots_stat_extrema,
-)
-
-compartment_roots_stat_min = update_wrapper(
-    partial(compartment_roots_stat_extrema,extrema = "min"),
-    compartment_roots_stat_extrema,
-)
-
-compartment_root_skeleton_angle_max = update_wrapper(
-    partial(compartment_roots_stat_max,
-            stat_func = bu.skeleton_angle_from_top,),
-    compartment_roots_stat_max
-)
-
-compartment_root_skeleton_angle_min = update_wrapper(
-    partial(compartment_roots_stat_min,
-            stat_func = bu.skeleton_angle_from_top,),
-    compartment_roots_stat_min
-)
-
-compartment_root_width_max = update_wrapper(
-    partial(compartment_roots_stat_max,
-            stat_func = "width_upstream"),
-    compartment_roots_stat_max
-    
-)
-
-compartment_root_width_min = update_wrapper(
-    partial(compartment_roots_stat_min,
-            stat_func = "width_upstream",),
-    compartment_roots_stat_min
-)
 
 # ---- 4/4 adjustments ---
 
@@ -5807,29 +3488,19 @@ attributes_dict_h01 = dict()
 
 #--- from neurd_packages ---
 
-from . import concept_network_utils as cnu
+from .concept_network_utils import subgraph_around_branch
 from . import neuron
-from . import neuron_searching as ns
-from . import neuron_statistics as nst
-from . import preprocess_neuron as pre
-from . import soma_extraction_utils as sm
-from . import width_utils as wu
+from .neuron_statistics import skeleton_stats_from_neuron_obj
 
 #--- from mesh_tools ---
 from mesh_tools import compartment_utils as cu
-from mesh_tools import meshparty_skeletonize as m_sk
 from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import general_utils as gu
-from datasci_tools import matplotlib_utils as mu
+from datasci_tools.general_utils import  invert_mapping
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
-from datasci_tools import system_utils as su
-from datasci_tools.tqdm_utils import tqdm
 from datasci_tools import pipeline
-from datasci_tools import mesh_utils as meshu
 
-from . import neuron_utils as nru

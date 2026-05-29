@@ -2835,14 +2835,6 @@ class Neuron:
         else:
             return lookup_values
     
-    @property
-    def skeleton(self,check_connected_component=False):
-        return nru.get_whole_neuron_skeleton(self,
-                                 check_connected_component=check_connected_component)
-
-    @property
-    def skeleton_smooth(self,):
-        return nru.get_whole_neuron_skeleton_smooth(self)    
     
     def calculate_new_width(self,**kwargs):
         wu.calculate_new_width_for_neuron_obj(self,**kwargs)
@@ -2994,36 +2986,9 @@ class Neuron:
     def get_soma_indexes(self):
         return self.get_soma_node_names(int_label=True)
     
-    def get_limbs_touching_soma(self,soma_idx):
-        """
-        Purpose: To get all of the limb names contacting a certain soma
-        
-        Example:
-        current_neuron.get_limbs_touching_soma(0)
-        
-        """
-        return xu.get_neighbors(self.concept_network,nru.soma_label(soma_idx),int_label=False)
-    
-    def get_somas_touching_limbs(self,limb_idx,return_int=True):
-        """
-        Purpose: To get all of the limb names contacting a certain soma
-        
-        Example:
-        current_neuron.get_limbs_touching_soma(0)
-        
-        """
-        soma_neighbors = xu.get_neighbors(self.concept_network,nru.limb_label(limb_idx),int_label=False)
-        if return_int:
-            return [int(k[1:]) for k in soma_neighbors]
-        else:
-            return soma_neighbors
-    
-    
-    
    
-    
 
-    
+        
     
     
     from datasci_tools import system_utils as su
@@ -3144,14 +3109,7 @@ class Neuron:
     def axon_skeleton(self):
         return nru.axon_skeleton(self)
     
-    
-    @property 
-    def non_axon_like_limb_branch_on_dendrite(self):
-        return nru.non_axon_like_limb_branch_on_dendrite(self)
-   
-    
-    def label_limb_branch_dict(self,label):
-        return nru.label_limb_branch_dict(self,label)
+
     
     
     
@@ -3193,19 +3151,9 @@ class Neuron:
     # ---- 11/20 functions that will help compute statistics of the neuron object ----------
     
     # -- skeleton and branch data ---
-    @property
-    def n_error_limbs(self):
-        return nru.n_error_limbs(self)
-    @property
-    def same_soma_multi_touching_limbs(self):
-        return nru.same_soma_multi_touching_limbs(self)
-    @property
-    def multi_soma_touching_limbs(self):
-        return nru.multi_soma_touching_limbs(self)
+
     
-    @property
-    def n_somas(self):
-        return nru.n_somas(self)
+
     
     @property
     def n_limbs(self):
