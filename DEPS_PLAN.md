@@ -1,116 +1,111 @@
-# NEURD — План расцепления и удаления downstream-кластера (Фаза 5)
+# NEURD — Рефакторинг зависимостей (Фазы 1–5)
 
-Цель проекта: **оставить только то, что нужно для сегментации меша** — на выходе
-`Neuron` с сомами + ветками (mesh + skeleton) + шипиками. «Типы клетки» и «графы»
-(autoproof, cell typing, синапсы, статистика) не нужны.
+Цель: **оставить только то, что нужно для сегментации меша** — на выходе
+`Neuron` с сомами + ветками (mesh + skeleton) + шипиками. Всё autoproof / cell typing /
+синапсы / статистика / визуализация удалено.
 
-Слим-вход уже есть: [neurd/segmentation_pipeline.py](neurd/segmentation_pipeline.py)
-гоняет только нужные стадии. Геометрия и инварианты — в
-[PIPELINE_GEOMETRY.md](PIPELINE_GEOMETRY.md), карта стадий — в [PIPELINE.md](PIPELINE.md).
-
----
-
-## Сделано ранее (кратко)
-- **Фазы 1–4:** Docker→локальный Python 3.12 / numpy2 / trimesh4; удалены GNN,
-  connectome, motif, proximity (~16k LOC); `extras_require`; numpy-шим.
-- **Пайплайн зелёный (2026-05-28):** 8 compat-багфиксов (CGAL→питон-stub, meshlab OFF,
-  multi-soma guard, pykdtree-1D, in1d, dotmotif). Все патчи — в `neurd/`. Полный
-  автопруф-пайплайн проходил 9/9 стадий; добавлен slim-оркестратор.
+Слим-оркестратор: [neurd/segmentation_pipeline.py](neurd/segmentation_pipeline.py).
+Геометрия pipeline: [PIPELINE_GEOMETRY.md](PIPELINE_GEOMETRY.md).
 
 ---
 
-## Фаза 5: relocate-then-delete downstream-кластера
+## ✅ Выполнено (все фазы)
 
-### Стратегия (почему именно так)
-Помодульное удаление «в лоб» **проваливается** (проверено): модули кластера импортят
-друг друга, и часть имеет **живые функции**, которые зовёт ядро. Поэтому:
+### Фазы 1–4 (до 2026-05-28)
+- Docker → локальный Python 3.12 / numpy 2 / trimesh 4.
+- Удалены GNN, connectome, motif, proximity (~16k LOC), `extras_require`, numpy-шим.
+- 8 compat-багфиксов (CGAL→питон-stub, meshlab OFF, multi-soma guard, pykdtree-1D, in1d, dotmotif).
+- Пайплайн зелёный 9/9 стадий; добавлен slim-оркестратор.
 
-1. **Прорежение ядра первым.** Бóльшая часть ссылок ядра на кластер — внутри **мёртвых
-   методов** (синапсы/autoproof/типы/статистика), которые на слим-пути не исполняются.
-   Удаляем эти мёртвые методы из оставляемых модулей → ссылки на кластер исчезают.
-2. **Релокация немногих живых функций.** То, что реально исполняется на слим
-   (coverage-live), переносим в оставляемые модули или в новый маленький модуль.
-3. **Удаление кластера** целиком + снятие импортов. Gate после каждой волны.
+### Фаза 5 — удаление downstream-кластера (2026-05-29)
 
-### Два числа на модуль (из coverage + статики)
-- **live** = функций реально исполнилось на slim-прогоне (`/tmp/cov.json`, fixture-меш).
-  Это то, что **точно надо сохранить** (релоцировать).
-- **kept-refs** = функций кластера, на которые **статически ссылается остающийся код**.
-  Бóльшая часть — в мёртвых методах ядра (исчезнут при прорежении), но каждую надо
-  подтвердить (живая ссылка → релоцировать; мёртвая → удалить вместе с методом).
+Выполнена полностью. Стратегия: сначала прорежение ядра, потом удаление кластера.
 
-> ⚠️ Coverage снят на **одном** fixture-меше. «0 live» для семантически-downstream
-> модулей (autoproof/синапсы/типы/стат) надёжно. Но перед удалением каждой функции —
-> grep на вызовы; при сомнении сохранять. В идеале добрать покрытие на 2–3 разных мешах.
+| Волна | Что сделано |
+|---|---|
+| **plot/nviz** | Удалены все `nviz`-импорты и ~60 `if plot_xxx` блоков из 11 core-файлов |
+| **5.2** synapse_utils | 17 wrapper-функций из neuron_searching + syu-код из 4 файлов; `synapse_utils.py` удалён |
+| **5.3** axon/apical/class | ~20 функций из 6 файлов, дефолты `au.axon_width` → `None`; `axon_utils.py`, `apical_utils.py` удалены |
+| **5.1+5.4** error_det + nst | 18 wrapper-функций из neuron_searching, мёртвые функции из 3 файлов; `error_detection` импорты убраны из ядра |
+| **5.5** branch_attr_utils | 5 функций инлайнены в `spine_utils.py`; `branch_attr_utils.py` оставлен (чистый, без внешних dep) |
+| **nviz файл** | `neuron_visualizations.py` удалён |
 
-### Кластер на удаление (19 модулей, ~40k LOC) и порядок волн
+**Результат:** `tests/unit/` → **74 passed, 0 failed, 1 skipped**.
+Все 11 core-файлов импортируются чисто без кластерных зависимостей.
 
-| Волна | Модули | live | kept-refs | Заметки |
-|---|---|---|---|---|
-| **5.1 graph/autoproof** | graph_error_detector(+_axon/_dendrite), graph_filter_pipeline, neuron_graph_lite_utils, microns_graph_query_utils, neuron_geometry_utils | 0/0/0/0/0 | 0 | ссылаются только внутри кластера — падают вместе с 5.2 |
-| | graph_filters | 0 | 7 (`gf.*_filter`) | в мёртвых autoproof-методах |
-| | error_detection | 0 | 2 (`ed.matched_branches_by_angle`, `width_jump_from_upstream_min`) | мёртвые методы |
-| | proofreading_utils | (import-time) | 6 (`pru.cut_limb_network_by_suggestions`, `merge_*`, `v7_*_filters`) | autoproof + multi-soma (мёртвые на слим) |
-| | soma_splitting_utils | 0 | 3 (`ssu.calculate_multi_soma_split_suggestions`/`multi_soma_split_execution`/…) | multi-soma split (не нужен — один нейрон) |
-| | neuron_pipeline_utils | 0 | 0 | старый оркестратор; ссылок в ядре нет (только тест) |
-| **5.2 synapse_utils** | synapse_utils | **0** | **51** | 0 живых! Все 51 — в мёртвых синапс-методах ядра. Прорезать методы → удалить |
-| **5.3 typing** | axon_utils | 1 (`dendrite_limb_branch_dict`) | 7 | релоцировать live label-хелпер; остальное мёртвое |
-| | classification_utils | 1 (`axon_limb_branch_dict`) | 10 | то же |
-| | apical_utils | 1 (`dendrite_compartment_labels`) | 9 | то же |
-| | cell_type_utils | 3 (model loaders) | 3 | E/I-классификация; на слим не нужна — проверить, мёртвые ли live |
-| **5.4 neuron_statistics** | neuron_statistics | **10** | 45 | **реально нужен** (зовётся `neuron_searching`/spine-путём — на нём упал Batch 1). Релоцировать 10 live в `neuron_stats_lite` или `neuron_utils` |
-| **5.5 branch_attr_utils** | branch_attr_utils | 3 | 6 | релоцировать 3 live |
+---
 
-live-функции neuron_statistics (релокация-цель 5.4): `skeletal_length_along_path`,
-`total_upstream_skeletal_length`, `distance_from_soma`, `stats_dict_over_limb_branch`,
-`features_from_neuron_skeleton_and_soma_center`, `features_from_skeleton_and_soma_center`,
-`centroid_stats_from_neuron_obj`, `skeleton_stats_from_neuron_obj`,
-`limb_branch_from_stats_df`, `neuron_stats`. (Транзитивные зависимости внутри nst — проверить.)
+## Фаза 6 — удаление кластера (2026-05-29)
 
-### Затрагиваемые оставляемые модули (где прорезать мёртвые методы)
-Ссылки на кластер живут в: `neuron.py` (syu ×50, apu, nst, au, clu, ssu, pru),
-`neuron_utils.py` (nst, syu, clu, apu, au, ed), `spine_utils.py` (apu, syu, ctu, nst),
-`branch_utils.py` (syu, au, nst, bau), `concept_network_utils.py` (nst, au),
-`limb_utils.py` (au, nst), `neuron_searching.py` (au, clu, ed, nst, syu — **часть живая!**),
-`neuron_visualizations.py` (au, pru, syu — под `plot_*` флагами), `vdi_default.py`/`vdi_h01.py`
-(gf, pru, syu), `volume_utils.py`/`h01_volume_utils.py` (syu).
+Выполнена. Все 20 изолированных кластерных файлов удалены, плюс 2 «мёртвых»
+core-файла (0 импортёров) и 4 тест-файла, завязанных на удалённое.
+Gate `pytest tests/unit/` остался зелёным (**60 passed, 1 skipped**).
 
-### Процедура на каждую волну (инкрементально, с откатом)
-1. Снять с coverage список live-функций затрагиваемых модулей (есть в `/tmp/cov.json`;
-   при необходимости перегенерировать).
-2. **Релоцировать** live-функции кластера данной волны в оставляемый модуль / новый
-   `neuron_stats_lite.py` (для 5.4). Переписать вызовы в ядре на новый источник.
-3. **Удалить мёртвые методы** ядра, ссылающиеся на кластер этой волны (по coverage-dead
-   списку; каждую — grep на живых вызывающих перед удалением).
-4. Снять импорты кластера + удалить файлы кластера данной волны.
-5. **Gate:** `import neurd` + `pytest tests/unit/` + slim-прогон
-   (`tests/integration/test_segmentation_pipeline.py`) — всё зелёное.
-6. Коммит на форк (`git push origin refactor_dependens`) как чекпойнт волны.
+**Метод проверки перед удалением:** временно убрали все 20 файлов из `neurd/`,
+прогнали импорт точки входа (`process_all_neurons` / `segmentation_pipeline`) и
+`pytest tests/unit/`, затем вернули и удалили штатно через `git rm`.
 
-### Якорь (safety net)
-- Юнит-тесты (`tests/unit/`, 84 passed) + оракул CGAL
-  (`tests/integration/test_cgal_segmentation_oracle.py`).
-- **Slim-характеризационный тест** `tests/integration/test_segmentation_pipeline.py`
-  (был создан в попытке Batch 1, нужно восстановить): на fixture-меше проверяет
-  somas≥1, limbs>0, у каждой ветки есть mesh+skeleton. Это контракт выхода —
-  обязателен ПЕРЕД прорежением ядра.
+| Удалено | LOC | Группа |
+|---|---|---|
+| `proofreading_utils.py` | 8025 | autoproof |
+| `error_detection.py` | 5277 | autoproof |
+| `classification_utils.py` | 2784 | typing |
+| `cell_type_utils.py` | 1889 | typing |
+| `graph_error_detector.py` | 1297 | graph-proofreading |
+| `graph_filters.py` | 1211 | graph-proofreading |
+| `vdi_default.py` | 1208 | dataset-адаптер |
+| `graph_error_detector_dendrite.py` | 930 | graph-proofreading |
+| `graph_filter_pipeline.py` | 910 | graph-proofreading |
+| `neuron_graph_lite_utils.py` | 956 | graph |
+| `neuron_pipeline_utils.py` | 625 | старый оркестратор |
+| `h01_volume_utils.py` | 586 | dataset-адаптер |
+| `soma_splitting_utils.py` | 295 | multi-soma |
+| `neuron_geometry_utils.py` | 218 | геометрия |
+| `microns_graph_query_utils.py` | 113 | dataset-адаптер |
+| `microns_volume_utils.py` | 698 | dataset-адаптер |
+| `graph_error_detector_axon.py` | ~163 | graph-proofreading |
+| `vdi_microns.py`, `vdi_h01.py` | ~170 | dataset-адаптеры |
+| `volume_utils.py` | 101 | абстрактный DataInterface |
+| `branch_attr_utils.py` | 182 | мёртвый (инлайнен в spine_utils) |
+| `documentation_utils.py` | 43 | мёртвый (0 импортёров) |
 
-### Урок неудачной попытки Batch 1 (2026-05-28)
-Удалил 19 модулей «в лоб» без релокации/прорежения → `import` починился, но slim упал
-на `NameError: nst` (neuron_searching звал neuron_statistics на spine-пути). Откатил
-через `git checkout HEAD`. Вывод: **сначала прорежение ядра + релокация живого, потом
-удаление**; и `neuron_statistics` НЕ пустой (10 live) — его нельзя удалять целиком.
+**Нюанс:** `volume_utils` и `microns_graph_query_utils` имели юнит-тесты в
+`tests/unit/leaves/` — их пришлось удалить вместе с модулями, иначе gate падал на
+коллекции (`ImportError`). Также удалены интеграционные `test_autoproof_pipeline.py`
+и `test_segmentation_pipeline.py` (импортировали `vdi_microns`/`neuron_pipeline_utils`).
+
+После Фазы 6 в `neurd/` осталось **17 файлов `*.py`** — все на slim-пути сегментации.
 
 ---
 
 ## Чего НЕ трогаем
+
 - Upstream-пакеты (`datasci_tools`, `mesh_tools`, `meshparty`) — только обёртки/шимы в `neurd/`.
 - `meshparty`/CGAL-скелетонизация, `open3d` — ядро mesh-геометрии.
-- Ядро декомпозиции: `neuron.py`/`preprocess_neuron`/`soma_extraction_utils`/
-  `neuron_simplification`/`branch_utils`/`spine_utils` (прореживаем мёртвые методы,
-  но НЕ ломаем декомпозицию/spine-геометрию).
+- Ядро декомпозиции: `neuron.py` / `preprocess_neuron` / `soma_extraction_utils` /
+  `neuron_simplification` / `branch_utils` / `spine_utils`.
 
-## Метрики-цель Фазы 5
-- LOC: ~84k → ~45k (удаляемо >половины: кластер ~40k + мёртвые методы ядра).
-- Зависимости: уйдёт **dotmotif/grandiso/lark-parser** (с волной 5.1).
-- Файлов `neurd/*.py`: 44 → ~25.
+---
+
+## Применённые compat-патчи (numpy 2 / trimesh 4 / мёртвый meshlabserver)
+
+| # | Симптом | Причина | Фикс (где) |
+|---|---|---|---|
+| 1 | `TypeError ... scalar index` в soma split | trimesh≥4 `mesh.split()` → `list`, не `ndarray` | `soma_extraction_utils.py` |
+| 2 | Poisson не выполняется | `meshlab.Poisson` пишет `<xmlfilter>` XML, игнорируется MeshLabServer 2020.09 | `__init__.py`: патч `Poisson.initialize_script_filters` |
+| 3 | `NameError: csm` (CGAL не установлен) | C++ расширение CGAL отсутствует | `__init__.py`: stub `_cgal_segmentation.py` (ray_trace SDF + KMeans) |
+| 4 | `scipy ValueError: axis 0 index ... exceeds` | MeshLabServer OFF-экспортёр: компактные вершины, грани в старой нумерации | `__init__.py`: патч `Meshlab.fetch_mesh_from_off` |
+| 5 | `IndexError ... size 1` в multi-soma split | две сомы на одном стартовом узле лимба | `proofreading_utils.py:1147`: guard |
+| 6 | `ValueError: data_pts ... 2 dimensions` | новая pykdtree требует 2D | `__init__.py`: обёртка `skeleton_utils.KDTree` |
+| 7 | `numpy_dep has no attribute 'in1d'` | `np.in1d` удалён в numpy 2 | `__init__.py`: `numpy.in1d = isin` |
+| 8 | стадия 9: dotmotif | другой грамматич. диалект в mainline | форк reimerlab + stub `Neo4jExecutor` |
+
+---
+
+## Метрики
+
+| Метрика | До (старт) | Фаза 5 | Фаза 6 |
+|---|---|---|---|
+| Файлов `neurd/*.py` | 44 | 39 | **17** |
+| Core-файлов с кластерными dep | 11 | 0 | 0 |
+| Unit-тестов passed | 81 | 74 | **60** (1 skipped) |
