@@ -81,21 +81,12 @@ head_neck_shaft_dict = dict(no_label=-1,
                            bouton=4,
                            non_bouton=5)
 
-def spine_labels(include_no_label = False):
-    if include_no_label:
-        return list(head_neck_shaft_dict.keys())
-    else:
-        return [k for k in head_neck_shaft_dict.keys() if k != "no_label"]
     
 
     
 
 head_neck_shaft_dict_inverted = gu.invert_mapping(head_neck_shaft_dict,one_to_one=True)
 
-def decode_head_neck_shaft_idx(array):
-    return [head_neck_shaft_dict_inverted.get(k,"no_label")
-            for k in array
-    ]
 
 neck_color_default = "gold"#"yellow"#,"pink"#,"yellow"# "aqua"
 head_color_default = "red"
@@ -192,14 +183,6 @@ def spine_table_restriction_high_confidence(
         
     return return_value
     
-def filter_for_high_confidence_df(
-    df,
-    apply_default_restrictions = True,
-    verbose = False):
-    return_df = spu.filter_away_fp_from_df(df,verbose = verbose)
-    if apply_default_restrictions:
-        return_df =  return_df.query(spine_table_restriction_high_confidence(table_type='pandas',return_query_str=True))
-    return return_df
 
 def filter_away_fp_from_df(
     df,
@@ -225,11 +208,7 @@ def filter_away_fp_from_df(
     
     return return_df
 
-def colors_from_spine_bouton_labels(spine_bouton_labels):
-    return [spine_bouton_labels_colors_dict[k] for k in spine_bouton_labels]
 
-def spine_bouton_labels_to_plot():
-    return list(spine_bouton_labels_colors_dict.keys())
 
 class Spine:
     """
@@ -1320,12 +1299,6 @@ def spines_neck(neuron_obj):
 
 def n_spines(neuron_obj):
     return len(spu.spines(neuron_obj))
-def n_spines_head(neuron_obj):
-    return len(spu.spines_head(neuron_obj))
-def n_spines_no_head(neuron_obj):
-    return len(spu.spines_no_head(neuron_obj))
-def n_spines_neck(neuron_obj):
-    return len(spu.spines_neck(neuron_obj))
 
 
 def plot_spines_head_neck(neuron_obj,
@@ -1406,153 +1379,6 @@ def cgal_segmentation(written_file_location,
     else:
         return cgal_data"""
 
-def split_mesh_into_spines_shaft_old(current_mesh,
-                           segment_name="",
-                           clusters=None,
-                          smoothness=None,
-                          cgal_folder = Path("./cgal_temp"),
-                          delete_temp_file=True,
-                          shaft_threshold = None,
-                                 return_sdf = True,
-                                print_flag = True,
-                                plot_segmentation = False,**kwargs):
-    
-    """
-    if not cgal_folder.exists():
-        cgal_folder.mkdir(parents=True,exist_ok=False)
-
-    file_to_write = cgal_folder / Path(f"segment_{segment_name}.off")
-    
-    
-    
-    # ------- 1/14 Additon: Going to make sure mesh has no degenerate faces --- #
-    if filter_away_degenerate_faces:
-        mesh_to_segment,faces_kept = tu.connected_nondegenerate_mesh(current_mesh,
-                                                                     return_kept_faces_idx=True,
-                                                                     return_removed_faces_idx=False)
-
-
-        written_file_location = tu.write_neuron_off(mesh_to_segment,file_to_write)
-    else:
-        written_file_location = tu.write_neuron_off(current_mesh,file_to_write)
-    
-    cgal_data_pre_filt,cgal_sdf_data_pre_filt = cgal_segmentation(written_file_location,
-                                             clusters,
-                                             smoothness,
-                                             return_sdf=True,
-                                               delete_temp_file=delete_temp_file)
-    
-    if filter_away_degenerate_faces:
-        cgal_data = np.ones(len(current_mesh.faces))*(np.max(cgal_data_pre_filt)+1)
-        cgal_data[faces_kept] = cgal_data_pre_filt
-
-        cgal_sdf_data = np.zeros(len(current_mesh.faces))
-        cgal_sdf_data[faces_kept] = cgal_sdf_data_pre_filt
-    else:
-        cgal_data = cgal_data_pre_filt
-        cgal_sdf_data = cgal_sdf_data_pre_filt
-        
-    #print(f"file_to_write = {file_to_write.absolute()}")
-    if delete_temp_file:
-        #print("attempting to delete file")
-        file_to_write.unlink()
-    """
-    
-    if clusters is None:
-        clusters = clusters_threshold_global
-    
-    if smoothness is None:
-        smoothness = smoothness_threshold_global
-        
-    if shaft_threshold is None:
-        shaft_threshold = shaft_threshold_global
-    
-    
-
-    #print(f"plot_segmentation= {plot_segmentation}")
-    cgal_data,cgal_sdf_data = tu.mesh_segmentation(current_mesh,
-                                                  cgal_folder=cgal_folder,
-                                                   clusters=clusters,
-                                                   smoothness=smoothness,
-                                                   return_sdf=True,
-                                                   delete_temp_files=delete_temp_file,
-                                                   return_meshes=False,
-                                                   return_ordered_by_size=False,
-                                                   plot_segmentation = plot_segmentation,
-                                                  )
-    
-    """ 1/14: Need to adjust for the degenerate faces removed
-    """
-
-    
-    #get a look at how many groups and what distribution:
-    from collections import Counter
-    if print_flag:
-        print(f"Counter of data = {Counter(cgal_data)}")
-
-    #gets the meshes that are split using the cgal labels
-    split_meshes,split_meshes_idx = tu.split_mesh_into_face_groups(current_mesh,cgal_data,return_idx=True,
-                                   check_connect_comp = False)
-    
-    
-    
-    split_meshes,split_meshes_idx
-    
-    
-    if len(split_meshes.keys()) <= 1:
-        print("There was only one mesh found from the spine process and mesh split, returning empty array")
-        if return_sdf:
-            return [],[],[],[],[]
-        else:
-            return [],[],[],[]
-        
-    
-#     # How to identify just one shaft
-#     shaft_index = -1
-#     shaft_total = -1
-#     for k,v in split_meshes.items():
-#         curr_length = len(v.faces)
-#         if  curr_length > shaft_total:
-#             shaft_index = k
-#             shaft_total = curr_length
-    
-#     shaft_mesh = split_meshes.pop(shaft_index)
-#     shaft_mesh_idx = split_meshes_idx.pop(shaft_index)
-    
-#     print(f"shaft_index = {shaft_index}")
-    
-    shaft_meshes = []
-    shaft_meshes_idx = []
-    
-    spine_meshes = []
-    spine_meshes_idx = []
-    
-    #Applying a length threshold to get all other possible shaft meshes
-    for spine_id,spine_mesh in split_meshes.items():
-        if len(spine_mesh.faces) < shaft_threshold:
-            spine_meshes.append(spine_mesh)
-            spine_meshes_idx.append(split_meshes_idx[spine_id])
-        else:
-            shaft_meshes.append(spine_mesh)
-            shaft_meshes_idx.append(split_meshes_idx[spine_id])
- 
-    if len(shaft_meshes) == 0:
-        if print_flag:
-            print("No shaft meshes detected")
-        if return_sdf:
-            return [],[],[],[],[]
-        else:
-            return [],[],[],[]
- 
-    if len(spine_meshes) == 0:
-        if print_flag:
-            print("No spine meshes detected")
-            
-
-    if return_sdf:
-        return spine_meshes,spine_meshes_idx,shaft_meshes,shaft_meshes_idx,cgal_sdf_data
-    else:
-        return spine_meshes,spine_meshes_idx,shaft_meshes,shaft_meshes_idx
     
     
 def get_spine_meshes_unfiltered_from_mesh(
@@ -1793,30 +1619,6 @@ def get_spine_meshes_unfiltered_from_mesh(
         return return_value
 
 
-def get_spine_meshes_unfiltered(current_neuron,
-                 limb_idx,
-                branch_idx,
-                clusters=3,#2,
-                smoothness=0.1,#0.05,
-                cgal_folder = Path("./cgal_temp"),
-                delete_temp_file=True,
-                return_sdf=False,
-                print_flag=False,
-                shaft_threshold=300,
-                               mesh=None):
-    
-    
-    current_mesh = current_neuron.concept_network.nodes[nru.limb_label(limb_idx)]["data"].concept_network.nodes[branch_idx]["data"].mesh
-    
-    return get_spine_meshes_unfiltered_from_mesh(current_mesh,
-                                        segment_name=f"{limb_idx}_{branch_idx}",
-                                        clusters=clusters,
-                                        smoothness=smoothness,
-                                        cgal_folder = cgal_folder,
-                                        delete_temp_file=delete_temp_file,
-                                        return_sdf=return_sdf,
-                                        print_flag=print_flag,
-                                        shaft_threshold=shaft_threshold)
     
         
         
@@ -1841,14 +1643,6 @@ def apply_sdf_filter(sdf_values,sdf_median_mean_difference_threshold = 0.025,
     else:
         return pass_filter
 
-def surface_area_to_volume(current_mesh):
-    """
-    Method to try and differentiate false from true spines
-    conclusion: didn't work
-    
-    Even when dividing by the number of faces
-    """
-    return current_mesh.bounding_box_oriented.volume/current_mesh.area
 
 
 def filter_spine_meshes(spine_meshes,
@@ -2322,62 +2116,7 @@ def spine_volume_density(obj,um = True):
     return np.sum([k.volume for k in obj.spines_obj])/skeletal_length
 
 
-def spine_density_over_limb_branch(neuron_obj,
-                                     limb_branch_dict,
-                                    synapse_type = "synapses",
-                                    multiplier = 1,
-                                     verbose = False,
-                                   return_skeletal_length = False,
-                                    ):
-    """
-    Purpose: To calculate the 
-    spine density over lmb branch
-
-    Application: To be used for cell type (E/I)
-    classification
-
-    Pseudocode: 
-    1) Restrict the neuron branches to be processed
-    for spine density
-    2) Calculate the skeletal length over the limb branch
-    3) Find the number of spines over limb branch
-    4) Compute postsynaptic density
     
-    Ex: 
-
-    """
-    sk_length = n_synapses = nru.sum_feature_over_limb_branch_dict(neuron_obj,
-                                         limb_branch_dict=limb_branch_dict,
-                                         feature="skeletal_length")
-
-    n_spines = nru.sum_feature_over_limb_branch_dict(neuron_obj,
-                                         limb_branch_dict=limb_branch_dict,
-                                         feature="n_spines")
-    if sk_length != 0:
-        density = n_spines/sk_length
-    else:
-        density = 0
-
-    density = density*multiplier
-
-    if verbose:
-        print(f"sk_length = {sk_length}")
-        print(f"# of spines = {n_spines}")
-        print(f"Density = {density}")
-
-    if return_skeletal_length:
-        return density,sk_length
-    else:
-        return density
-    
-def update_spines_obj(neuron_obj):
-    """
-    Will update all of the spine objects in a neuron
-    """
-    for l in neuron_obj:
-        for b in l:
-            if b.spines_obj is not None:
-                b.spines_obj = [spu.Spine(k) for k in b.spines_obj]
                 
 def spine_str_label(spine_label):
     """
@@ -2394,11 +2133,6 @@ def spine_int_label(spine_label):
         spine_label =  head_neck_shaft_dict[spine_label]
     return spine_label
 
-def set_soma_synapses_spine_label(neuron_obj,
-                                soma_spine_label = "no_label"):
-    for s in neuron_obj.get_soma_node_names():
-        for syn in neuron_obj[s].synapses:
-            syn.head_neck_shaft = spu.spine_int_label(soma_spine_label)
 
 
 # -------------- 12/6: Doing the spine calculation ----------------
@@ -2879,10 +2613,6 @@ def calculate_spines_on_neuron(
             curr_branch.spines_obj = None
                 
 # --------------- for filtering spines: 1/25 ------------
-def print_filter_spine_thresholds():
-    print(f"spine_n_face_threshold_global = {spine_n_face_threshold_global}")
-    print(f"filter_by_volume_threshold_global = {filter_by_volume_threshold_global}")
-    print(f"spine_sk_length_threshold_global = {spine_sk_length_threshold_global}")
     
 def filter_spines_by_size_branch(
     branch_obj,
@@ -3027,69 +2757,6 @@ def spine_length(
         print(f"skeletal length = {curr_sk_length}")
     return curr_sk_length
 
-def complete_spine_processing(
-    neuron_obj,
-    compute_initial_spines = True,
-    compute_no_spine_width = True,
-    compute_spine_objs = True,
-    limb_branch_dict_exclude = "axon",
-    verbose = False,
-    plot= False,
-    ):
-    """
-    Will redo all of the spine processing
-
-    Pseudocode: 
-    1) Redo the spines
-    2) Redo the spine widthing
-    3) Redo the spine calculation
-    
-    Ex: 
-    import time
-    spu.set_global_parameters_and_attributes_by_data_type(data_type)
-    spu.complete_spine_processing(
-        neuron_obj,
-        verbose = True)
-
-    """
-    global_time = time.time()
-    
-    if limb_branch_dict_exclude == "axon":
-        limb_branch_dict_exclude = neuron_obj.axon_limb_branch_dict
-    
-    if compute_initial_spines: 
-        st = time.time()
-        spu.calculate_spines_on_neuron(
-            neuron_obj,
-            limb_branch_dict_exclude = limb_branch_dict_exclude)
-        
-        if verbose:
-            print(f"Time for compute_initial_spines = {time.time() - st}")
-            
-    if compute_no_spine_width: 
-        from neurd import width_utils as wu
-        st = time.time()
-        widths_to_calculate=["no_spine_median_mesh_center"]
-        
-        for w in widths_to_calculate:
-            wu.calculate_new_width_for_neuron_obj(neuron_obj,width_name=w)
-            
-        if verbose:
-            print(f"Time for compute_no_spine_width = {time.time() - st}")
-            
-    if compute_spine_objs: 
-        st = time.time()
-        neuron_obj = spu.add_head_neck_shaft_spine_objs(neuron_obj,
-                                                        verbose = verbose
-                                                                      )
-        
-        if verbose:
-            print(f"Time for compute_spine_objs = {time.time() - st}")
-            
-    if plot:
-        spu.plot_spines_head_neck(neuron_obj)
-        
-    return neuron_obj
 
 # -------------- for other properties per spine obj -------------
 
@@ -3339,8 +3006,6 @@ def skeleton_from_spine(spine,plot=False):
     spine_sk = sk.surface_skeleton(mesh,plot=plot)
     return spine_sk
 
-def skeletal_length_from_spine(spine,plot=False):
-    return sk.calculate_skeleton_distance(spu.skeleton_from_spine(spine))
 
 
 def volume_from_spine(spine,default_value = 0):
@@ -3579,18 +3244,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
     return spine_objs
 
 
-def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_mesh(
-    mesh,
-    skeleton = None,
-    **kwargs
-    ):
-    
-    return spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_obj(
-        branch_obj = None,
-        mesh = mesh,
-        skeleton = skeleton,
-        **kwargs
-        )
 
 
 def df_from_spine_objs(
@@ -3712,38 +3365,7 @@ def filter_spine_objs_from_restrictions(
 query_spine_objs = filter_spine_objs_from_restrictions
 
 
-def example_comparing_mesh_segmentation_vs_spine_head_segmentation(
-    spine_mesh,
-    ):
-
-
-    cluster_idx = meshu.segment_mesh(
-        spine_mesh,
-        verbose = False,
-        eta = 0.15,
-        delta = 1,
-    )
-
-    mesh_dict,mesh_face_dict = tu.split_mesh_into_face_groups(
-        spine_mesh,
-        cluster_idx,
-        check_connect_comp=True,
-        plot = True
-    )
-
-    spu.spine_head_neck(
-        spine_mesh,
-        plot_segmentation = True,
-    )
     
-def plot_spine_objs_on_branch(
-    spines_obj,
-    branch_obj,
-    plot_spines_individually = True,
-    ):
-    
-    spines_obj = nu.to_list(spines_obj)
-    meshes = [k.mesh for k in spines_obj]
     
 def spine_volume_to_spine_area(spine_obj):
     if spine_obj.volume is None:
@@ -3858,33 +3480,6 @@ def filter_spine_objs_by_size_bare_minimum(
     return sp_objs_filt
     
     
-def example_trying_to_skeletonize_spine(spine_obj):
-    from mesh_tools import meshparty_skeletonize as m_sk
-    from mesh_tools import skeleton_utils as sk
-
-    mesh = spine_obj.mesh
-    root = spine_obj.coordinate
-    invalidation_d = 1000
-    kwargs = dict()
-    sk_meshparty_obj = m_sk.skeletonize_mesh_largest_component(
-        mesh,
-        root=root,
-        filter_mesh=False,
-        invalidation_d=invalidation_d,
-        **kwargs
-    )
-
-    (segment_branches_filtered, #skeleton branches
-    divided_submeshes, divided_submeshes_idx, #mesh correspondence (mesh and indices)
-    segment_widths_median_filtered) = m_sk.skeleton_obj_to_branches(
-        sk_meshparty_obj,
-        mesh,
-        meshparty_n_surface_downsampling = 0,
-        meshparty_segment_size = 0,
-        combine_close_skeleton_nodes_threshold=0,
-        filter_end_nodes=True,
-        filter_end_node_length=300,
-    )
 
         
 def split_head_mesh(
@@ -4177,34 +3772,6 @@ def spine_compartment_mesh_functions(
         print(f"{function_declaration_str}")
     return function_names
 
-def spine_compartment_mesh_functions_dict(spine_obj):
-    """
-    Purpose: To compute the statistics for a spine obj
-    
-    spu.spine_compartment_mesh_functions_dict(spine_obj)
-    Output: 
-    {'spine_width': 262.76843376430315,
-     'spine_width_80_perc': 433.6109345474601,
-     'spine_area': 4458314.872099194,
-     'spine_volume': 1442177510.8208666,
-     'spine_skeletal_length': 4518.759601841594,
-     'head_width': 385.4437561195757,
-     'head_width_80_perc': 452.5942823041014,
-     'head_area': 1848904.3472918314,
-     'head_volume': 198657361.45833808,
-     'head_skeletal_length': 1580.07824623045,
-     'neck_width': 110.51452991062567,
-     'neck_width_80_perc': 145.0012250999968,
-     'neck_area': 1378146.4731119499,
-     'neck_volume': 258763454.06805038,
-     'neck_skeletal_length': 2600.629272237006
-    }
-    
-    """
-    curr_funcs = spine_compartment_mesh_functions(verbose = False,)
-    globs = globals()
-    locs = locals()
-    return {k:eval(f"spine_obj.{k}",globs,locs) for k in curr_funcs}
     
 def plot_spines_objs_with_head_neck_and_coordinates(
     spine_objs,
@@ -4420,16 +3987,6 @@ def spine_objs_bare_minimum_filt_with_attr_from_branch_obj(
         
     return sp_objs_filt
 
-def spine_objs_near_endpoints(
-    spine_objs,
-    min_dist = 4_000,
-    plot = False):
-    
-    return spu.query_spine_objs(
-        output_spine_objs,
-        f"(endpoint_dist_0 < {min_dist}) or (endpoint_dist_1 < {min_dist})",
-        plot=True,
-    )
 
 def id_from_compartment_index(
     compartment,
@@ -4512,19 +4069,6 @@ def face_idx_map_from_spine_objs(
 
     return face_map
 
-def plot_spine_objs_and_syn_from_syn_df(
-    spine_objs,
-    syn_df,
-    spine_idxs_to_plot = None
-    ):
-    
-    if spine_idxs_to_plot is None:
-        spine_idxs = np.arange(len(spine_objs))
-    else:
-        spine_idxs = spine_idxs_to_plot
-    spine_objs_restr = np.array(output_spine_objs)[spine_idxs]
-    syn_df_restr = syn_df.query(f"spine_id in {list(spine_idxs)}")
-    display(syn_df_restr[["volume","spine_id","spine_compartment"]])
     
 
 def synapse_df_with_spine_match(
@@ -4571,10 +4115,6 @@ def synapse_df_with_spine_match(
     
     return syn_df
 
-def example_syn_df_spine_correlations(syn_df):
-    sns.jointplot(data = syn_df,x = "spine_compartment",y = "volume")
-    sns.jointplot(data = syn_df.query(f"spine_compartment >= 0"),x = "volume",y = "spine_volume")
-    sns.jointplot(data = syn_df.query(f"spine_compartment >= 0"),x = "volume",y = "width_ray_80_perc")
     
 
 
@@ -4656,248 +4196,18 @@ def spine_id_from_limb_branch_spine_idx(
     limb_idx = nru.limb_idx(limb_idx)
     return int(f"{limb_idx}{str(branch_idx).zfill(4)}{str(spine_idx).zfill(4)}")
 
-def spine_id_range_from_limb_branch_idx(
-    limb_idx,
-    branch_idx,
-    verbose = False,
-    return_dict = False,
-    **kwargs
-    ):
-    """
-    Purpose: to come up with a spine id range 
-    given a limb and branch
-
-    Pseudocode: 
-
-    """
-    spine_id_min = limb_idx*10_000*10_000 + branch_idx*10_000
-    spine_id_max = spine_id_min + 9999
-    
-    if verbose:
-        print(f"spine_id_min= {spine_id_min}, spine_id_max = {spine_id_max}")
-        
-    if return_dict:
-        return dict(spine_id_min=spine_id_min,spine_id_max = spine_id_max)
-    return spine_id_min,spine_id_max
 
 def spine_id_add_from_limb_branch_idx(limb_idx,branch_idx):
     return spine_id_from_limb_branch_spine_idx(limb_idx,branch_idx)
 
 
-def spine_objs_and_synapse_df_computed_from_neuron_obj(
-    neuron_obj,
-    limb_branch_dict = None,
-    limb_branch_dict_exclude = None,
-
-    verbose = False,
-    **kwargs
-    ):
-
-
-    # -- cycling through all of the branches to compute the spines
-    if limb_branch_dict is None:
-        limb_branch_dict = neuron_obj.limb_branch_dict
-
-    global_time = time.time()
-    soma_center = neuron_obj["S0"].mesh_center
-
-    limb_branch_spine_info = dict()
-    for limb_idx in limb_branch_dict.keys():
-
-        if verbose:
-            print(f"----Working on limb {limb_idx}")
-
-        bu.set_branches_endpoints_upstream_downstream_idx_on_limb(neuron_obj[limb_idx])
-        curr_limb = neuron_obj[limb_idx]
-
-#         if soma_vertex_nullification:
-#             soma_verts = np.concatenate([neuron_obj[f"S{k}"].mesh.vertices for k in curr_limb.touching_somas()])
-#             soma_kdtree = KDTree(soma_verts)
-#         else:
-#             soma_kdtree = None
-
-        for branch_idx in limb_branch_dict[limb_idx]:
-
-            if limb_branch_dict_exclude is not None:
-                if limb_idx in limb_branch_dict_exclude:
-                    if branch_idx in limb_branch_dict_exclude[limb_idx]:
-                        if verbose:
-                            print(f"Skipping because in limb_branch exclude")
-                        continue
-
-
-    #         if verbose:
-    #             print(f"Working on limb {limb_idx} branch {branch_idx}")
-            st = time.time()
-            if verbose:
-                    print(f"   ---- branch {branch_idx}")
-            spine_objs_computed,syn_df_computed = spu.spine_objs_and_synapse_df_computed_from_branch_idx(
-                limb_obj = neuron_obj[limb_idx],
-                branch_idx = branch_idx,
-                verbose = verbose,
-                **kwargs
-            )
-
-            additive_id = spu.spine_id_add_from_limb_branch_idx(limb_idx,branch_idx)
-            for j,s in enumerate(spine_objs_computed):
-                s.spine_id = j + additive_id
-                s.limb_idx = limb_idx
-                s.branch_idx = branch_idx
-
-            if len(syn_df_computed) > 0:
-                syn_df_computed["spine_id"] = syn_df_computed["spine_id"].astype('int') + additive_id
-
-            if limb_idx not in limb_branch_spine_info:
-                limb_branch_spine_info[limb_idx] = dict()
-
-            limb_branch_spine_info[limb_idx][branch_idx] = dict(spine_objs = spine_objs_computed,syn_df = syn_df_computed)
-
-            if verbose:
-                print(f"       -> time = {time.time() - st}")
-
-    if verbose:
-        print(f"Time for all spine computation = {time.time() - global_time}")
-        
-    return limb_branch_spine_info
 
 spine_compartments = ("spine_head","spine_neck","spine_no_head","shaft")
 spine_compartments_no_prefix = [k.replace('spine_','') for k in spine_compartments]
-def plot_spine_synapse_coords_dict(
-    mesh=None,
-    synapse_dict = None,
-    spine_head_synapse_coords = None,
-    spine_neck_synapse_coords=  None,
-    spine_no_head_synapse_coords=  None,
-    shaft_synapse_coords = None,
-    head_color = head_color_default,
-    neck_color = neck_color_default,
-    no_head_color = no_head_color_default,
-    shaft_color = shaft_color_default,
-    verbose = False,
-    scatter_size = 0.08,
-    **kwargs
-    ):
-    if synapse_dict is None:
-        synapse_dict= dict()
-        
-    default_val = np.array([]).reshape(-1,3)
-        
-    scatters = []
-    scatters_colors = []
-    for cat in spine_compartments:
-        curr_name = f"{cat}_synapse_coords"
-        curr_val = eval(curr_name)
-        if curr_val is None:
-            curr_val = synapse_dict.get(curr_name,None)
-                
-        if curr_val is not None and len(curr_val) > 0:
-            scatters.append(curr_val)
-            curr_color = eval(f"{cat.replace('spine_','')}_color")
-            if verbose:
-                print(f"{cat} ({curr_color})")
-            scatters_colors.append(curr_color)
                 
     #return meshes
     
-def spine_compartments_face_idx_for_neuron_mesh(
-    limb_branch_spine_dict,
-    limb_branch_face_dict,
-    compartments = ("head","neck","no_head"),
-    compute_shaft_face_idx = True,
-    mesh=None,
-    n_faces = None,
-    plot = False,
-    mesh_alpha=1,
-    add_n_faces = True,
-    skip_index_errors = False,
-    ):
-    """
-    Purpose: To compile the face_idx of a compartment from
-    spine objs knowing the branch_face_idx corresponding
-    to the larger mesh
 
-    Example: 
-    spine_compartment_masks = spu.spine_compartments_face_idx_for_neuron_mesh(
-        limb_branch_face_dict=limb_branch_face_dict,
-        limb_branch_spine_dict = limb_branch_spine_info_ret,
-        mesh = decimated_mesh,
-        plot = True,
-        mesh_alpha = 1
-    )
-    """
-
-    comp_face_idx_dict = {k:[] for k in compartments}
-    for limb_idx,branch_info in limb_branch_spine_dict.items():
-        for b_idx,b_spine_dict in branch_info.items():
-            try:
-                branch_face_idx = limb_branch_face_dict[limb_idx][b_idx]
-            except:
-                if skip_index_errors:
-                    continue
-                else:
-                    raise Exception("{limb_idx}, {b_idx} index not present in faces dict")
-            for comp in compartments:
-                branch_comp_face_idx = [k.mesh_face_idx[getattr(k,f"{comp}_face_idx").astype('int')]
-                                        if len(getattr(k,f"{comp}_face_idx")) > 0 else []
-                                        for k in b_spine_dict["spine_objs"]]
-                if len(branch_comp_face_idx) > 0:
-                    branch_comp_face_idx = np.hstack(branch_comp_face_idx)
-
-                branch_comp_face_idx = np.array(branch_comp_face_idx)
-                comp_face_idx_dict[comp].append(branch_face_idx[branch_comp_face_idx.astype('int')])
-
-    comp_face_idx_dict_final = dict()
-    for comp in compartments:
-        curr_arrays = np.array(comp_face_idx_dict[comp])
-        if len(curr_arrays) > 0:
-            curr_arrays = np.hstack(curr_arrays)
-        comp_face_idx_dict_final[f"spine_{comp}_face_idx"] = curr_arrays
-
-    if compute_shaft_face_idx and mesh is not None or n_faces is not None:
-        if n_faces is None:
-            n_faces = len(mesh.faces)
-        all_idx = np.hstack(list(comp_face_idx_dict_final.values()))
-        comp_face_idx_dict_final[f"shaft_face_idx"] = np.delete(np.arange(n_faces),np.array(all_idx).astype('int'))
-
-    if add_n_faces:
-        comp_face_idx_dict_final.update({f"{k}_n_faces":len(v) for k,v in comp_face_idx_dict_final.items()})
-    
-    if plot:
-        plot_spine_face_idx_dict(mesh,**comp_face_idx_dict_final,mesh_alpha=mesh_alpha)
-
-    return comp_face_idx_dict_final
-
-def spine_objs_and_synapse_df_total_from_limb_branch_spine_dict(
-    limb_branch_spine_dict,
-    verbose = False,
-    ):
-    """
-    Purpose: To extract all spine objects and 
-    synapse dfs and concatenate from
-    a limb_branch_spine_dict
-    """
-
-    spine_objs_total = []
-    syn_df_total = []
-    for limb_idx,branch_data in limb_branch_spine_dict.items():
-        for b_idx,spine_data in branch_data.items():
-            spine_objs = spine_data["spine_objs"]
-            syn_df = spine_data["syn_df"]
-
-            if len(syn_df) > 0:
-                syn_df_total.append(syn_df)
-            spine_objs_total += spine_objs
-
-    if len(syn_df_total) > 0:
-        syn_df_total = pu.concat(syn_df_total,axis = 0).reset_index(drop=True)
-    else:
-        syn_df_total = pu.empty_df()
-        
-    if verbose:
-        print(f"Total # of spines = {len(spine_objs_total)}")
-        print(f"Total # of synapses on spines = {len(syn_df_total)}")
-
-    return spine_objs_total,syn_df_total
 
 def features_to_export_for_db():
     total_features = [
@@ -4954,63 +4264,9 @@ def features_to_export_for_db():
 
     return total_features
 
-def spine_df_for_db_from_spine_objs(
-    spine_objs,
-    verbose = False,
-    verbose_loop = False,
-    attributes = None):
     
-    if attributes is None:
-        attributes = features_to_export_for_db()
-
-    return spu.df_from_spine_objs(
-        spine_objs,
-        attributes = attributes,
-        verbose = verbose,
-        verbose_loop = verbose_loop,
-    )
-def example_plot_coordinates_from_spine_df_idx(idx,spine_objs):
-    spine_obj = spine_objs[idx]
-    
-def examle_plot_spines_from_spine_df_query(
-    spine_df,
-    spine_objs,
-    ):
-    spine_df_filt = spine_df.query(f"(neck_skeletal_length > 6000) and (n_heads < 2)")
-
-    spu.plot_spine_objs(
-        np.array(spine_objs)[spine_df_filt.index.to_numpy().astype('int')],
-        mesh = decimated_mesh,
-        spine_color = "red",
-    )
     
 # ---- function ofr extracting new spine_objs from neuron_obj ---
-def limb_branch_dict_to_search_for_spines(
-    neuron_obj,
-    query = None,
-    plot = False,
-    verbose = False,
-    ):
-    
-    if query is None:
-        query = spu.query_global
-    
-    functions_list = [
-        "median_mesh_center",
-        "n_faces_branch"
-    ]
-
-    
-    limb_branch_dict = ns.query_neuron(neuron_obj,
-           functions_list=functions_list,
-           query=query,
-            plot_limb_branch_dict=plot
-    )
-    
-    if verbose:
-        print(f"limb_branch_dict_spine_candidates = \n{limb_branch_dict}")
-
-    return limb_branch_dict
 
 
 def plot_spine_coordinates_from_spine_df(
@@ -5043,18 +4299,6 @@ def plot_spine_coordinates_from_spine_df(
     #return scatters
     
     
-def example_plot_small_volume_spines_from_spine_df(
-    neuron_obj,
-    spine_df):
-
-    spine_df.query(f"spine_volume < {np.percentile(spine_df.spine_volume.to_numpy(),95)}").spine_volume.hist(bins=100)
-
-    curr_df = spine_df.query(f"spine_volume < 10000000")
-    
-    scats = spu.plot_spine_coordinates_from_spine_df(
-        mesh = neuron_obj.mesh,
-        spine_df=curr_df,
-    )
     
 def synapse_spine_match_df_filtering(
     syn_df):
@@ -5112,38 +4356,8 @@ def scale_stats_df(
                 
     return df
 
-def filter_and_scale_spine_syn_df(spine_df,syn_df):
-    """
-    Purpose: To reduce the number of columns of the synapse table
-    and to scale the area and volume values in both the synapse and spine table so in um^2 and um^3
-    """
-    syn_df_filt = spu.synapse_spine_match_df_filtering(syn_df)
-    syn_df_scaled = spu.scale_stats_df(syn_df_filt)
-    spine_df_scaled = spu.scale_stats_df(spine_df)
-    return spine_df_scaled,syn_df_scaled
 
-def spine_counts_from_spine_df(spine_df):
-    if len(spine_df) == 0:
-        return dict(
-            n_spine_one_head = 0,
-            n_spine_no_head = 0,
-            n_spine_multi_head = 0
-        )
-    
-    return dict(
-            n_spine_one_head = len(spine_df.query(f"n_heads == 1")),
-            n_spine_no_head = len(spine_df.query(f"n_heads == 0")),
-            n_spine_multi_head = len(spine_df.query(f"n_heads > 1")),
-    )
 
-def spine_features_to_print():
-    features = ["n_heads","shaft_border_area"]
-    for comp in ["spine","head","neck"]:
-        for k in ["area","n_faces","volume","skeletal_length","width_ray","width_ray_80_perc",
-                 "bbox_oriented_side_max","bbox_oriented_side_middle","bbox_oriented_side_min"]:
-            features.append(f"{comp}_{k}")
-
-    return features
 
 def seg_split_spine(
     df= None,
@@ -5488,238 +4702,25 @@ def synapse_attribute_dict_from_synapse_df(
     
     return coordinate_dict
 
-def synapse_coords_from_synapse_df(
-    df,
-    suffix = None,
-    verbose = False,
-    return_dict = True,):
-    
-    return_d =  synapse_attribute_dict_from_synapse_df(
-        df,
-        attribute = "synapse_coords",
-        suffix = suffix,
-        verbose = verbose,
-    )
-    
-    if return_dict:
-        return return_d
-    else:
-        return np.vstack(list(return_d.values()))
 
-def synapse_ids_from_synapse_df(
-    df,
-    suffix = None,
-    verbose = False,
-    return_dict = True,):
-    
-    return_d =  synapse_attribute_dict_from_synapse_df(
-        df,
-        attribute = "synapse_id",
-        suffix = suffix,
-        verbose = verbose,
-    )
-    
-    if return_dict:
-        return return_d
-    else:
-        return np.hstack(list(return_d.values())).astype('int')
     
     
 
-def plot_spine_embeddings_kde(
-    df,
-    embeddings = ["umap_0","umap_1"],
-    rotation = 0,
-    hue = "e_i_predicted",
-    excitatory_color = mu.seaborn_orange,
-    inhibitory_color = mu.seaborn_blue,
-    thresh = 0.2,#0.5,
-    levels=5,
-    alpha = 0.5,
-    ax = None,
-    ):
-    
-    if ax is None:
-        figsize = (20,14)
-        fig, ax = plt.subplots(1,1,figsize=figsize)
-
-    df_to_plot = df.copy()
-    rotation_embeddings = [f"{k}_rotated" for k in embeddings]
-    df_to_plot[rotation_embeddings] = (
-        (nu.rotation_matrix(rotation)@(df_to_plot[embeddings].to_numpy()).T).T)
-
-    ax = sns.kdeplot(
-    #     data = pu.randomly_sample_classes_from_df(
-    #         spine_df_trans_umap,
-    #         column=hue,
-    #         n_samples=50,
-    #         seed = 1000,
-    #     ),
-        data = df_to_plot,
-        x = rotation_embeddings[0],
-        y = rotation_embeddings[1],
-        cbar=False,
-        palette=dict(
-            inhibitory = inhibitory_color,
-            excitatory = excitatory_color,
-        ),
-        hue = hue,
-        thresh = thresh,#0.5,
-        levels=levels,
-        legend = True,
-        fill = True,
-        alpha = alpha,
-        ax = ax,
-        linestyles=":",
-    )
-    
-    mu.set_axes_font_size(ax,50)
-    mu.set_axes_tick_font_size(ax,30)
-    #mu.set_legend_size(ax,100)
-
-    return mu.set_axes_outside_seaborn(ax)
 
 
 def spine_compartment_synapses(df,compartment):
     compartment= nu.to_list(compartment)
     return df.query(f"spine_compartment in {list(compartment)}")
 
-def n_spine_compartment_synapses(df,compartment):
-    return len(spine_compartment_synapses(df,compartment))
 def shaft_synapses(df):
     return spine_compartment_synapses(df,compartment="shaft")
 def n_shaft_synapses(df):
     return len(shaft_synapses(df))
 
-def set_shaft_synapses_from_spine_query(
-    df,
-    query,
-    verbose = False,
-    in_place = False,
-    ):
-    """
-    Purpose: Receiving a synapse table
-    with spine information associated with it
-    and filters of which spines to actually keep,
-    will flip the current spine compartment
-    label of the synapses
-
-    Pseudocode: 
-    1) invert the filter to get a filter for all spines
-    that should not be spines
-    2) Use the query to set the spine compartment as shaft
-    """
-
-    if not in_place:
-        df = df.copy()
-
-
-    query_str = pu.query_str_from_list(query,table_type="pandas")
-    query_str = f"not ({query_str})"
-    if verbose:
-        print(f"shaft query = {query_str}")
-
-    if verbose:
-        print(f"Before filter # of shaft synapses = {spu.n_shaft_synapses(df)}")
-    pu.set_column_subset_value_by_query(
-        df,
-        query = query_str,
-        column = "spine_compartment",
-        value = "shaft"
-    )
-
-    if verbose:
-        print(f"AFTER filter # of shaft synapses = {spu.n_shaft_synapses(df)}")
-
-    return df
 
 
 # --------- exporting the stats --------------
 
-def spine_synapse_stats_from_synapse_df(
-    df,
-    grouping_features = (
-        "compartment",
-        "spine_compartment",
-        ),
-    grouping_features_backup = (
-        "spine_compartment",
-    ),
-    features = (
-        'spine_area',
-        'spine_n_faces',
-        'spine_skeletal_length',
-        'spine_volume',
-        'spine_width_ray',
-        'syn_spine_area',
-        'syn_spine_volume',
-        'syn_spine_width_ray_80_perc',
-        'synapse_size',
-        ),
-    prefix = "syn",
-    return_dict = True,
-    synapse_types = ('postsyn',),
-    
-    ):
-    """
-    Purpose: To generate a dictionary/df
-    parsing down the categories of a spine
-    df into the averages and counts for different
-    - neuron compartments
-    - spine compartments
-
-    Pseudocode: 
-    - limit to only postsyn
-
-    - For specified features
-    1) groupby spine compartment and compartment
-    - reduce by average
-    - reduce by count
-    """
-    if synapse_types is not None:
-        synapse_types = nu.to_list(synapse_types)
-        df = df.query(f"synapse_type in {list(synapse_types)}")
-
-    features = list(features)
-    
-    all_dfs = []
-    for gf in [grouping_features,grouping_features_backup]:
-        gf = list(gf)
-
-        df_lite = df[gf + features]
-        spine_columns = [k for k in features if "spine" in k]
-        df_lite = pu.set_column_subset_value_by_query(
-            df_lite,
-            query = f"spine_compartment == 'shaft'",
-            column = spine_columns,
-            value = 0
-        )
-
-
-        df_stats = pu.group_df_for_count_and_average(
-            df_lite,
-            columns = gf,
-            default_value = 0,
-            return_one_row_df = True,
-        )
-        
-        all_dfs.append(df_stats)
-        
-    df_stats = pu.concat(all_dfs,axis=1)
-
-    df_stats.columns = [f"n_{k.replace('_unique_counts','')}"
-                        if '_unique_counts' in k else k for k in df_stats.columns]
-    if prefix is not None:
-        df_stats.columns = [f"{prefix}_{k}" for k in df_stats.columns]
-
-    column_ints = [c for c in df_stats if "_n_" in c and "face" not in c]
-    if len(column_ints) > 0:
-        df_stats[column_ints] = df_stats[column_ints].astype('int')
-        
-    if return_dict:
-        df_stats = pu.df_to_dicts(df_stats)[0]
-
-    return df_stats
 
 spine_features_no_head = (
         'spine_area',
@@ -5760,513 +4761,15 @@ spine_features_n_syn_head_neck = (
        'spine_max_neck_sp_vol',
 )
 
-def spine_stats_from_spine_df(
-    df,
-    grouping_features = (
-        "compartment",
-        ),
-    features_no_head = spine_features_no_head,
-    features_head_neck = spine_features_head_neck,
-    features_n_syn_no_head = spine_features_n_syn_no_head,
-    features_n_syn_head_neck = spine_features_n_syn_head_neck,
-    prefix = "sp",
-    return_dict = True,
-    ):
-    
-    """
-    Purpose: to export spine statistics
-    grouped by compartment
-    """
-    all_dfs = []
-    for n_heads,pre,features,n_syn_features in zip(
-            [1,0],
-            ["head","no_head"],
-            [features_head_neck,features_no_head,],
-            [features_n_syn_head_neck,features_n_syn_no_head,],
-        ):
-        features = list(features) + list(n_syn_features)
-        grouping_features = list(grouping_features)
-
-        df_lite = df.query(f"n_heads == {n_heads}").reset_index(drop=True)
-        if len(df_lite) == 0:
-            continue
-        
-        df_lite = df_lite[grouping_features + features]
-   
-        df_stats = pu.group_df_for_count_and_average(
-            df_lite,
-            columns = grouping_features,
-            default_value = 0,
-            return_one_row_df = True,
-        )
-
-        df_stats.columns = [
-            f"n_{k.replace('_unique_counts','')}"
-                 if '_unique_counts' in k else k for k in df_stats.columns]
-
-        if pre is not None:
-            df_stats.columns = [f"{pre}_{k}" for k in df_stats.columns]
-            
-        all_dfs.append(df_stats)
-        
-        # ---- want to calculate the stats without aggregating across columns ----
-        df_feat = df_lite[features].mean().to_frame().T
-        df_feat[f"{pre}_number"] = len(df_lite)
-        all_dfs.append(df_feat)
-
-    
-    if len(all_dfs) == 0:
-        if return_dict:
-            return {}
-        else:
-            return pu.empty_df()
-    
-    df_stats = pu.concat(all_dfs,axis = 1)
-
-    if prefix is not None:
-        df_stats.columns = [f"{prefix}_{k}" for k in df_stats.columns]
-
-    column_ints = [c for c in df_stats if "_n_" in c and "face" not in c
-                  and "syn" not in c]
-    if len(column_ints) > 0:
-        df_stats[column_ints] = df_stats[column_ints].astype('int')
-        
-    if return_dict:
-        df_stats = pu.df_to_dicts(df_stats)[0]
-
-    return df_stats
 
 
-def plot_spine_feature_hist(
-    df,
-    x,
-    y,
-    x_multiplier = 1,
-    y_multiplier = 1,
-    title_fontsize = 30,
-    axes_label_fontsize = 30,
-    axes_tick_fontsize = 25,
-    palette = None,
-    hue = None,
-    legend = False,
-    title=None,
-    xlabel = None,
-    ylabel = None,
-    ax = None,
-    figsize = (7,10),
-    percentile_upper = 99,
-    verbose = False,
-    print_correlation = False,
-    show_at_end = False,
-    plot_type = "histplot",
-    kde_thresh = 0.2,
-    kde_levels = 4,
-    min_x = 0,
-    min_y = 0,
-    text_box_x = 0.95,
-    text_box_y = 0.05,
-    text_box_horizontalalignment = "right",
-    text_box_verticalalignment = "bottom",
-    text_box_alpha = 1,
-    
-    
-    # --- plotting correlation textbox ---
-    plot_correlation_box = True,
-    correlation_type = "corr_pearson",
-    text_box_fontsize = 20,
-    
-    
-    # --- lim ---
-    xlim = None,
-    ylim = None,
-    
-    # --- legend arguments ---
-    legend_title = None,
-    legend_fontsize=None,
-    ):
-    
-    if verbose:
-        print(f"----{y} vs {x}----")
-    
-    edge_df_sp_filt = df.query(f"({x}>={min_x}) and ({y}>={min_y})") 
-    edge_df_sp_filt = pu.filter_df_by_column_percentile(
-        edge_df_sp_filt,
-        columns=[x,y],
-        percentile_lower=0,
-        percentile_upper=percentile_upper,
-    ).copy()
-    
-    edge_df_sp_filt[x] = edge_df_sp_filt[x].astype('float')*x_multiplier
-    edge_df_sp_filt[y] = edge_df_sp_filt[y].astype('float')*y_multiplier
-    
-    
-    corr_dict = stu.correlation_scores_all(
-            df = edge_df_sp_filt,
-            x = x,
-            y = y,
-            verbose = print_correlation,
-            return_p_value=True,
-    )
-        
-
-    if ax is None:
-        fig,ax = plt.subplots(1,1,figsize = figsize)
-    
-    if plot_type=="histplot" or "dis" in plot_type:
-        ax = sns.histplot(
-            data = edge_df_sp_filt,
-            x = x,
-            y = y,
-            hue = hue,
-            palette = palette,
-            ax = ax,
-            #kind = "reg",
-            legend = legend,
-        )
-    elif plot_type == "jointplot":
-        ax = sns.jointplot(
-            data = edge_df_sp_filt,
-            x = x,
-            y = y,
-            hue = hue,
-            palette = palette,
-            ax = ax,
-            #kind = "reg",
-            legend = legend,
-        )
-    elif plot_type == "scatterplot":
-        ax = sns.scatterplot(
-            data = edge_df_sp_filt,
-            x = x,
-            y = y,
-            hue = hue,
-            palette = palette,
-            ax = ax,
-            #kind = "reg",
-            legend = legend,
-        )
-        
-    elif plot_type == 'kdeplot':
-        ax = sns.kdeplot(
-            data = edge_df_sp_filt,#.query(f"{column}=='{k}'"),
-            x = x,
-            y = y,#features_to_plot[1],
-            hue = hue,
-            common_norm = False,
-            thresh=kde_thresh,
-            levels = kde_levels,
-            palette=palette,
-            ax = ax,
-        )
-        
-    else:
-        raise Exception("")
-        
-    ax = mu.ax_main(ax)
-    
-    if title is not None:
-        ax.set_title(title,fontsize = title_fontsize)
-        
-    
-    if xlabel is None:
-        xlabel = x.replace("_"," ").title()
-    if ylabel is None:
-        ylabel = y.replace("_"," ").title()
-    ax.set_xlabel(xlabel,fontsize = axes_label_fontsize)
-    ax.set_ylabel(ylabel,fontsize = axes_label_fontsize)
-    mu.set_axes_tick_font_size(ax,fontsize=axes_tick_fontsize)
 
 
-    
-    if plot_correlation_box:
-#         curr_value = corr_dict[correlation_type]
-#         corr_str = (f"Corr = {curr_value['correlation']:.3f}"
-#             f"\n(P = {curr_value['pvalue']:.2f})")
-#         mu.text_box_on_ax(
-#             ax,
-#             x = text_box_x,
-#             y = text_box_y,
-#             horizontalalignment = text_box_horizontalalignment,
-#             verticalalignment = text_box_verticalalignment,
-#             text =corr_str,
-#             fontsize = text_box_fontsize,
-#             alpha = text_box_alpha
-#         )
-        
-        mu.add_correlation_text_box(
-            ax,
-            corr_dict = corr_dict,
-            text_box_fontsize = text_box_fontsize,
-            correlation_type = correlation_type,
-            text_box_x = text_box_x,
-            text_box_y = text_box_y,
-            text_box_horizontalalignment = text_box_horizontalalignment,
-            text_box_verticalalignment = text_box_verticalalignment,
-            text_box_alpha = text_box_alpha,
-        )
-        
-    if xlim is not None:
-        ax.set_xlim(xlim)
-    if ylim is not None:
-        ax.set_ylim(ylim)
-        
-        
-    if legend_title is not None and hue is not None:
-        mu.set_legend_title(ax,"Cell Type")
-    if legend_fontsize is not None and hue is not None:
-        mu.set_legend_fontsizes(ax,legend_fontsize)
-    
-    if show_at_end:
-        plt.show()
-
-    return ax
-
-def plot_connetion_type_head_vs_spine_size_by_conn_type_kde(
-    df,
-    x = "head_volume",
-    y = "synapse_size_um",
-    hue = "connection_type",
-    ax = None,
-    figsize = (7,10),
-    title = f"Syn Size vs Spine Head Volume",
-    title_fontsize = 30,
-    xlabel = "Spine Head Volume ($\mu m^3$)",
-    ylabel = f"Synapse Cleft Volume ($\mu m^3$)",
-    axes_label_fontsize = 30,
-    axes_tick_fontsize = 25,
-    palette = None,
-    kde_thresh = 0.2,
-    kde_levels = 4,
-    hue_options = None,
-    legend_title = None,
-    legend_fontsize = 20,
-    ):
-    
-    edge_df_sp_filt = pu.filter_df_by_column_percentile(
-        df,
-        columns=[x,y],
-        percentile_lower=0,
-        percentile_upper=99.5,
-    )
-
-    edge_df_sp_filt_head = edge_df_sp_filt.query(f"spine_compartment == 'head'")
-    
-
-    edge_df_sp_filt_head[x] = edge_df_sp_filt_head[x].astype('float')
-    edge_df_sp_filt_head[y] = edge_df_sp_filt_head[y].astype('float')
-
-    
-    if ax is None:
-        fig,ax = plt.subplots(1,1,figsize = figsize)
-        
-    # if palette is None:
-    #     from neurd import nature_paper_plotting as npp
-    #     palette = npp.exc_inh_combination_palette
-    
-    if hue_options is not None:
-        edge_df_sp_filt_head = edge_df_sp_filt_head.query(f"{hue} in {nu.to_list(hue_options)}")
-    
-    ax =  sns.kdeplot(
-        data = edge_df_sp_filt_head,#.query(f"{column}=='{k}'"),
-        x = x,
-        y = y,#features_to_plot[1],
-        hue = hue,
-        common_norm = False,
-        thresh=kde_thresh,
-        levels = kde_levels,
-        palette=palette,
-        ax = ax,
-    )
-    
-    ax.set_title(title,fontsize = title_fontsize)
-    ax.set_xlabel(xlabel,fontsize = axes_label_fontsize)
-    ax.set_ylabel(ylabel,fontsize = axes_label_fontsize)
-    mu.set_axes_tick_font_size(ax,fontsize=axes_tick_fontsize)
-    
-    if legend_title is None:
-        legend_title = hue.replace("_"," ").title()
-    mu.set_legend_title(
-        ax,legend_title
-    )
-    
-    mu.set_legend_fontsizes(ax,legend_fontsize)
-    
-    return ax
-
-def filter_spine_df_samples(
-    df,
-    syn_max = 4,
-    sp_comp_max = 3,
-    restrictions = None,
-    ):
-    
-    if restrictions is None:
-        restrictions= []
-    
-    restrictions += [
-        "n_heads == 1",
-        f"spine_n_spine_total_syn <= {syn_max}",
-        f"spine_n_head_syn <= {sp_comp_max}",
-        f"spine_n_neck_syn <= {sp_comp_max}",
-    ]
-    if f"gnn_cell_type_coarse" in df.columns:
-        restrictions.append(f"gnn_cell_type_coarse == cell_type")
-    
-    df = pu.query_table_from_list(
-        df,
-        restrictions
-    )
-
-    return df
 
 def number_of_columns(df):
     return [k for k in df.columns if "_n_" in k or k[:2] == 'n_']
-def convert_number_of_columns_to_dtype(df,dtype = "int"):
-    df[number_of_columns(df)] = df[number_of_columns(df)].astype(dtype)
-    return df
-def plot_spine_attribute_vs_category_from_spine_df_samples(
-    df,
-    spine_attributes = ["spine_n_head_syn","spine_n_spine_total_syn"],
-    category = "cell_type",
-    legend_dict_map = dict(
-        spine_n_head_syn =  "Spine Head",
-        spine_n_spine_total_syn = "All Spine",
-    ),
-    title_append = "(MICrONS)",
-    title = f"Cell Type vs. Average Number\n of Syn on Spine",
-    x_label = f"Average # of Synapses",
-    legend_title = "Syn Type",
-    source = "MICrONS",
-    ylabel = "Postsyn Cell Type",
-    title_fontsize = 30,
-    axes_label_fontsize = 30,
-    axes_tick_fontsize = 25,
-    legend_fontsize = 20,
-    set_legend_outside = False,
-    legend_loc = "best",
-    **kwargs
-    ):
-    """
-    Purpose: To take a sampling of the spine
-    and to plot the average number of synapses
-    on each spine vs the cell type
-    """
 
-    total_dfs = []
-    for x in spine_attributes:
-        df_samp_n_head = df[[category,x]]
-        df_samp_n_head["category"] = x
-        df_samp_n_head = pu.rename_columns(df_samp_n_head,{x:"value"})
-        total_dfs.append(df_samp_n_head)
 
-    all_df = pu.concat(total_dfs,axis = 0).reset_index(drop=True)
-    
-    if legend_dict_map is not None:
-        all_df = pu.map_column_with_dict(all_df,column = "category",dict_map = legend_dict_map,
-                                            use_default_value = False)
-
-    ax = sns.barplot(
-        data = all_df,
-        x = "value",
-        y = category,
-        hue = "category"
-    )
-
-    if title_append is not None:
-        title= f"{title} {title_append}"
-
-    ax.set_title(
-        title,fontsize = title_fontsize
-    )
-    #ax.set_xlabel("Spine Head Volume ($\mu m^3$)",fontsize = axes_label_fontsize)
-    ax.set_xlabel(f"{x_label}",fontsize = axes_label_fontsize)
-    ax.set_ylabel(f"{ylabel}",fontsize = axes_label_fontsize)
-    mu.set_axes_tick_font_size(
-        ax,fontsize=axes_tick_fontsize,
-        y_rotation=0,
-        x_rotation=0,
-        y_tick_alignment="center"
-    )
-
-    if set_legend_outside:
-        ax = mu.set_legend_outside_seaborn(ax)
-    else:
-        ax = mu.set_legend_location_seaborn(ax,legend_loc)
-#     if legend_dict_map is not None:
-#         print(f"Trying to set labels")
-#         ax = mu.set_legend_labels_with_dict(
-#             ax,
-#             legend_dict_map
-#         )
-    
-    mu.set_legend_size(ax,legend_fontsize)
-    mu.set_legend_title(ax,legend_title)
-    
-
-    
-    return ax
-
-def neuron_spine_df_from_features(
-    neuron_obj = None,
-    include_limb_branch_name = True,
-    attributes = None,
-    ):
-    
-    if attributes is None:
-        attributes = [
-            "n_faces",
-            "n_vertices",
-            "face_area_max",
-            "boundary_edges_lengths_sum",
-            "face_area_mean",
-        ]
-
-    spine_dicts = []
-    for limb_name in neuron_obj.get_limb_names():
-        for branch_idx in neuron_obj[limb_name].get_branch_names():
-            branch = neuron_obj[limb_name][branch_idx]
-            sp_objs = branch.spines_obj
-            for i,s in enumerate(sp_objs):
-                if include_limb_branch_name:
-                    local_dict = dict(limb = limb_name,branch=branch_idx,spine_idx =i)
-                else:
-                    local_dict = dict()
-                for k in attributes:
-                    local_dict[k] = getattr(s,k)
-                spine_dicts.append(local_dict)
-    
-    spine_df = pd.DataFrame.from_records(spine_dicts)
-    return spine_df
-
-def spine_objs_from_spine_df(
-    spine_df,
-    neuron_obj,
-    limb_column = "limb",
-    branch_column = "branch",
-    return_meshes = False,
-    verbose = False):
-    """
-    Purpose: extract the spine objects from a neuron obj
-    using a spine df
-    
-    Pseudocode:
-    1. group all spines on a limb and branch
-    2. extract all spine groups and put in 
-    """
-    grouped_df = spine_df.groupby(['limb', 'branch'])['spine_idx'].agg(list).reset_index()
-    spine_objs = []
-    for i in grouped_df.itertuples():
-        spine_idxs = np.unique(i.spine_idx)
-        sp_objs = [neuron_obj[i.limb][i.branch].spines_obj[k] for k in spine_idxs]
-        if sp_objs is not None:
-            if return_meshes:
-                sp_objs = [k.mesh for k in sp_objs]
-            spine_objs += sp_objs
-    
-    if verbose:
-        print(f"# of spines extracted from df = {len(spine_objs)}")
-        
-    return spine_objs
 # ----------------- Parameters ------------------------
 
 global_parameters_dict_default_spine_identification = dict(

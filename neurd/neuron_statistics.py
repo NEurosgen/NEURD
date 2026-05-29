@@ -361,27 +361,6 @@ def children_skeletal_lengths_min(limb_obj,
         return np.min(return_sk_len)
 
     
-def children_feature(limb_obj,
-                       branch_idx,
-                       feature_func,
-                       verbose = False,
-                       return_dict = True,
-                    **kwargs):
-    """
-    To compute a feature over all of the children nodes of
-    a traget branchn
-    
-    """
-    vals = dict([(k,feature_func(limb_obj,
-                                             branch_idx = k,
-                                **kwargs))
-                  for k in xu.downstream_nodes(limb_obj.concept_network_directional,branch_idx)])
-    if verbose:
-        print(f"{feature_func.__name__} values = {vals}")
-    if return_dict:
-        return vals
-    else:
-        return list(vals.values())
     
 def upstream_skeletal_length(limb_obj,
                        branch_idx,
@@ -432,16 +411,6 @@ def width_new(branch,width_new_name="no_spine_mean_mesh_center",
         return branch.width_new[width_new_name_backup]
 
 
-def width_diff_basic(limb_obj,
-                 branch_1_idx,
-                 branch_2_idx,
-                 width_func = width_new,):
-    """
-    Ex: 
-    from neurd import neuron_statistics as nst
-    nst.width_diff_percentage_basic(n_obj_syn[0],1,2)
-    """
-    return np.abs(width_func(limb_obj[branch_1_idx]) - width_func(limb_obj[branch_2_idx]))
 
 
 def parent_child_sk_angle(limb_obj,
@@ -840,80 +809,6 @@ def compute_edge_attributes_globally(G,
             xu.set_edge_attribute_defualt(G,func_name,d_value)
     return G
             
-def edges_to_delete_from_threshold_and_buffer(G,
-                                              u,
-                                              v,
-                                        edge_attribute="sk_angle",
-                                        threshold = 45,
-                                        buffer = 15,
-                                       verbose = False,
-                                             **kwargs):
-    """
-    4) Create definite pairs by looking for edges that meet:
-    - match threshold
-    - have buffer better than other edges
-    ** for those edges, eliminate all edges on those
-    2 nodes except that edge
-
-    Pseudocode: 
-    Iterate through each edge:
-    a) get the current weight of this edge
-    b) get all the other edges that are touching the two nodes and their weights
-    c) Run the following test on the edge:
-       i) Is it in the match limit
-       ii) is it less than other edge weightbs by the buffer size
-    d) If pass the tests then delete all of the other edges from the graph
-    
-    Ex: 
-    edges_to_delete = edges_to_delete_from_threshold_and_buffer(G,
-                                                            225,
-                                                            226,
-                                          threshold=100,
-                                          buffer= 13,
-                                         verbose = True)
-    """
-    #verbose = True
-    e = [u,v]
-    
-    edges_to_delete_dict = dict()
-    e = np.sort(e)
-    if verbose:
-        print(f"--Working on edge {e}-- (attribute = {edge_attribute}, buffer = {buffer}, threshold= {threshold})")
-    #e_weight = xu.get_edge_weight(G,e)
-    e_weight = G[e[0]][e[1]][edge_attribute]
-    all_edges = np.unique(
-                np.sort(
-                np.array(xu.node_to_edges(G,e[0]) + xu.node_to_edges(G,e[1])),axis=1)
-                ,axis=0)
-
-
-    #b) get all the other edges that are touching the two nodes and their weights
-    other_edges = nu.setdiff2d(all_edges,e.reshape(-1,2))
-
-    if len(other_edges) == 0:
-        other_edge_min = np.inf
-    else:
-        other_edge_weights = [G[edg[0]][edg[1]][edge_attribute] for edg in other_edges]
-        other_edge_min = np.min(other_edge_weights)
-
-    edge_buffer = other_edge_min - e_weight
-    if verbose:
-        print(f"edge_buffer = {edge_buffer} (other_edge_min = {other_edge_min}, e_weight = {e_weight})")
-    
-    if e_weight <= threshold and edge_buffer > buffer:
-        if verbose:
-            print(f"Edge {e} is matches definite match threshold with: "
-                 f"\nEdge Buffer of {edge_buffer} (buffer = {buffer})"
-                 f"\nEdge distane of {e_weight} (threshold = {threshold})")
-            print(f"other_edges = {other_edges}")
-            
-        edges_to_delete_dict = xu.edge_attribute_dict_from_edges(other_edges)
-        edges_to_keep_dict = xu.edge_attribute_dict_from_edges([e],value_to_store=False)
-        edges_to_delete_dict = xu.combine_edge_attributes([edges_to_delete_dict,edges_to_keep_dict])
-        if verbose:
-            print(f"edges_to_delete_dict = {edges_to_delete_dict}")
-        
-    return edges_to_delete_dict
 
 
 
@@ -983,41 +878,6 @@ def compute_edge_attributes_around_node(G,
             xu.set_edge_attribute_defualt(G,func_name,d_value)
     return G
             
-def edges_to_delete_on_node_above_threshold_if_one_below(G,
-                                                  node_edges,
-                                                   threshold,
-                                                   edge_attribute="sk_angle",
-                                                  verbose = False):
-    """
-    Purpose: To mark edges that should
-    be deleted if there is another node
-    that is already below the threshold
-    
-    Pseudocode:
-    1) Get the values of the attribute for all of the edges
-    2) Get the number of these values below the threshold
-    3) If at least one value below, then get the edges that are above 
-    the threshold, turn them into an edge_attribute dict and return
-    """
-    if len(node_edges) == 0:
-        return dict()
-    
-    edge_values = np.array([G[e[0]][e[1]][edge_attribute] for e in node_edges])
-    under_threshold_mask = edge_values<=threshold
-    n_below_match = np.sum(under_threshold_mask)
-    
-    if verbose:
-        print(f"for edge_values = {edge_values} \nn_below_match = {n_below_match} (with threshold = {threshold})")
-        
-    if n_below_match == 0:
-        return dict()
-    
-    node_edges = np.array(node_edges)
-    edges_to_delete = node_edges[edge_values>threshold]
-    
-    if verbose:
-        print(f"edges_to_delete = {edges_to_delete}")
-    return xu.edge_attribute_dict_from_edges(edges_to_delete)
 
 
 
@@ -1143,104 +1003,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
 def ray_trace_perc(branch_obj,percentile=85):
     return tu.mesh_size(branch_obj.mesh,'ray_trace_percentile',percentile)
 
-def min_synapse_dist_to_branch_point(limb_obj,
-    branch_idx,
-    downstream_branches= None,
-    downstream_distance=0,
-    default_value = np.inf,
-    plot_closest_synapse = False,
-    nodes_to_exclude = None,
-    synapse_type = None, #either pre or post
-    verbose = False):
-    """
-    Purpose: To check if any of the synapses on the 
-    branch or downstream branches has a synapse
-    close to the branching point
-
-    Pseudocode: 
-    2) Get all of the downstream synapses (not including the current branch)
-    3) Get all of the distances upstream
-    4) Get the synapses for the current branch
-    5) Get all fo the distances dowsntream 
-    6) Concatenate the distances
-    7) Find the minimum distance (if none then make inf)
-    
-    Ex: 
-    from neurd import neuron_statistics as nst
-    nst.min_synapse_dist_to_branch_point(limb_obj,
-        branch_idx = 16,
-        downstream_distance = 0,
-        default_value = np.inf,
-        plot_closest_synapse = True,
-        verbose = True)
-
-    """
-    #2) Get all of the downstream synapses (not including the current branch)
-    
-    if downstream_branches is None:
-        down_syn,down_nodes = cnu.synapses_downstream(limb_obj,branch_idx,
-                                   distance = downstream_distance, 
-                                   include_branch_in_dist = False,
-                                   include_branch_idx=False,
-                                    only_non_branching=False,
-                                    nodes_to_exclude=nodes_to_exclude,
-                                   plot_synapses=False,
-                                          return_nodes=True)
-    else:
-        down_nodes = downstream_branches
-        down_syn = np.concatenate([limb_obj[k].synapses for k in downstream_branches])
-    
-    if verbose:
-        print(f"down_syn = {down_syn}, down_nodes = {down_nodes}")
-        
-    if synapse_type is not None:
-        if "pre" in synapse_type:
-            synapse_type = "pre"
-        if "post" in synapse_type:
-            synapse_type = "post"
-        if verbose:
-            print(f"Downstream synapses before synapse_type: {len(down_syn)}")
-        down_syn = getattr(syu,f"synapses_{synapse_type}")(list(down_syn))
-        if verbose:
-            print(f"Downstream synapses AFTER synapse_type: {len(down_syn)}")
-        
-
-    #3) Get all of the distances upstream
-    upstream_dist = [k.upstream_dist for k in down_syn]
-
-    if verbose:
-        print(f"upstream_dist from downstreams = {upstream_dist}")
-
-    #4) Get the synapses for the current branch
-    curr_syn = nst.synapses_upstream(limb_obj,
-                                     branch_idx,
-                                     nodes_to_exclude = nodes_to_exclude)
-    
-    if synapse_type is not None:
-        if verbose:
-            print(f"Upstream synapses before synapse_type: {len(curr_syn)}")
-        curr_syn = getattr(syu,f"synapses_{synapse_type}")(list(curr_syn))
-        if verbose:
-            print(f"Upstream synapses AFTER synapse_type: {len(curr_syn)}")
-
-    downstream_dist = [k.downstream_dist for k in curr_syn]
-
-    if verbose:
-        print(f"downstream_dist from current node = {downstream_dist}")
-
-    all_dist = np.concatenate([upstream_dist,downstream_dist])
-
-    if len(all_dist) > 0:
-        min_distance_from_branch_point = np.min(all_dist)
-    else:
-        min_distance_from_branch_point = default_value
-
-    if verbose:
-        print(f"All distances: {all_dist}")
-        print(f"min_distance_from_branch_point: {min_distance_from_branch_point}")
-
-
-    return min_distance_from_branch_point
 
 
 
@@ -1375,11 +1137,6 @@ def synapses_upstream_total(limb_obj,
                                    distance=distance,
                                    only_non_branching=False,
                                        **kwargs)
-def n_synapses_upstream_total(limb_obj,
-                       branch_idx,**kwargs):
-    return len(nst.synapses_upstream_total(limb_obj,
-                            branch_idx,
-                                       **kwargs))
 
 def n_synapses_downstream_total(limb_obj,
                        branch_idx,**kwargs):
@@ -1444,47 +1201,8 @@ def synapses_pre_downstream_within_dist(limb_obj,
                             verbose = verbose,
                             **kwargs,)
 
-def n_synapses_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            distance = 5000,
-                            plot_synapses = False,
-                            verbose = False,
-                            **kwargs,):
-    return len(synapses_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            synapse_type="synapses",
-                            distance = distance,
-                            plot_synapses = plot_synapses,
-                            verbose = verbose,
-                            **kwargs,))
 
-def n_synapses_post_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            distance = 5000,
-                            plot_synapses = False,
-                            verbose = False,
-                            **kwargs,):
-    return len(synapses_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            synapse_type="synapses_post",
-                            distance = distance,
-                            plot_synapses = plot_synapses,
-                            verbose = verbose,
-                            **kwargs,))
 
-def n_synapses_pre_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            distance = 5000,
-                            plot_synapses = False,
-                            verbose = False,
-                            **kwargs,):
-    return len(synapses_downstream_within_dist(limb_obj,
-                            branch_idx,
-                            synapse_type="synapses_pre",
-                            distance = distance,
-                            plot_synapses = plot_synapses,
-                            verbose = verbose,
-                            **kwargs,))
 
 
 
@@ -1783,150 +1501,8 @@ def fork_min_skeletal_distance_from_skeletons(downstream_skeletons,
         
     return min_dist
 
-def fork_min_skeletal_distance(limb_obj,
-    branch_idx,
-    downstream_idxs = None,
-
-    #arguments for skeletons
-    skeleton_distance = 10000,
-
-    error_not_2_downstream = True,
-
-    #arguments for enforcing skipping rule for fork check
-    total_downstream_skeleton_length_threshold = 0,#3000#4000
-    individual_branch_length_threshold = 2000,#3000
-    skip_value = np.inf,
-
-    #arguments for the fork divergence measurement
-    comparison_distance = 2000,
-    offset = 700,#2000,#700,
-    skeletal_segment_size = 40,
-    plot_skeleton_restriction = False,  
-    plot_min_pair=False,
-    nodes_to_exclude = None,
-    verbose = False):
-
-    """
-    Purpose: To run the fork divergence the children
-    of an upstream node
-
-    Pseudocode: 
-    1) Get downstream nodes
-    2) Apply skeletal length restrictions if any
-    3) compute the fork skeleton min distance
-
-    Ex: 
-    from neurd import neuron_statistics as nst
-
-    upstream_branch = 68
-    downstream_branches = [55,64]
-    verbose = False
-    div = nst.fork_min_skeletal_distance(limb_obj,upstream_branch,
-                                      downstream_idxs = downstream_branches,
-                                  total_downstream_skeleton_length_threshold=0,
-                                  individual_branch_length_threshold = 0,
-                       plot_skeleton_restriction = False,
-                       verbose = verbose)
-    """
 
 
-    upstream_node = branch_idx
-
-    if downstream_idxs is None:
-        downstream_nodes = cnu.downstream_nodes(limb_obj,branch_idx)
-    else:
-        downstream_nodes = downstream_idxs
-
-    if verbose:
-        print(f"downstream_nodes = {downstream_nodes}")
-
-    upstream_sk = limb_obj[upstream_node].skeleton
-    downstream_sk = [cnu.skeleton_downstream(limb_obj,d,distance=skeleton_distance)
-                     for d in downstream_nodes]
-
-
-    return_value = None
-
-
-    if error_not_2_downstream and len(downstream_nodes) != 2:
-        raise Exception(f"Not exactly 2 downstream nodes: {downstream_nodes}")
-
-    if (total_downstream_skeleton_length_threshold is not None and
-        individual_branch_length_threshold is not None):
-        d_len = np.array([sk.calculate_skeleton_distance(limb_obj[k].skeleton) for 
-                         k in downstream_nodes])
-        d_skeletal_len = np.array([nru.skeletal_length_over_downstream_branches(limb_obj,
-                                                d,
-                                                verbose=False) for d in downstream_nodes])
-        if verbose:
-            print(f"skeletal length = {d_len}")
-            print(f"downstream skeletal length = {d_skeletal_len}")
-
-        below_threshold = np.where((d_skeletal_len<total_downstream_skeleton_length_threshold) | 
-                                   (d_len < individual_branch_length_threshold))[0]
-        if len(below_threshold) > 0:
-            if verbose:
-                print(f"Skipping this intersection because some of downstream skeletal lengths too short (min {total_downstream_skeleton_length_threshold}):")
-                print(f" or the individual branch length was too short (min {individual_branch_length_threshold})")
-                for j,(d,d_len) in enumerate(zip(downstream_nodes,d_skeletal_len)):
-                    if j in below_threshold:
-                        print(f"Brnach {d}: length {d_len}")
-
-            return_value = skip_value
-
-
-    if return_value is None:
-        
-        return_value = nst.fork_min_skeletal_distance_from_skeletons(
-                                downstream_skeletons = downstream_sk,
-                                comparison_distance = comparison_distance,
-                                offset=offset,
-                                skeletal_segment_size = skeletal_segment_size,
-                                plot_skeleton_restriction = plot_skeleton_restriction,
-                                plot_min_pair=plot_min_pair,
-                                verbose=verbose)
-    if verbose:
-        print(f"return_value = {return_value}")
-        
-    return return_value
-
-
-def shortest_distance_from_soma_multi_soma(limb_obj,
-                      branches,
-                      somas=None,
-                      include_node_skeleton_dist = False,
-                      verbose = False,
-                       return_dict = False,
-                       **kwargs
-                      ):
-    """
-    Purpose: To find the distance of a branch from the soma 
-    (if there are multiple somas it will check for shortest distance between all of them)
-    
-    Ex: 
-    nst.shortest_distance_from_soma_multi_soma(neuron_obj_exc_syn_sp[0],190)
-    """
-    singular_flag = False
-    if not nu.is_array_like(branches):
-        branches = [branches]
-        singular_flag = True
-        
-    return_d = nru.skeletal_distance_from_soma(limb_obj,
-                                                  branches=branches,
-                    somas = somas,
-                    error_if_all_nodes_not_return=True,
-                    include_node_skeleton_dist=include_node_skeleton_dist,
-                    print_flag = verbose,
-                    **kwargs)
-    
-    if return_dict:
-        return return_d
-    return_value = [return_d[k] for k in branches]
-    
-    if singular_flag:
-        return_value = return_value[0]
-        
-    return return_value
 
 def distance_from_soma(limb_obj,
                       branch_idx,
@@ -1978,120 +1554,13 @@ def distance_from_soma_euclidean(limb_obj,
     upstream_endpoint = nru.upstream_endpoint(limb_obj,branch_idx,return_endpoint_index=False)
     return np.linalg.norm(limb_obj.current_starting_coordinate - upstream_endpoint)
 
-def distance_from_soma_candidate(neuron_obj,candidate):
-    """
-    Purpose: Will return the distance of a candidate
-    
-    """
-    a = candidate 
-    limb_obj = neuron_obj[a["limb_idx"]]
-    branch_idx = a["start_node"]
-    downstream_nodes = a["branches"]
-    return  nst.distance_from_soma(limb_obj,branch_idx)
 
 
 def width_basic(branch_obj):
     return branch_obj.width
                             
     
-def farthest_dendrite_branch_from_soma(neuron_obj):
-    from neurd import neuron_searching as ns
-    dist_from_soma_df = ns.query_neuron(neuron_obj,
-                    functions_list=[ns.distance_from_soma],
-                   query="distance_from_soma > -1",
-                   return_dataframe=True,
-                    limb_branch_dict_restriction=neuron_obj.dendrite_limb_branch_dict)
-    max_distance = np.max(dist_from_soma_df["distance_from_soma"].to_numpy())
-    return dist_from_soma_df[dist_from_soma_df["distance_from_soma"] == max_distance]
 
-def trajectory_angle_from_start_branch_and_subtree(limb_obj,
-                                                  subtree_branches,
-                                                   start_branch_idx=None,
-                                                  nodes_to_exclude = None,
-                                                   downstream_distance = 10000,
-                                                plot_skeleton_before_restriction = False,
-                                                plot_skeleton_after_restriction = False,
-                                                plot_skeleton_endpoints = False,
-                                                return_max_min = False,
-                                                return_n_angles = False,
-                                                verbose = False,
-                                                  ):
-
-    """
-    Purpose: To figure out the 
-    initial trajectory of a subtree
-    of branches if given the initial 
-    branch of the subtree and all
-    the branches of the subtree
-
-    Pseudocode: 
-    1) Get all branches that are within a certain distance of the starting branch
-    2) Get the upstream coordinate of start branch
-    3) Restrict the skeleton to the downstream distance
-    4) Find all endpoints of the restricted skeleton
-    5) Calculate the vectors and angle from the top of the start coordinate and all the endpoints
-
-    Ex: 
-    nst.trajectory_angle_from_start_branch_and_subtree(
-    limb_obj = neuron_obj_exc_syn_sp[limb_idx],
-    start_branch_idx = 31,
-    subtree_branches = [31, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
-                        70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101],
-    nodes_to_exclude = nodes_to_exclude,
-    plot_skeleton_endpoints = plot_skeleton_endpoints,
-    return_max_min=True,
-    return_n_angles=True
-)
-    """
-    if start_branch_idx is None:
-        G = limb_obj.concept_network_directional
-        G_subtree = G.subgraph(subtree_branches)
-        start_branch_idx = xu.starting_node_from_DiG(G_subtree)
-        if verbose:
-            print(f"start_branch computed as {start_branch_idx} (because original set to None)")
-    
-    
-    if verbose:
-        print(f"nodes_to_exclude = {nodes_to_exclude}")
-
-    downstream_skeleton = cnu.skeleton_downstream(limb_obj,
-                                                 branch_idx = start_branch_idx,
-                                                 distance = downstream_distance,
-                                                 only_non_branching = False,
-                                                  nodes_to_exclude=nodes_to_exclude
-                                                 )
-    starting_coordinate = nru.upstream_endpoint(limb_obj,start_branch_idx)
-
-
-    restricted_sk = sk.restrict_skeleton_to_distance_from_coordinate(downstream_skeleton,
-                                                    coordinate=starting_coordinate,
-                                                    distance_threshold=downstream_distance)
-
-
-    endpoints = sk.find_skeleton_endpoint_coordinates(restricted_sk,coordinates_to_exclude = starting_coordinate)
-
-    if verbose:
-        print(f"endpoints = {endpoints}")
-
-
-    subtree_vectors = [nu.vector_from_endpoints(starting_coordinate,k) for k in endpoints] 
-    if verbose:
-        print(f"subtree_vectors = {subtree_vectors}")
-
-    subtree_angles = [nst.angle_from_top(k) for k in subtree_vectors]
-
-    if verbose:
-        print(f"subtree_angles = {subtree_angles}")
-
-    if return_max_min:
-        max_angle = np.max(subtree_angles)
-        min_angle = np.min(subtree_angles)
-        if return_n_angles:
-            return max_angle,min_angle, len(subtree_angles)
-        else:
-            return max_angle,min_angle
-    else:
-        return subtree_angles
     
 
 # ------- 7/26: To help identify axons  -----------
@@ -2100,40 +1569,6 @@ distance_away_from_endpoint= 6_000
 
 
 # ------------- 7/28: for apical -----------------
-def filter_limbs_by_soma_starting_angle(neuron_obj,
-                                       soma_angle,
-                                        angle_less_than = True,
-                                       verbose = False,
-                                       return_int_names = True):
-    """
-    Purpose: Will return the limb names that satisfy the
-    soma angle requirement
-    
-    Ex: nst.filter_limbs_by_soma_starting_angle(neuron_obj,60,verbose=True)
-    """
-    
-    if angle_less_than:
-        query = f"soma_starting_angle<={soma_angle}"
-    else:
-        query = f"soma_starting_angle>={soma_angle}"
-        
-    if verbose:
-        print(f"Restricting limbs to {query}")
-        
-    soma_center = neuron_obj["S0"].mesh_center
-    
-    possible_apical_limbs_dict = ns.query_neuron(neuron_obj,
-                    query=query,
-                   functions_list=[ns.soma_starting_angle],
-                   function_kwargs=dict(soma_center=soma_center,
-                                       verbose=verbose))
-
-    possible_apical_limbs = list(possible_apical_limbs_dict.keys())
-    
-    if return_int_names:
-        possible_apical_limbs = [nru.get_limb_int_name(k) for k in possible_apical_limbs]
-        
-    return possible_apical_limbs
 
 
 
@@ -2259,61 +1694,12 @@ def skeletal_length_over_candidate(neuron_obj,
     sk_len = nru.skeletal_length_over_limb_branch(neuron_obj,nru.nru.limb_branch_from_candidate(candidate))
     return sk_len
 
-def width_over_candidate(
-    neuron_obj,
-    candidate,
-    **kwargs):
-    
-    return nst.width_weighted_over_branches(
-        neuron_obj[candidate['limb_idx']],
-        branches = candidate['branches'],
-        **kwargs)
 
-def downstream_dist_match_ref_vector_over_candidate(neuron_obj,
-                                                    candidate,
-                                                    verbose = False,
-                                                    max_angle = 65,
-                                                   **kwargs):
-    """
-    Purpose: Measure the amount of downstream branch
-    length that is at a certain angle
-
-    1) Get all of the nodes that are downstream
-    of all of the branches
-    2) Add up the amount of distance on each
-    branch that matches the angle specified
-    
-    Ex: 
-    nst.downstream_dist_match_ref_vector_over_candidate(neuron_obj,
-                                               candidate = winning_candidates[0],max_angle=65)
-    """
-
-
-    all_downstream_branches = nru.all_downstream_branches_from_candidate(neuron_obj,
-                                                                        candidate)
-
-    if verbose:
-        print(f"all_downstream_branches = {all_downstream_branches}")
-
-    if len(all_downstream_branches) > 0:
-        angle_match_dist = np.sum([nst.skeleton_dist_match_ref_vector(neuron_obj[candidate['limb_idx']],
-                                                  branch_idx = k,
-                                                  max_angle=max_angle,
-                                                 verbose = verbose) for k in all_downstream_branches])
-    else: 
-        angle_match_dist = 0
-
-    if verbose:
-        print(f"angle_match_dist = {angle_match_dist}")
-
-    return angle_match_dist
 
 
 # ------- help with searching for labels -------------- #
 def upstream_node_is_apical_shaft(limb_obj,branch_idx,verbose,**kwargs):
     return nru.upstream_node_has_label(limb_obj,branch_idx,label="apical_shaft",verbose = verbose)
-def upstream_node_is_apical(limb_obj,branch_idx,verbose,**kwargs):
-    return nru.upstream_node_has_label(limb_obj,branch_idx,label="apical",verbose = verbose)
 
 def is_label_in_downstream_branches(limb_obj,
                                     branch_idx,
@@ -2427,44 +1813,6 @@ def skeleton_dist_match_ref_vector_sum_over_branches(limb_obj,
                                   min_angle = min_angle,)
     return sk_dist
 
-def skeleton_dist_match_ref_vector_sum_over_branches_upstream(limb_obj,
-                                                    branches,
-                                                    max_angle,
-                                                    min_angle=None,
-                                                     verbose = False,
-                                                    **kwargs):
-    return skeleton_dist_match_ref_vector_sum_over_branches(limb_obj,
-                                                    branches,
-                                                    max_angle,
-                                                    min_angle=min_angle,
-                                                     direction = "upstream",
-                                                     verbose = verbose,
-                                                    **kwargs)
-def skeleton_dist_match_ref_vector_sum_over_branches_downstream(limb_obj,
-                                                    branches,
-                                                    max_angle,
-                                                    min_angle=None,
-                                                     verbose = False,
-                                                    **kwargs):
-    """
-    Purpose: To find the skeletal length of the downstream 
-    branch portions that match a certain angle
-    
-    Ex: 
-    nst.skeleton_dist_match_ref_vector_sum_over_branches_downstream(
-    limb_obj = n_obj_2[6],
-    branches = [23,14,27],
-    max_angle = 10000,
-    min_angle = 40,
-    verbose = True)
-    """
-    return skeleton_dist_match_ref_vector_sum_over_branches(limb_obj,
-                                                    branches,
-                                                    max_angle,
-                                                    min_angle=min_angle,
-                                                     direction = "downstream",
-                                                     verbose = verbose,
-                                                    **kwargs)
 
 def stats_dict_over_limb_branch(
     neuron_obj,
@@ -2670,64 +2018,6 @@ def features_from_skeleton_and_soma_center(
 
 
 
-def branch_stats_over_limb_branch(
-    neuron_obj,
-    limb_branch_dict,
-    features = ("skeletal_length",
-               "width_with_spines",
-               "width_no_spines"),
-    stats_to_compute = ("mean","median","percentile_70"),
-    verbose = False,
-    
-    ):
-    """
-    Purpose: to compute some stats over a limb branch
-
-    Things want to find out about dendrites: 
-
-    - widths
-    - lengths
-
-    and then summary statistics about it
-    - mean/median
-    - 70th percentile
-
-    """
-    branch_lengths = nru.feature_over_limb_branch_dict(neuron_obj,
-                                                     limb_branch_dict,
-                                                     feature="skeletal_length")
-
-    branch_widths_with_spine = nru.feature_over_limb_branch_dict(neuron_obj,
-                                                     limb_branch_dict,
-                                                     feature_from_fuction=nst.width_new,
-                                                    feature_from_fuction_kwargs=dict(width_new_name = "median_mesh_center"))
-    branch_widths_no_spine = nru.feature_over_limb_branch_dict(neuron_obj,
-                                                     limb_branch_dict,
-                                                     feature_from_fuction=nst.width_new,
-                                                    feature_from_fuction_kwargs=dict(width_new_name = "no_spine_median_mesh_center"))
-    branch_data = dict(skeletal_length = branch_lengths,
-        width_with_spines = branch_widths_with_spine,
-        width_no_spines = branch_widths_no_spine)
-
-    # if verbose:
-    #     print(f"branch_widths_with_spine = {branch_widths_with_spine}")
-    #     print(f"branch_widths_no_spine = {branch_widths_no_spine}")
-
-    branch_data_stats = dict()
-    for k,v in branch_data.items():
-        if k not in features:
-            continues
-        for s in stats_to_compute:
-            s_kwargs = dict()
-            if "percentile" in s:
-                stat_name,percentile = s.split("_")
-                s_kwargs = dict(q = int(percentile))
-            else:
-                stat_name = s
-
-            branch_data_stats[f"{k}_{s}"] = getattr(np,stat_name)(v,**s_kwargs)
-
-    return branch_data_stats
     
     
     
@@ -2751,24 +2041,7 @@ def soma_distance_branch_set(neuron_obj,
             setattr(limb_obj[branch_idx],attr_name,s_dist)
             
             
-def soma_distance_skeletal_branch_set(neuron_obj,
-                                     attr_name = "soma_distance_skeletal",):
-    nst.soma_distance_branch_set(neuron_obj,attr_name=attr_name,
-                             attr_func = nst.distance_from_soma,
-                            )
     
-def soma_distance_euclidean_branch_set(neuron_obj,
-                                     attr_name = "soma_distance_euclidean",):
-    nst.soma_distance_branch_set(neuron_obj,attr_name=attr_name,
-                             attr_func = nst.distance_from_soma_euclidean,
-                            )
-def upstream_endpoint_branch_set(neuron_obj,
-                                attr_name = "upstream_endpoint"):
-    for limb_idx in neuron_obj.get_limb_node_names():
-        limb_obj = neuron_obj[limb_idx]
-        for branch_idx in limb_obj.get_branch_names():
-            starting_coordinate = nru.upstream_endpoint(limb_obj,branch_idx)
-            setattr(limb_obj[branch_idx],attr_name,starting_coordinate)
             
 def centroid_stats_from_neuron_obj(neuron_obj,
                                   voxel_adjustment_vector=None,
@@ -2854,68 +2127,8 @@ def skeleton_stats_compartment(
         
     return return_dict
         
-def skeleton_stats_dendrite(
-    neuron_obj,
-    **kwargs):
-    return nst.skeleton_stats_compartment(
-            neuron_obj,
-            compartment="dendrite",
-            **kwargs)
-def skeleton_stats_axon(
-    neuron_obj,
-    **kwargs):
-    return nst.skeleton_stats_compartment(
-            neuron_obj,
-            compartment="axon",
-            **kwargs)
 
 
-def width_near_branch_endpoint(
-    limb_obj,
-    branch_idx,
-    endpoint = None, # if None then will select most upstream endpoint of branch
-
-    #parameters for the restriction
-    offset=0,
-    comparison_distance=2000,
-    skeleton_segment_size=1000,
-    verbose = False,
-    ):
-    """
-    Purpose: To compute the width of a branch
-    around a comparison distance and offset of an endpoint
-    on it's skeleton
-
-    """
-    if endpoint is None:
-        endpoint = nru.closest_branch_endpoint_to_limb_starting_coordinate(
-            limb_obj=limb_obj,
-            branches=[branch_idx],
-        )
-
-    if verbose:
-        print(f"endpoint = {endpoint}")
-
-
-    (base_final_skeleton,
-    base_final_widths,
-    base_final_seg_lengths) = nru.align_and_restrict_branch(limb_obj[branch_idx],
-                              common_endpoint=endpoint,
-                             offset=offset,
-                             comparison_distance=comparison_distance,
-                             skeleton_segment_size=skeleton_segment_size,
-                              verbose=False,
-                             )
-
-
-    branch_width = np.mean(base_final_widths)
-    overall_ais_width = limb_obj[branch_idx].width_new
-    if verbose:
-        print(f"base_final_widths = {base_final_widths}")
-        print(f"overall_branch_width = {overall_ais_width}")
-        print(f"branch_width = {branch_width}")
-        
-    return branch_width
 
 # --------------s / 9 ---------------
 def farthest_distance_from_skeleton_to_mesh(
@@ -2968,30 +2181,6 @@ def coordinates_function_list(
         [f"{k}_{x}" for x in ["x","y","z"]] for k in coordinates
     ])
 
-def coordinates_stats_df(
-    neuron_obj,
-    coordinates = None,
-    limb_branch_dict_restriction = None,
-    verbose = False
-    ):
-    """
-    Purpose: To create a dataframe of centers 
-    for a limb branch
-
-    """
-    functions_list=nst.coordinates_function_list(coordinates)
-    
-    if (np.any(["endpoint" in k for k in functions_list])):
-        bu.set_branches_endpoints_upstream_downstream_idx(neuron_obj)
-
-
-    coordinates_df = nst.stats_df(
-        neuron_obj,
-        functions_list=functions_list,
-        limb_branch_dict_restriction=limb_branch_dict_restriction
-    )
-
-    return coordinates_df
 
 def stats_df(
     neuron_obj,
@@ -3142,18 +2331,6 @@ def neuron_stats(
 
     return stats_dict
 
-def branch_stats_dict_from_df(df,limb_name,branch_idx):
-    """
-    Ex: limb_df = nst.stats_df(neuron_obj,
-        functions_list=[eval(f"lu.{k}_{ns.limb_function_append_name}") 
-                        for k in ctcu.branch_attrs_limb_based_for_G])
-
-    limb_name = "L0"
-    branch_name = 4
-    nst.branch_stats_dict_from_df(limb_df,limb_name,branch_name)
-    """
-    limb_name = nru.get_limb_string_name(limb_name)
-    return pu.df_to_dicts(pu.delete_columns(df.query(f"(limb=='{limb_name}') and (node == {branch_idx})"),["limb","node"]))[0]
 
 def euclidean_distance_from_soma_limb_branch(
     neuron_obj,
@@ -3204,67 +2381,8 @@ def euclidean_distance_from_soma_limb_branch(
     
     return lb_dict
 
-def euclidean_distance_close_to_soma_limb_branch(
-    neuron_obj,
-    distance_threshold = 10_000,
-    verbose = False,
-    plot = False,
-    ):
+
     
-    return nst.euclidean_distance_from_soma_limb_branch(
-    neuron_obj,
-    less_than = True,
-    distance_threshold = distance_threshold,
-    verbose = verbose,
-    plot = plot,
-    )
-
-def euclidean_distance_farther_than_soma_limb_branch(
-    neuron_obj,
-    distance_threshold = 10_000,
-    verbose = False,
-    plot = False,
-    ):
-    
-    return nst.euclidean_distance_from_soma_limb_branch(
-    neuron_obj,
-    less_than = False,
-    distance_threshold = distance_threshold,
-    verbose = verbose,
-    plot = plot,
-    )
-    
-def coordinate_with_deepest_y_over_branches(branches,verbose = True):
-    """
-    Purpose: 
-    --------
-    to get the coordinates with deepest y coordinate of the skeletons of a set of branch objects
-    
-    Application
-    -----------
-    1) get the lowest point at which an axon-like branch descends into the volume 
-    --> for use in axon identification
-
-    Pseudocode
-    ----------
-    1) get the skeletons for all branches
-    2) concatenate all of the vertices
-    3) find the minimum v coordinate
-
-    Parameters
-    ---------
-    branches: list of branch objects
-        
-    """
-    sk_verts = np.vstack([k.skeleton.reshape(-1,3) for k in branches])
-
-    # because y increases as you go down in the volume
-    deepest_idx = np.argmax(sk_verts[:,1])
-    deepest_coord = sk_verts[deepest_idx]
-    if verbose:
-        print(f"deepest_coord = {deepest_coord}")
-
-    return deepest_coord
 
 
 # -- 5/9 Addition for computing more statistics
@@ -3424,66 +2542,6 @@ def branch_limb_computed_dict(
     return branch_dict
 
 
-def limb_node_stats_dict(
-    neuron_obj,
-    default_value = None,
-    catch_errors = True,
-    ):
-    """
-    Purpose
-    -------
-    To generate a dictionary of node names to new features using
-    neuron_searching.generate_neuron_dataframe, branch_attributes, branch function, limb functions
-    
-    Pseudocode
-    ----------
-    1. Run the generate_neuron_dataframe function for the entire neuron
-    2. Change the dataframe into a limb_node_dict
-    
-    3. Iterate through the limbs and branches
-        - create a local dict
-        a. iterate through the branch attributes and export those to local dict
-        b. iterate through branch functions and add to local dict
-        c. iterate through branch dict functions
-        d. iterate through limb functions
-        e. update the limb_node_dict with local func
-    """
-    from . import (
-        branch_utils as bu,
-        limb_utils as lu
-    )
-    
-    limb_node_dict = limb_node_query_dict(neuron_obj)
-    limb_node_dict
-    
-    for limb_name in neuron_obj.get_limb_node_names():
-        limb = neuron_obj[limb_name]
-        for branch_idx in limb.get_branch_names():
-            
-            local_dict = dict()
-            branch = limb[branch_idx]
-    
-            # computes the branch dict
-            branch_dict = branch_computed_dict(
-                branch,
-                default_value = default_value,
-                catch_errors=catch_errors,
-            )  
-    
-            # compute limb assisted branch attributes
-            limb_dict = branch_limb_computed_dict(
-                limb,
-                branch_idx,
-                default_value = default_value,
-                catch_errors=catch_errors,
-            )  
-    
-            # update all attributes in dict
-            name = f"{limb_name}_{branch_idx}"
-            limb_node_dict[name].update(branch_dict)
-            limb_node_dict[name].update(limb_dict)
-    
-    return limb_node_dict
 
 
 def limb_branches_aggr_features(
@@ -3667,29 +2725,6 @@ def parent_node_features(
                             for k,v in branch_dict.items()}
     return branch_dict
 
-def parent_and_downstream_branches_feature_dict(
-    limb,
-    parent_idx,
-    branches,
-):
-    if len(branches) > 0:
-        downstream_attr_dict = nst.limb_branch_avg_and_sum_features(
-            limb,
-            branches)
-        downstream_attr_dict = {f"downstream_{k}":v for k,v in downstream_attr_dict.items()}
-    else:
-        downstream_attr_dict = {}
-        
-    if parent_idx is not None:
-        parent_dict = nst.parent_node_features(
-            limb,
-            branch_idx = parent_idx,
-            default_value = None,)
-    else:
-        parent_dict = {}
-    
-    total_dict = dict(**downstream_attr_dict,**parent_dict)
-    return total_dict
 
 
 # ----------------- Parameters ------------------------
