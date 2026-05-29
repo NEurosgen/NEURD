@@ -73,10 +73,10 @@ data_type="microns") через `segmentation_pipeline` и пинит контр
 | Модуль | LOC | Статус |
 |---|---|---|
 | `neuron.py` | 3455 | Очищен от syu/apu/au/clu/ssu/pru/nviz |
-| `neuron_utils.py` | 9584 | Очищен от au/clu/apu/ed/pru/syu/nviz |
-| `neuron_searching.py` | 2080 | Очищен от syu/au/clu/ed/nviz; ~35 мёртвых wrapper-функций удалено |
-| `neuron_statistics.py` | 3727 | Очищен от apu/au/syu/ed/ipvu/mcu/mvu/hvu |
-| `spine_utils.py` | 6442 | Очищен от syu/apu/ctu/nviz; bau-функции инлайнены |
+| `neuron_utils.py` | **5834** | Фаза 9: −3750 LOC мёртвых функций (было 9584) |
+| `neuron_searching.py` | **1816** | Фаза 9: −264 LOC (было 2080) |
+| `neuron_statistics.py` | **2180** | Фаза 9: −1547 LOC (было 3727) |
+| `spine_utils.py` | **3419** | Фаза 9: −3023 LOC (было 6442); bau-функции инлайнены |
 | `branch_utils.py` | 1610 | Очищен от syu/au/bau |
 | `concept_network_utils.py` | 1758 | Очищен от au/syu/nviz |
 | `limb_utils.py` | 742 | Очищен от au/nst/nviz |
