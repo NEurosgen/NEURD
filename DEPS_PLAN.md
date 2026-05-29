@@ -140,9 +140,20 @@ simplification / spine head-neck-shaft packaging) не нужны.
 `*_old`-варианты, `plot_*` от удалённой визуализации). Gate: unit 59 passed;
 характеризационный тест 4 passed (контракт декомпозиции не сломан).
 
-Что НЕ трогали: динамически-диспетчеризуемые query-функции и остальные core-файлы
-(`neuron`, `preprocess_neuron`, `branch_utils`, `concept_network_utils`, …) — следующий
-заход, если нужно.
+**Второй заход** — остальные core-файлы (тот же метод, +защита `^output_global_parameters`):
+
+| Файл | LOC до | LOC после |
+|---|---|---|
+| `limb_utils.py` | 1610 | 742 (в осн. autoproof-хелперы углов/ширины) |
+| `branch_utils.py` | 2339 | 1610 (вкл. `refine_width_array_…` — умер с stage 3) |
+| `concept_network_utils.py` | 2175 | 1758 |
+| `preprocess_neuron.py` | 5544 | 5193 (`high_fidelity_axon_*`, floating-mesh dist) |
+| `width_utils.py` | 639 | 548 (вскрыт каскадом) |
+
+`neuron.py` / `soma_extraction_utils.py` — module-level функции все живые/защищены (0).
+Gate: unit 59 passed; характеризационный тест 4 passed.
+
+**Итог Фазы 9 (оба захода):** `neurd/` ~38k → **~27.4k LOC** (−~10.7k).
 
 ---
 
@@ -175,6 +186,6 @@ simplification / spine head-neck-shaft packaging) не нужны.
 | Метрика | До (старт) | Фаза 5 | Фаза 6 | Фаза 7 | Фаза 9 |
 |---|---|---|---|---|---|
 | Файлов `neurd/*.py` | 44 | 39 | 17 | 16 | **16** |
-| LOC `neurd/` | ~55k | — | ~38k | ~38k | **~29.6k** |
+| LOC `neurd/` | ~55k | — | ~38k | ~38k | **~27.4k** |
 | Unit-тестов passed | 81 | 74 | 60 | 59 | **59** (1 skipped) |
 | Характеризационный тест | — | — | — | — | **4 passed** |

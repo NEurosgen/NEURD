@@ -5,7 +5,7 @@
 
 См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md).
 
-**Текущий размер:** `neurd/` — 16 файлов `*.py`, ~29.6k строк (после Фазы 9 dead-code).
+**Текущий размер:** `neurd/` — 16 файлов `*.py`, ~27.4k строк (после Фазы 9 dead-code).
 **Unit-тесты:** 59 passed, 0 failed, 1 skipped. **Характеризационный тест:** 4 passed.
 
 ---
@@ -47,9 +47,9 @@ code_structure_tools     → code_structure_tools
 |---|---|---|
 | [neuron.py](neurd/neuron.py) | 3455 | Классы `Neuron`, `Limb`, `Branch`, `Soma` |
 | [neuron_utils.py](neurd/neuron_utils.py) | 5834 | Утилиты нейрона (самый импортируемый) |
-| [branch_utils.py](neurd/branch_utils.py) | 1610 | Утилиты ветвей |
-| [limb_utils.py](neurd/limb_utils.py) | 742 | Утилиты лимбов |
-| [concept_network_utils.py](neurd/concept_network_utils.py) | 1758 | Граф-утилиты концепт-сети |
+| [branch_utils.py](neurd/branch_utils.py) | 1610 | Утилиты ветвей (Фаза 9: было 2339) |
+| [limb_utils.py](neurd/limb_utils.py) | 742 | Утилиты лимбов (Фаза 9: было 1610) |
+| [concept_network_utils.py](neurd/concept_network_utils.py) | 1758 | Граф-утилиты концепт-сети (было 2175) |
 | [width_utils.py](neurd/width_utils.py) | 548 | Расчёт ширины ветвей |
 | [parameter_utils.py](neurd/parameter_utils.py) | 877 | Загрузка JSON/py-конфигов |
 
@@ -155,5 +155,6 @@ Core-модули их не импортировали; gate `pytest tests/unit/
 2. **Замена `meshlabserver`** на in-process (open3d/trimesh) — Decimator, Poisson, FillHoles, Interior.
    Теперь безопасно: контракт декомпозиции запинен тестом.
 3. **Оптимизация памяти** — `Branch.__init__` делает deepcopy submesh (главный драйвер RAM).
-4. ✅ **Dead-code в 4 больших файлах** срезан (Фаза 9, −8584 LOC). Осталось: остальные core-файлы
-   (`neuron`, `preprocess_neuron`, `branch_utils`, …) + распутывание клубка (18 циклов module-load).
+4. ✅ **Dead-code срезан во всех core-файлах** (Фаза 9, оба захода, −~10.7k LOC до ~27.4k).
+   Zero-ref дальше нет. Осталось: распутывание клубка (18 циклов module-load) — это рефактор,
+   не удаление; и более глубокий reachability-анализ (функции, живые только из мёртвых веток).
