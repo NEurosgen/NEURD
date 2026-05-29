@@ -83,9 +83,6 @@ def n_faces_branch(curr_branch,name=None,branch_name=None,**kwargs):
 def width(curr_branch,name=None,branch_name=None,**kwargs):
     return curr_branch.width
 
-@run_options(run_type="Branch")
-def width_neuron(curr_branch,name=None,branch_name=None,**kwargs):
-    return nru.width(curr_branch)
 
 @run_options(run_type="Branch")
 def skeleton_distance_branch(curr_branch,name=None,branch_name=None,**kwargs):
@@ -135,9 +132,6 @@ def n_boutons_above_thresholds(branch,limb_name=None,branch_name=None,**kwargs):
     
 
 # ---------- new possible widths ----------------- #
-@run_options(run_type="Branch")
-def mean_mesh_center(branch,limb_name=None,branch_name=None,**kwargs):
-    return branch.width_new["mean_mesh_center"]
 
 @run_options(run_type="Branch")
 def median_mesh_center(branch,limb_name=None,branch_name=None,**kwargs):
@@ -156,9 +150,6 @@ def no_spine_median_mesh_center(branch,limb_name=None,branch_name=None,**kwargs)
 
 
 
-@run_options(run_type="Branch")
-def no_spine_width(branch,limb_name=None,branch_name=None,**kwargs):
-    return branch.width_new["no_spine_average"]
 
 @run_options(run_type="Branch")
 def no_spine_average_mesh_center(branch,limb_name=None,branch_name=None,**kwargs):
@@ -177,15 +168,6 @@ def spine_density(branch,limb_name=None,branch_name=None,**kwargs):
 
 
 # ----------- working with different labels -----------------#
-@run_options(run_type="Branch")
-def matching_label(branch,limb_name=None,branch_name=None,**kwargs):
-    poss_labels = kwargs["labels"]
-    match_flag = False
-    for l in poss_labels:
-        if l in branch.labels:
-            match_flag = True
-            break
-    return match_flag
 
 @run_options(run_type="Branch")
 def labels_restriction(branch,limb_name=None,branch_name=None,**kwargs):
@@ -217,9 +199,6 @@ def labels_restriction(branch,limb_name=None,branch_name=None,**kwargs):
 def labels(branch,limb_name=None,branch_name=None,**kwargs):
     return branch.labels
 
-@run_options(run_type="Branch")
-def axon_label(branch,limb_name=None,branch_name=None,**kwargs):
-    return "axon" in branch.labels
 
 @run_options(run_type="Branch")
 def is_axon(branch,limb_name=None,branch_name=None,**kwargs):
@@ -321,13 +300,7 @@ def limb_error_branches(curr_limb,limb_name=None,**kwargs):
     node_names = np.array(list(curr_limb.concept_network.nodes()))
     return dict([(k,k in error_nodes) for k in node_names])
 
-@run_options(run_type="Limb")
-def average_branch_length(curr_limb,limb_name=None,**kwargs):
-    return np.mean([sk.calculate_skeleton_distance(curr_limb.concept_network.nodes[k]["data"].skeleton) for k in curr_limb.concept_network.nodes()])
 
-@run_options(run_type="Limb")
-def test_limb(curr_limb,limb_name=None,**kwargs):
-    return 5
 
 
 @run_options(run_type="Limb")
@@ -403,71 +376,12 @@ axon_width_like_functions_list = [
 ]
 
 
-def axon_width_like_segments_old(current_neuron,
-                      current_query=None,
-                      current_functions_list=None,
-                             include_ais=False,
-                             axon_merge_error=False,
-                             verbose=False,
-                             width_to_use=None):
-    """
-    Will get all of
-    
-    """
-    
-    if current_functions_list is None:
-        current_functions_list = axon_width_like_functions_list
-    if current_query is None:
-        if not width_to_use is None:
-            width_expression  = f"(median_mesh_center < {width_to_use})"
-        else:
-            if include_ais:
-                width_expression = ais_axon_width_like_requirement
-            else:
-                width_expression = axon_width_like_requirement
-        current_query = axon_width_like_query(width_expression)
-        
-    if axon_merge_error:
-        print(f"width_expression = {width_expression}")
-        current_query = axon_merge_error_width_like_query(width_expression)
-        
-    if verbose:
-        print(f"current_query = {current_query}")
-        
-    limb_branch_dict = query_neuron(current_neuron,
-                                       #query="n_spines < 4 and no_spine_average_mesh_center < 400",
-                                       query=current_query,
-                                       #return_dataframe=True,
-                   functions_list=current_functions_list)
-    return limb_branch_dict
 
 # ------------- 1//22: Addition that accounts for newer higher fidelity spining --------- #
 
 
 
 
-def axon_segments_after_checks(neuron_obj,
-                               include_ais=True,
-                               downstream_face_threshold=3000,
-                                width_match_threshold=50,
-                               plot_axon=False,
-                               **kwargs):
-    
-    axon_like_limb_branch_dict = axon_width_like_segments(neuron_obj,
-                                                         include_ais=include_ais,
-                                                         **kwargs)
-    
-    current_functions_list = ["axon_segment"]
-    final_axon_like_classification = ns.query_neuron(neuron_obj,
-
-                                       query="axon_segment==True",
-                                       function_kwargs=dict(limb_branch_dict =axon_like_limb_branch_dict,
-                                                            downstream_face_threshold=downstream_face_threshold,
-                                                            width_match_threshold=width_match_threshold,
-                                                           print_flag=False),
-                                       functions_list=current_functions_list)
-    
-    return final_axon_like_classification
 
 
 
@@ -1540,17 +1454,6 @@ def n_downstream_nodes(curr_limb,limb_name=None,nodes_to_exclude=None,**kwargs):
         
     return output_dict
 
-@run_options(run_type="Limb")
-def n_downstream_nodes_with_skip(curr_limb,limb_name=None,
-                                 **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        curr_downstream_nodes = cnu.endnode_branches_of_branches_within_distance_downtream(curr_limb,
-                                                                                           b,
-                                                                                          **kwargs)
-        output_dict[b] = len(curr_downstream_nodes)
-        
-    return output_dict
 
 
 
@@ -1561,41 +1464,6 @@ def n_downstream_nodes_with_skip(curr_limb,limb_name=None,
 
     
 
-@run_options(run_type="Limb")
-def width_jump(curr_limb,limb_name=None,
-               width_name="no_bouton_median",
-               width_name_backup="no_spine_median_mesh_center",
-               width_name_backup_2 = "median_mesh_center",
-               **kwargs):
-    """
-    Purpose: To measure the width jump from the upstream node
-    to the current node
-    
-    Effect: For axon, just seemed to pick up on the short segments and ones that had boutons
-    that were missed
-    
-    """
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        
-        upstream_node = xu.upstream_node(curr_limb.concept_network_directional,b)
-        
-        if upstream_node is None:
-            output_dict[b] = 0
-        else:
-            try:
-                width_jump = (curr_limb[b].width_new[width_name] -
-                        curr_limb[upstream_node].width_new[width_name])
-            except:
-                try:
-                    width_jump = (curr_limb[b].width_new[width_name_backup] -
-                        curr_limb[upstream_node].width_new[width_name_backup])
-                except:
-                    width_jump = (curr_limb[b].width_new[width_name_backup_2] -
-                        curr_limb[upstream_node].width_new[width_name_backup_2])
-            output_dict[b] = width_jump
-        
-    return output_dict
 
 
 
@@ -1667,41 +1535,7 @@ def parent_angle_extra_offset(
             
     return output_dict
 
-@run_options(run_type="Limb")
-def sibling_angle_min(curr_limb,limb_name=None,
-                      comparison_distance=comparison_distance_global,
-               **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        try:
-            sibling_angles = list(nru.find_sibling_child_skeleton_angle(curr_limb,
-                                                                   b,
-                                                                comparison_distance=comparison_distance,
-                                         ).values())
-            min_sib_angle = np.min(sibling_angles)
-        except:
-            min_sib_angle = 0
-            
-        output_dict[b] = min_sib_angle
-    return output_dict
 
-@run_options(run_type="Limb")
-def sibling_angle_max(curr_limb,limb_name=None,
-                      comparison_distance=comparison_distance_global,
-               **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        try:
-            sibling_angles = list(nru.find_sibling_child_skeleton_angle(curr_limb,
-                                                                   b,
-                                                                        comparison_distance=comparison_distance,
-                                         ).values())
-            min_sib_angle = np.max(sibling_angles)
-        except:
-            min_sib_angle = 0
-            
-        output_dict[b] = min_sib_angle
-    return output_dict
 
 # @run_options(run_type="Limb")
 # def n_downstream_nodes(curr_limb,limb_name=None,
@@ -1713,14 +1547,6 @@ def sibling_angle_max(curr_limb,limb_name=None,
         
 #     return output_dict
 
-@run_options(run_type="Limb")
-def n_siblings(curr_limb,limb_name=None,
-               **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        output_dict[b] = len(xu.sibling_nodes(curr_limb.concept_network_directional,b))
-        
-    return output_dict
 
 @run_options(run_type="Limb")
 def children_skeletal_lengths_min(curr_limb,limb_name=None,
@@ -1732,20 +1558,6 @@ def children_skeletal_lengths_min(curr_limb,limb_name=None,
         
     return output_dict
 
-@run_options(run_type="Limb")
-def two_children_angle(curr_limb,limb_name=None,
-                       comparison_distance=comparison_distance_global,
-               **kwargs):
-    output_dict = dict()
-    limb_branch_dict_restriction = kwargs["limb_branch_dict_restriction"]
-    for b in curr_limb.get_branch_names():
-        if limb_branch_dict_restriction is not None:
-            if b not in limb_branch_dict_restriction[limb_name]:
-                output_dict[b] = None
-                continue
-        output_dict[b] = list(nst.child_angles(curr_limb,b,comparison_distance=comparison_distance).values())[0]
-        
-    return output_dict
 
 
 
@@ -1830,38 +1642,6 @@ def total_upstream_skeletal_length(curr_limb,limb_name=None,
                              **kwargs
                             )
 
-def restrict_by_branch_and_upstream_skeletal_length(neuron_obj,
-                                                   limb_branch_dict_restriction=None,
-                                                   plot_initial_limb_branch_restriction = False,
-                                                    branch_skeletal_length_min = 6000,
-                                                plot_branch_skeletal_length_min = False,
-                                                upstream_skeletal_length_min = 10000,
-                                                plot_upstream_skeletal_length_min = False,
-                                                    include_branch = False,
-                                                ):
-    """
-    Purpose: Will restrict a neuron by the skeletal 
-    length of individual branches and the amount of 
-    skeleton upstream
-    """
-    if limb_branch_dict_restriction is None:
-        limb_branch_dict_restriction = neuron_obj.limb_branch_dict
-    
-
-    if branch_skeletal_length_min is not None:
-        limb_branch_dict_restriction = ns.query_neuron(neuron_obj,
-                                                      functions_list = ["skeletal_length"],
-                                query=f"skeletal_length > {branch_skeletal_length_min}",
-                                    limb_branch_dict_restriction=limb_branch_dict_restriction)
-            
-    if upstream_skeletal_length_min is not None:
-        limb_branch_dict_restriction = ns.query_neuron(neuron_obj,
-                                                      functions_list = ["total_upstream_skeletal_length"],
-                                query=f"total_upstream_skeletal_length > {upstream_skeletal_length_min}",
-                                                       function_kwargs = dict(include_branch=include_branch),
-                                    limb_branch_dict_restriction=limb_branch_dict_restriction)
-
-    return limb_branch_dict_restriction
 
 
 # ---------- 6/9: Synapse Features --------------#
@@ -2055,9 +1835,6 @@ def set_limb_functions_for_search(
 def max_skeleton_endpoint_dist(curr_branch,name=None,branch_name=None,**kwargs):
     return curr_branch.max_skeleton_endpoint_dist
 
-@run_options(run_type="Branch")
-def bend_max_smooth(curr_branch,name=None,branch_name=None,**kwargs):
-    return bu.bend_max_on_branch_skeleton(curr_branch)
 
 #--- from neurd_packages ---
 from . import branch_utils as bu
