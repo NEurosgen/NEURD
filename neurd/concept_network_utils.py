@@ -905,9 +905,6 @@ def width_upstream_downstream(limb_obj,
     nodes_to_exclude = None,
     **kwargs):
     
-    if width_func is None:
-        width_func = au.axon_width
-    
     return cnu.weighted_attribute_upstream_downstream(limb_obj,
                                           branch_idx,
                                           direction=direction,
@@ -1029,9 +1026,6 @@ def width_upstream(limb_obj,
     nodes_to_exclude = None,)
     """
     
-    if width_func is None:
-        width_func = au.axon_width
-    
     return width_upstream_downstream(limb_obj,
     branch_idx,
     direction="upstream",
@@ -1056,9 +1050,6 @@ def width_downstream(limb_obj,
     width_attribute = None,
     nodes_to_exclude = None,
     **kwargs):
-    
-    if width_func is None:
-        width_func = au.axon_width
     
     return width_upstream_downstream(limb_obj,
     branch_idx,
@@ -1205,44 +1196,6 @@ def synapse_density_upstream_downstream(limb_obj,
     nodes_to_exclude=nodes_to_exclude,
      **kwargs)
 
-    
-def synapse_density_upstream(limb_obj,
-    branch_idx,
-    distance = np.inf,
-    only_non_branching=True,
-    include_branch_in_dist = True,
-    include_branch_idx = True,
-    verbose = False,
-    synapse_density_type = "synapse_density",
-    nodes_to_exclude = None,
-    filter_away_zero_widths = True,
-                              **kwargs):
-    """
-    cnu.width_downstream(limb_obj,
-    branch_idx = 65,
-    distance = np.inf,
-    only_non_branching=False,
-    include_branch_in_dist = True,
-    include_branch_idx = True,
-    verbose = False,
-    width_func = au.axon_width,
-    width_attribute = None,
-    return_nodes = False,
-    nodes_to_exclude = None,
-    filter_away_zero_widths = True,)
-    """
-    
-    return synapse_density_upstream_downstream(limb_obj,
-    branch_idx,
-    direction="upstream",
-    distance = distance,
-    only_non_branching=only_non_branching,
-    include_branch_in_dist = include_branch_in_dist,
-    include_branch_idx = include_branch_idx,
-    verbose = verbose,
-    synapse_density_type=synapse_density_type,
-    nodes_to_exclude = nodes_to_exclude,
-    **kwargs)
 
 def synapse_density_downstream(limb_obj,
     branch_idx,
@@ -1790,7 +1743,6 @@ def downstream_nodes_with_skip_distance(
     return downstream_nodes
 
 #--- from neurd_packages ---
-from . import axon_utils as au   
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
 from . import width_utils as wu  

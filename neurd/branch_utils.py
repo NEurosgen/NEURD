@@ -1211,10 +1211,10 @@ def width_diff_entire_branch(
     ):
     
     if width_func is None:
-        width_func = au.axon_width
-        
+        raise ValueError("width_func must be provided (axon-classification removed from slim path)")
+
     obj1,obj2 = limb_obj[branch_1],limb_obj[branch_2]
-    
+
     b1_width,b2_width= width_func(obj1),width_func(obj2)
     min_width,max_width = min(b1_width,b2_width),max(b1_width,b2_width)
     if verbose:
@@ -1398,7 +1398,7 @@ def all_width_values(
     ):
     
     if width_functions is None:
-        width_functions = [au.axon_width]
+        width_functions = []
     
     width_dict = {k:getattr(branch_obj,k,default_value) for k in width_attributes}
     for func in width_functions:
@@ -1596,7 +1596,6 @@ from . import spine_utils as spu
 
 from . import width_utils as wu
 from . import neuron_statistics as nst
-from . import axon_utils as au
 
  
 

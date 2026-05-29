@@ -5025,127 +5025,6 @@ def branches_within_skeletal_distance(limb_obj,
 
     return viable_downstream_nodes
 
-def low_branch_length_clusters(neuron_obj,
-                              max_skeletal_length = 8000,
-                                min_n_nodes_in_cluster = 4,
-                               width_max = None,
-                               skeletal_distance_from_soma_min = None,
-                               use_axon_like_restriction = False,
-                               verbose=False,
-                               remove_starting_node = True,
-                               limb_branch_dict_restriction = None,
-                               plot = False,
-                               
-                               **kwargs
-                                ):
-
-    """
-    Purpose: To find parts of neurons with lots of nodes
-    close together on concept network with low branch length
-    
-    Pseudocode:
-    1) Get the concept graph of a limb 
-    2) Eliminate all of the nodes that are too long skeletal length
-    3) Divide the remaining axon into connected components
-    - if too many nodes are in the connected component then it is
-    an axon mess and should delete all those nodes
-    
-    Application: Helps filter away axon mess
-
-    """
-    
-    if verbose:
-        print(f"max_skeletal_length = {max_skeletal_length}")
-        print(f"min_n_nodes_in_cluster= {min_n_nodes_in_cluster}")
-        print(f"limb_branch_dict_restriction = {limb_branch_dict_restriction}")
-    
-    use_deletion=False
-    
-    curr_neuron_obj=neuron_obj
-
-    if width_max is None:
-        width_max = np.inf
-        
-    if skeletal_distance_from_soma_min is None:
-        skeletal_distance_from_soma_min = -1
-
-    limb_branch_dict = dict()
-    
-    
-    
-    # ---------- Getting the restriction that we will check over ---- #
-    if use_axon_like_restriction:
-        axon_limb_branch_dict = clu.axon_like_limb_branch_dict(curr_neuron_obj)
-    else:
-        axon_limb_branch_dict = limb_branch_dict_restriction
-        
-    if verbose:
-        print(f"limb_branch_dict_restriction before query = {limb_branch_dict_restriction}")
-    
-
-    if not use_deletion:
-        limb_branch_restriction = ns.query_neuron(curr_neuron_obj,
-                        functions_list=["skeletal_length",
-                                        "median_mesh_center",
-                                       "skeletal_distance_from_soma"],
-                       query = ( f" (skeletal_length < {max_skeletal_length}) and "
-                               f" (median_mesh_center < {width_max}) "
-                               f" and (skeletal_distance_from_soma > {skeletal_distance_from_soma_min})"),
-                       limb_branch_dict_restriction=axon_limb_branch_dict)
-        if verbose:
-            print(f"limb_branch_restriction = {limb_branch_restriction}")
-    else:
-        limb_branch_restriction = nru.neuron_limb_branch_dict(curr_neuron_obj)
-
-
-    for limb_name,nodes_to_keep in limb_branch_restriction.items():
-        curr_limb = curr_neuron_obj[limb_name]
-        curr_starting_node = curr_neuron_obj[limb_name].current_starting_node
-        
-        if verbose:
-            print(f"--- Working on Limb {limb_name} ---")
-
-        if use_deletion:
-        #1) Get the branches that are below a certain threshold
-            nodes_to_delete = [jj for jj,branch in enumerate(curr_limb) 
-                               if ((curr_limb[jj].skeletal_length > max_skeletal_length ))]
-
-            if verbose:
-                print(f"nodes_to_delete = {nodes_to_delete}")
-
-            #2) Elimnate the nodes from the concept graph
-            G_short = nx.Graph(curr_limb.concept_network)
-            G_short.remove_nodes_from(nodes_to_delete)
-        
-        else:
-            #2) Elimnate the nodes from the concept graph
-            G= nx.Graph(curr_limb.concept_network)
-            G_short = G.subgraph(nodes_to_keep)
-
-            if verbose:
-                print(f"nodes_to_keep = {nodes_to_keep}")
-
-        
-        #3) Divide the remaining graph into connected components
-        conn_comp = [list(k) for k in nx.connected_components(G_short)]
-
-        potential_error_branches = []
-
-        for c in conn_comp:
-            if remove_starting_node:
-                c = np.array(c)
-                c = c[c != curr_starting_node]
-                
-            if len(c) > min_n_nodes_in_cluster:
-                potential_error_branches += list(c)
-
-        #4)  If found any error nodes then add to limb branch dict
-        if len(potential_error_branches) > 0:
-            limb_branch_dict[limb_name] = potential_error_branches
-
-            
-    return limb_branch_dict
-
 def neuron_limb_branch_dict(neuron_obj):
     """
     Purpose: To develop a limb branch dict represnetation
@@ -5918,53 +5797,6 @@ def synapse_skeletal_distances_to_soma(neuron_obj,
         
     return np.array(synapse_to_soma_distance)
 
-def axon_length(neuron_obj,
-                units="um"):
-    
-    axon_limb_branch_dict = clu.axon_limb_branch_dict(neuron_obj)
-    
-    axon_skeletal_length = nru.sum_feature_over_limb_branch_dict(neuron_obj,
-                                     limb_branch_dict=axon_limb_branch_dict,
-                                     feature="skeletal_length")
-    if units == "um":
-        axon_skeletal_length = axon_skeletal_length/1000
-        
-    return axon_skeletal_length
-
-def axon_area(neuron_obj,
-                units="um"):
-    
-    axon_limb_branch_dict = clu.axon_limb_branch_dict(neuron_obj)
-    
-    axon_mesh_area = nru.sum_feature_over_limb_branch_dict(neuron_obj,
-                                         limb_branch_dict=axon_limb_branch_dict,
-                                         feature="area")
-    if units == "nm":
-        axon_mesh_area = axon_mesh_area*1_000_000
-        
-    return axon_mesh_area
-
-
-def axon_mesh(neuron_obj):
-    axon_limb_branch_dict = clu.axon_limb_branch_dict(neuron_obj)
-    axon_meshes = nru.feature_over_limb_branch_dict(neuron_obj,axon_limb_branch_dict,
-                                     feature="mesh")
-    return tu.combine_meshes(axon_meshes)
-
-def dendrite_mesh(neuron_obj):
-    limb_branch_dict = clu.dendrite_limb_branch_dict(neuron_obj)
-    meshes = nru.feature_over_limb_branch_dict(neuron_obj,limb_branch_dict,
-                                     feature="mesh")
-    return tu.combine_meshes(meshes)
-    
-
-def axon_skeleton(neuron_obj):
-    axon_limb_branch_dict = clu.axon_limb_branch_dict(neuron_obj)
-    axon_meshes = nru.feature_over_limb_branch_dict(neuron_obj,axon_limb_branch_dict,
-                                     feature="skeleton")
-    return sk.stack_skeletons(axon_meshes)
-    
-    
 def shared_skeleton_endpoints_for_connected_branches(limb_obj,
                                                     branch_1,
                                                     branch_2,
@@ -8228,7 +8060,7 @@ def n_branches_over_limb_branch_dict(neuron_obj,
     Purpose: to count up the number of branches in a compartment
     
     nru.n_branches_over_limb_branch_dict(neuron_obj_proof,
-                                    apu.oblique_limb_branch_dict(neuron_obj_proof))
+                                    limb_branch_dict)
     """
     return nru.sum_feature_over_limb_branch_dict(neuron_obj,
                                                 limb_branch_dict,
@@ -10012,7 +9844,6 @@ attributes_dict_h01 = dict(
 
 #--- from neurd_packages ---
 
-from . import classification_utils as clu
 from . import concept_network_utils as cnu
 from . import error_detection as ed
 from . import h01_volume_utils as hvu
