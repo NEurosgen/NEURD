@@ -200,9 +200,6 @@ def labels(branch,limb_name=None,branch_name=None,**kwargs):
     return branch.labels
 
 
-@run_options(run_type="Branch")
-def is_axon(branch,limb_name=None,branch_name=None,**kwargs):
-    return "axon" in branch.labels
 
 
 @run_options(run_type="Branch")
@@ -303,25 +300,6 @@ def limb_error_branches(curr_limb,limb_name=None,**kwargs):
 
 
 
-@run_options(run_type="Limb")
-@run_options(run_type="Limb")
-
-def skeletal_distance_from_soma_excluding_node(curr_limb,
-                    limb_name = None,
-                    somas = None,
-                    error_if_all_nodes_not_return=True,
-                    print_flag = False,
-                    **kwargs
-                            
-    ):
-    
-    return nru.skeletal_distance_from_soma(curr_limb,
-                    limb_name = None,
-                    somas = None,
-                    error_if_all_nodes_not_return=True,
-                    include_node_skeleton_dist=False,
-                    print_flag = False,
-                    **kwargs)
 
 @run_options(run_type="Limb")
 def skeletal_distance_from_soma(curr_limb,
@@ -346,23 +324,7 @@ def skeletal_distance_from_soma(curr_limb,
 
 
 
-def axon_width_like_query(width_to_use):
-    axon_width_like_query = (
-                    #f"(n_spines < 4 and {width_to_use} and skeleton_distance_branch <= 15000)"
-                    f"(n_spines < 4 and {width_to_use} and skeleton_distance_branch <= 25000)"
-                    #f" or (skeleton_distance_branch > 15000 and {width_to_use} and spines_per_skeletal_length < 0.00023)"
-                    f" or (skeleton_distance_branch > 25000 and {width_to_use} and spines_per_skeletal_length < 0.00015)"
-                            
-                            )
-    return axon_width_like_query
 
-def axon_merge_error_width_like_query(width_to_use):
-   
-
-    axon_width_like_query = (f"((n_spines < 2) and ((n_spines < 3 and {width_to_use} and skeleton_distance_branch <= 25000)"
-    #f" or (skeleton_distance_branch > 15000 and {width_to_use} and spines_per_skeletal_length < 0.00023)"
-    f" or (skeleton_distance_branch > 25000 and {width_to_use} and spines_per_skeletal_length < 0.00015)))")
-    return axon_width_like_query
     
 
 axon_width_like_functions_list = [
@@ -1831,9 +1793,6 @@ def set_limb_functions_for_search(
 
 # --- for better controlling stitching errors --
 
-@run_options(run_type="Branch")
-def max_skeleton_endpoint_dist(curr_branch,name=None,branch_name=None,**kwargs):
-    return curr_branch.max_skeleton_endpoint_dist
 
 
 #--- from neurd_packages ---

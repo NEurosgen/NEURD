@@ -255,56 +255,6 @@ def fork_divergence_from_branch(limb_obj,
     return return_value
 
 
-def child_angles(limb_obj,
-    branch_idx,
-    verbose = False,
-    comparison_distance=1500,
-    ):
-
-    """
-    Purpose: To measure all of the angles betweent he children nodes
-
-    Psuedocode: 
-    1) Get the downstream nodes --> if none or one then return empty dictionary
-
-    For all downstream nodes:
-    2) choose one of the downstream nodes and send to nru.find_sibling_child_skeleton_angle
-    3) create a dictionary with the nodes in a tuple as the key and the angle between 
-    them as the values
-
-    will error if more than 2 children current
-    
-    Ex: 
-    nst.child_angles(limb_obj = neuron_obj[6],
-    branch_idx = 22,
-    verbose = False,
-    )
-
-    """
-
-
-
-
-    #1) Get the downstream nodes --> if none or one then return empty dictionary
-    downstream_n = xu.downstream_nodes(limb_obj.concept_network_directional,
-                            branch_idx)
-
-    if len(downstream_n) in [0,1]:
-        return {}
-    elif len(downstream_n) > 2:
-        raise Exception(f"Not implemented for number of children more than 2 and currently there are {len(downstream_n) }")
-    else:
-        pass
-
-    #2) choose one of the downstream nodes and send to nru.find_sibling_child_skeleton_angle
-    sibling_angles = nru.find_sibling_child_skeleton_angle(limb_obj,
-                                         downstream_n[0],
-                                            comparison_distance=comparison_distance)
-    return_dict = {(downstream_n[0],k):v for k,v in sibling_angles.items()}
-
-    if verbose:
-        print(f"return_dict= {return_dict}")
-    return return_dict
 
 
 def angle_from_top(vector,
@@ -1426,80 +1376,13 @@ def compute_node_attributes_upstream_downstream(G,
     return G
 
 
-def synapse_closer_to_downstream_endpoint_than_upstream(branch_obj):
-    """
-    Purpose: Will indicate if there is a synapse that is closer to the downstream endpoint than upstream endpoint
-    
-    """
-    return_value = False
-    for syn in branch_obj.synapses:
-        if syn.downstream_dist < syn.upstream_dist:
-            return_value = True
-    
-    return return_value
 
 
     
 
-def downstream_upstream_diff_of_most_downstream_syn(branch_obj,
-                                                   default_value = 0):
-    """
-    Purpose: Determine the difference between 
-    the closest downstream dist and 
-    the farthest upstream dist
-
-    Pseudocode: 
-    1) Get the synapse with min of downstream dist
-    2) Get the difference between downstream dist and upstream dist
-    3) Return the difference
-    """
-    return_value = default_value
-    syns = branch_obj.synapses
-    if len(syns) > 0:
-        d_dists = np.array([k.downstream_dist for k in syns])
-        syn_idx = np.argmin(d_dists)
-        d_min = d_dists[syn_idx]
-        u_max = syns[syn_idx].upstream_dist
-        return_value = d_min - u_max
-    return return_value
 
 
 # ------------ New Filter: 7/8 ----------
-def fork_min_skeletal_distance_from_skeletons(downstream_skeletons,
-                                             comparison_distance = 3000,
-                                             offset = 700,
-                                              skeletal_segment_size = 40,
-                                             verbose = False,
-                                             plot_skeleton_restriction=False,
-                                              plot_min_pair = False
-                                             ):
-    """
-    Purpose: To determine the min distance from two diverging
-    skeletons with an offset
-    """
-    joining_endpoint_1 = sk.shared_coordiantes(downstream_skeletons,
-                                 return_one=True)
-
-    d_skeletons_resized = [sk.resize_skeleton_branch(k,segment_width=skeletal_segment_size)
-                              for k in downstream_skeletons]
-
-    new_sks = [sk.restrict_skeleton_from_start_plus_offset(k,
-                                               offset = offset,
-                                               comparison_distance = comparison_distance,
-                                                start_coordinate = joining_endpoint_1,
-                                               ) for k in d_skeletons_resized]
-
-
-    distances_between_skeletons = sk.closest_distances_from_skeleton_vertices_to_base_skeleton(new_sks[0],
-                                                              new_sks[1],
-                                                              verbose= verbose,
-                                                              plot_min_pair=plot_min_pair)
-    min_dist = np.min(distances_between_skeletons)
-    if verbose:
-        print(f"min_dist= {min_dist}")
-        print(f"distances_between_skeletons = {distances_between_skeletons}")
-        
-    return min_dist
 
 
 
@@ -1540,19 +1423,6 @@ def distance_from_soma(limb_obj,
         
     return return_value
 
-def distance_from_soma_euclidean(limb_obj,
-                                branch_idx,):
-    """
-    Will return the euclidean distance of the upstream endpoint
-    to the starting coordinate of the limb
-    
-    Ex: 
-    branch_idx = 0
-    limb_obj = neuron_obj_proof[0]
-    nst.distance_from_soma_euclidean(limb_obj,branch_idx)
-    """
-    upstream_endpoint = nru.upstream_endpoint(limb_obj,branch_idx,return_endpoint_index=False)
-    return np.linalg.norm(limb_obj.current_starting_coordinate - upstream_endpoint)
 
 
 
@@ -1767,51 +1637,8 @@ def is_axon_in_downstream_branches(limb_obj,
 
 
 # ---------- Functions over upstream and downstream branches ----------- #
-def width_weighted_over_branches(limb_obj,
-                                branches,
-                                 width_func = None,
-                                verbose = False):
-    """
-    Purpose: Find weighted width over branches
-
-    Ex: 
-    nst.width_weighted_over_branches(n_obj_2[6],
-                                branches = [24,2])
-    """
-    if width_func is None:
-        width_func = nst.width_new
-        
-    weight_width = cnu.weighted_feature_over_branches(limb_obj = limb_obj,
-                                branches =branches,
-                               direction=None,
-                               verbose = verbose,
-                               feature_function=width_func
-    )
-    
-    return weight_width
 
 
-def skeleton_dist_match_ref_vector_sum_over_branches(limb_obj,
-                                                    branches,
-                                                    max_angle,
-                                                    min_angle=None,
-                                                     direction = None,
-                                                     verbose = False,
-                                                    **kwargs):
-    """
-    Purpose: Find the amount of upstream skeletal distance
-    that matches a certain angle
-
-    """
-    sk_dist = cnu.sum_feature_over_branches(limb_obj = limb_obj,
-                                branches =branches,
-                               direction=direction,
-                               verbose = verbose,
-                               feature_function=nst.skeleton_dist_match_ref_vector,
-                                  use_limb_obj_and_branch_idx = True,
-                                  max_angle=max_angle,
-                                  min_angle = min_angle,)
-    return sk_dist
 
 
 def stats_dict_over_limb_branch(
@@ -2022,23 +1849,6 @@ def features_from_skeleton_and_soma_center(
     
     
 #-------------- 12/9 Developed for work with cell typing -----------------
-def soma_distance_branch_set(neuron_obj,
-                                     attr_name,
-                                     attr_func,
-                                    ):
-    """
-    Purpose: Will set the skeletal distance to soma
-    on each branch
-    
-    Pseudocode: 
-    1) iterate through all of the limbs and branches
-    2) Find the distnace from soma and store
-    """
-    for limb_idx in neuron_obj.get_limb_node_names():
-        limb_obj = neuron_obj[limb_idx]
-        for branch_idx in limb_obj.get_branch_names():
-            s_dist = attr_func(limb_obj,branch_idx)
-            setattr(limb_obj[branch_idx],attr_name,s_dist)
             
             
     
@@ -2108,24 +1918,6 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
     
     return sk_dict
 
-def skeleton_stats_compartment(
-    neuron_obj,
-    compartment,
-    include_compartmnet_prefix=True,
-    include_centroids = False,
-    **kwargs):
-    
-    limb_branch_dict = getattr(neuron_obj,f"{compartment}_limb_branch_dict")
-    return_dict = nst.skeleton_stats_from_neuron_obj(
-        neuron_obj,
-        limb_branch_dict = limb_branch_dict,
-        include_centroids=include_centroids,
-        **kwargs
-        )
-    if include_compartmnet_prefix:
-        return_dict = {f"{compartment}_{k}":v for k,v in return_dict.items()}
-        
-    return return_dict
         
 
 
@@ -2332,54 +2124,6 @@ def neuron_stats(
     return stats_dict
 
 
-def euclidean_distance_from_soma_limb_branch(
-    neuron_obj,
-    less_than = False,
-    distance_threshold = 10_000,
-    endpoint_type = "downstream",
-    verbose = False,
-    plot = False,
-    ):
-    """
-    Purpose: Find limb branch dict within or
-    farther than a certain euclidean distance
-    from all the soma pieces
-
-    Pseudocode: 
-    1) get the upstream endpoints of all
-    """
-   
-    
-
-    bu.set_branches_endpoints_upstream_downstream_idx(neuron_obj)
-    soma_kd = tu.mesh_to_kdtree(neuron_obj["S0"].mesh)
-
-
-
-    lb_dict = dict()
-    for limb_idx in neuron_obj.get_limb_names():
-        limb_obj = neuron_obj[limb_idx]
-        for branch_idx in limb_obj.get_branch_names():
-            branch_obj = limb_obj[branch_idx]
-            dist,__ = soma_kd.query(getattr(branch_obj,f"endpoint_{endpoint_type}").reshape(-1,3))
-            if less_than:
-                add_flag = dist[0] < distance_threshold
-            else:
-                add_flag = dist[0] >= distance_threshold
-
-            if add_flag:
-                if limb_idx not in lb_dict:
-                    lb_dict[limb_idx] = []
-                lb_dict[limb_idx].append(branch_idx)
-
-                if verbose:
-                    print(f"Adding {limb_idx}, {branch_idx} because dist {dist[0]}")
-
-
-    lb_dict = {k:np.array(v) for k,v in lb_dict.items()}
-    
-    
-    return lb_dict
 
 
     
@@ -2388,342 +2132,15 @@ def euclidean_distance_from_soma_limb_branch(
 # -- 5/9 Addition for computing more statistics
 
 
-def limb_node_query_dict(neuron_obj):
-    search_features = [
-        ns.n_synapses_pre,
-        ns.synapse_pre_perc,
-        ns.axon_width,
-        ns.n_spines,
-        ns.n_synapses_post_spine,
-        ns.skeletal_length,
-        ns.closest_mesh_skeleton_dist,
-        ns.area,
-        
-        ns.synapse_pre_perc_downstream,
-        ns.n_synapses_downstream,
-        ns.n_synapses_post_downstream,
-        
-        ns.width_new,ns.skeletal_length,
-        ns.n_synapses_post_downstream,
-        ns.closest_mesh_skeleton_dist,
-        ns.skeletal_length_downstream,
-        ns.area,
-        
-        ns.is_axon_in_downstream_branches,
-        
-        # -- myelination --
-        ns.synapse_density_post,
-        ns.axon_width,
-        #ns.is_axon_like,
-        ns.is_axon,
-        ns.distance_from_soma,
-        ns.skeletal_length_downstream,
-    ]
-    
-    feature_strs = [
-        "ray_trace_perc","skeletal_length","n_downstream_nodes",
-        "n_synapses_post","n_synapses_pre","n_faces_branch",
-        "synapse_closer_to_downstream_endpoint_than_upstream",
-        "downstream_upstream_diff_of_most_downstream_syn",
-        "axon_width","skeletal_length",
-        "n_downstream_nodes",
-        "ray_trace_perc",
-        "parent_width",
-        "total_upstream_skeletal_length",
-    ]
-    
-    ns_features_from_str = [getattr(ns,k) for k in feature_strs]
-    
-    search_features = list(set(search_features + ns_features_from_str))
-    
-    search_df = ns.generate_neuron_dataframe(
-        neuron_obj,
-        functions_list=search_features
-    )
-    
-    def df_to_dict_iter(df):
-        result = {}
-        for _, row in df.iterrows():
-            key = f"{row['limb']}_{row['node']}"
-            # build a sub-dict of all other columns
-            value = {col: row[col] for col in df.columns if col not in ('limb', 'node')}
-            result[key] = value
-        return result
-    
-    # usage
-    limb_node_dict = df_to_dict_iter(search_df)
-    return limb_node_dict
-
-def branch_computed_dict(
-    branch,
-    default_value = None,
-    catch_errors = False,):
-
-    branch_dict = {}
-        
-    branch_attributes = [
-        "width_downstream_extra_offset",
-        "width_upstream_extra_offset",
-        "max_skeleton_endpoint_dist",
-        "skeleton_smooth_vector_downstream_extra_offset",
-        "skeleton_smooth_vector_upstream_extra_offset",
-        "skeleton_smooth_vector_downstream",
-        "skeleton_smooth_vector_upstream",
-    ]
-    
-    from . import branch_utils as bu
-
-    for b_att in branch_attributes:
-        try:
-            branch_dict[b_att] = getattr(branch,b_att)
-        except:
-            if not catch_errors:
-                raise e
-            branch_dict[b_att] = default_value
-    
-    branch_functions = [
-        bu.width_min,
-        bu.width_max,
-    ]
-
-    for b_func in branch_functions:
-        try:
-            branch_dict[b_func.__name__] = b_func(branch)
-        except Exception as e:
-            if not catch_errors:
-                raise e
-            branch_dict[b_func.__name__] = default_value
-        
-
-    branch_dict_functions = [
-        bu.internal_bend_dict_func,
-    ]
-
-    for b_dict_func in branch_dict_functions:
-        try:
-            branch_dict.update(b_dict_func(branch))
-        except:
-            if not catch_errors:
-                raise e
-            pass
-
-    return branch_dict
-
-def branch_limb_computed_dict(
-    limb,
-    branch_idx,
-    default_value = None,
-    catch_errors = False,):
-
-    branch_dict = {}
-    
-    from . import limb_utils as lu
-        
-    branch_functions = [
-        lu.downstream_endnode_skeletal_distance_from_soma,
-        lu.sibling_angle_smooth_max,
-        lu.sibling_angle_smooth_min,
-        lu.sibling_angle_smooth_extra_offset_max,
-        lu.sibling_angle_smooth_extra_offset_min,
-        lu.n_children_with_skip_distance,
-        lu.n_children,
-        lu.parent_skeletal_angle_smooth,
-        lu.parent_skeletal_angle_smooth_extra_offset,
-    ]
-
-
-    for b_func in branch_functions:
-        try:
-            branch_dict[b_func.__name__] = b_func(limb,branch_idx)
-        except Exception as e:
-            if not catch_errors:
-                raise e
-            branch_dict[b_func.__name__] = default_value
-    return branch_dict
 
 
 
 
-def limb_branches_aggr_features(
-    limb,
-    branches,
-    features,
-    aggr_type = "sum",
-    default_value = None,
-    add_aggr_suffix = True,
-):
-        
-        
-    def value_and_name(branch,feat):
-        value = None
-        if type(feat) == str:
-            value = getattr(branch,feat,default_value)
-            if value == default_value:
-                func = getattr(ns,feat,None)
-                if func is None:
-                    func = getattr(nst,feat,None)
-                    
-                if func is not None:
-                    value = func(branch)
-            name = feat
-        else:
-            value = feat(branch)
-            name = feat.__name__
-            
-        return name,value
-    
-        
-    records = []
-    for branch_idx in branches:
-        local_dict= dict()
-        branch = limb[branch_idx]
-        for feat in features:
-            name,value = value_and_name(branch,feat)
-            local_dict[name] = value
-        
-        records.append(local_dict)
-                
-    df = pd.DataFrame.from_records(records)
-    
-    func = getattr(df,aggr_type)
-    branch_attr_dict = func(skipna=True,numeric_only=True).to_dict()
-    
-    if add_aggr_suffix:
-        branch_attr_dict = {f"{k}_{aggr_type}":v 
-                                for k,v in branch_attr_dict.items()}
-    return branch_attr_dict 
 
-def limb_branch_sum_features(
-    limb,
-    branches,
-    features=None,
-    default_value = None,
-    **kwargs
-):
-    
-    if features is None:
-        features = [
-            "area",
-            "mesh_volume",
-            'n_spines',
-            'n_synapses',
-            'n_synapses_head',
-            'n_synapses_neck',
-            'n_synapses_no_head',
-            'n_synapses_post',
-            'n_synapses_pre',
-            'n_synapses_shaft', 
-            'n_synapses_spine',
-            "skeletal_length",
-            'total_spine_volume',
-            #bu.width_min,
-            #bu.width_max,
-            
-        ]
-    
-    return limb_branches_aggr_features(
-        limb,
-        branches,
-        features=features,
-        aggr_type = "sum",
-        default_value = default_value,
-        **kwargs
-    ) 
-    
-def limb_branch_avg_and_sum_features(
-    limb,
-    branches,
-    add_aggr_suffix = True,
-    **kwargs
-):
-    avg_dict = limb_branch_avg_features(
-        limb,
-        branches,
-        add_aggr_suffix=add_aggr_suffix,
-        **kwargs
-    )
-    
-    sum_dict = limb_branch_sum_features(
-        limb,
-        branches,
-        add_aggr_suffix=add_aggr_suffix,
-        **kwargs
-    )
-    
-    return dict(**avg_dict,**sum_dict)
 
-def parent_node_features(
-    limb,
-    branch_idx,
-    default_value = None,
-    add_parent_prefix = True,
-    ):
-    """
-    Purpose
-    -------
+
     
-    Generate a an attribute dictionary of attributes for a node
-    that serves as the parent of a list of downstream nodes
-    
-    Pseudocode
-    ----------
-    1. Compute the 
-    """
-    from . import limb_utils as lu
-    
-    branch = limb[branch_idx]
-    def get_branch_attr(branch,feat):
-        try:
-            return getattr(branch,feat)
-        except:
-            return default_value
-    
-    def get_limb_branch_attr(limb_obj,branch_idx,func):
-        try:
-            return func(limb_obj,branch_idx)
-        except:
-            return None
-            
-    branch_attr = [
-        "width_downstream",
-        "width_upstream",
-        'min_dist_synapses_pre_upstream',
-         'min_dist_synapses_post_upstream',
-         'min_dist_synapses_pre_downstream',
-         'min_dist_synapses_post_downstream',
-        "max_skeleton_endpoint_dist",
-    ]
-    branch_dict = {k:get_branch_attr(branch,k) 
-                   for k in branch_attr}
-    
-    standard_branch_dict = nst.limb_branch_avg_and_sum_features(
-        limb,[branch_idx],add_aggr_suffix = False)
-    
-    branch_dict.update(standard_branch_dict)
-    
-    limb_branch_funcs = [
-        nst.distance_from_soma,
-        
-        lu.siblings_skeletal_angle_max,
-        lu.siblings_skeletal_angle_min,
-        lu.children_skeletal_angle_max,
-        lu.children_skeletal_angle_min,
-        lu.sibling_angle_smooth_max,
-        lu.sibling_angle_smooth_min,
-        lu.sibling_angle_smooth_extra_offset_max,
-        lu.sibling_angle_smooth_extra_offset_min,
-        lu.downstream_endnode_skeletal_distance_from_soma,
-    ]
-    
-    limb_dict = {k.__name__:get_limb_branch_attr(limb,branch_idx,k) 
-                    for k in limb_branch_funcs}
-    
-    branch_dict.update(limb_dict)
-    
-    if add_parent_prefix:
-        branch_dict  = {f"parent_{k}":v 
-                            for k,v in branch_dict.items()}
-    return branch_dict
+
 
 
 
