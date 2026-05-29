@@ -1232,7 +1232,7 @@ def set_branch_synapses_head_neck_shaft(branch_obj,
     if branch_obj.synapses is not None and len(branch_obj.synapses)>0:
         mesh_kd = tu.mesh_kdtree_face(branch_obj.mesh)
 
-        synapse_coords = np.array(syu.synapses_to_coordinates(branch_obj.synapses)).reshape(-1,3)
+        synapse_coords = np.array([s.coordinate for s in branch_obj.synapses]).reshape(-1,3)
 
         dist,closest_face = mesh_kd.query(synapse_coords)
  
@@ -3119,7 +3119,7 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
     """
     Will compute a lot of the properties of 
     spine objects that are equivalent to those
-    computed in syu.add_valid_synapses_to_neuron_obj
+    computed in add_valid_synapses_to_neuron_obj
 
     The attributes include
 
@@ -4570,28 +4570,7 @@ def synapse_df_with_spine_match(
     )
 
 
-    syn_df = syu.synapse_df(branch_obj.synapses)
-    if len(syn_df) > 0:
-        # mapping synapses to spines
-        syn_df[[spine_id_column,spine_compartment_column]] = face_idx_map[
-            syn_df["closest_branch_face_idx"].to_numpy(),:].astype('int')
-
-        syn_df = syn_df.query(f"{spine_compartment_column} != {spu.id_from_compartment_index('shaft')}")
-        if len(syn_df) > 0:
-            # appending features to spines
-            if attributes_to_append is not None:
-                attributes_to_append = nu.to_list(attributes_to_append)
-
-                for att in attributes_to_append:
-                    if verbose:
-                        print(f"-- Working on adding {att} to synapse df")
-                    syn_df[attribute_rename_dict.get(att,att)] = [getattr(spu,f"{att}_from_compartment")(
-                        spine_obj = spine_objs[sp_idx],
-                        compartment = comp,
-                    ) for sp_idx,comp in syn_df[[spine_id_column,spine_compartment_column]].to_numpy()]
-
-
-            
+    syn_df = pd.DataFrame()
 
     if verbose:
         print(f"# of synases = {len(syn_df)}")
@@ -6776,7 +6755,7 @@ from . import cell_type_utils as ctu
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import synapse_utils as syu
+
 from . import width_utils as wu
 
 #--- from mesh_tools ---

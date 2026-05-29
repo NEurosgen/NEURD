@@ -256,9 +256,8 @@ def combine_branches(
 
         
     #------ adjusting the synapses ------------------
-    synapses_to_add = [syu.adjust_obj_with_face_offset(k,face_offset)
-                     for k in b_d.synapses]
-    
+    synapses_to_add = []
+
     if debug_time:
         print(f"synapses offset: {time.time() - st}")
         st = time.time()
@@ -387,10 +386,6 @@ def combine_branches(
     bu.set_endpoints_upstream_downstream_idx_from_upstream_coordinate(b_obj,upstream_coordinate)
     up_idx = b_obj.endpoints_upstream_downstream_idx[0]
     
-    for syn in b_obj.synapses:
-        syu.calculate_endpoints_dist(b_obj,syn)
-        syu.calculate_upstream_downstream_dist_from_up_idx(syn,up_idx=up_idx)
-        
     if b_obj.spines_obj is not None:
         for sp in b_obj.spines_obj:
             spu.calculate_endpoints_dist(b_obj,sp)
@@ -1598,7 +1593,7 @@ attributes_dict_h01 = dict()
 from . import branch_attr_utils as bau
 from . import neuron_utils as nru
 from . import spine_utils as spu
-from . import synapse_utils as syu
+
 from . import width_utils as wu
 from . import neuron_statistics as nst
 from . import axon_utils as au

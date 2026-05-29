@@ -1925,30 +1925,6 @@ def restrict_by_branch_and_upstream_skeletal_length(neuron_obj,
 
 # ---------- 6/9: Synapse Features --------------#
 
-@run_options(run_type="Branch")
-def n_synapses(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses(curr_branch)
-
-@run_options(run_type="Branch")
-def synapse_density(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_density(curr_branch)
-
-@run_options(run_type="Branch")
-def n_synapses_pre(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses_pre(curr_branch)
-
-@run_options(run_type="Branch")
-def n_synapses_post(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses_post(curr_branch)
-
-@run_options(run_type="Branch")
-def synapse_density_pre(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_density_pre(curr_branch)
-
-@run_options(run_type="Branch")
-def synapse_density_post(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_density_post(curr_branch)
-
 
 # ----------- 6/21: v6 statistics -----------
 @run_options(run_type="Limb")
@@ -2024,9 +2000,6 @@ def n_synapses_downstream_within_dist(curr_limb,limb_name=None,
 
 
 # --------- 7/19: Helping with the new E/I classification --------
-@run_options(run_type="Branch")
-def synapse_post_perc(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_post_perc(curr_branch)
 
 @run_options(run_type="Limb")
 def distance_from_soma(curr_limb,limb_name=None,
@@ -2040,76 +2013,6 @@ def distance_from_soma(curr_limb,limb_name=None,
                             )
 
 # --------- 7/20: for the axon error segments ----- #
-@run_options(run_type="Branch")
-def synapse_pre_perc(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_pre_perc(curr_branch)
-
-@run_options(run_type="Limb")
-def synapse_pre_perc_downstream(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(syu.synapse_pre_perc_downstream,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def synapse_post_perc_downstream(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(syu.synapse_post_perc_downstream,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def n_synapses_post_downstream(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(syu.n_synapses_post_downstream,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def n_synapses_pre_downstream(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(syu.n_synapses_pre_downstream,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def n_synapses_downstream(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(syu.n_synapses_downstream,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Branch")
-def n_synapses_spine(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses_spine(curr_branch)
-
-@run_options(run_type="Branch")
-def n_synapses_post_head(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses_post_head(curr_branch)
-
-@run_options(run_type="Branch")
-def n_synapses_post_spine(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.n_synapses_post_spine(curr_branch)
 
 
 @run_options(run_type="Branch")
@@ -2247,10 +2150,6 @@ def closest_mesh_skeleton_dist(curr_branch,name=None,branch_name=None,**kwargs):
 def area(curr_branch,name=None,branch_name=None,**kwargs):
     return curr_branch.area
 
-@run_options(run_type="Branch")
-def synapse_density_post(curr_branch,name=None,branch_name=None,**kwargs):
-    return syu.synapse_density_post(curr_branch)
-
 # ------------- skeletal angles -------------
 @run_options(run_type="Limb")
 def is_branch_mesh_connected_to_neighborhood(curr_limb,limb_name=None,
@@ -2331,8 +2230,7 @@ from . import concept_network_utils as cnu
 from . import error_detection as ed
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import synapse_utils
-from . import synapse_utils as syu
+
 from . import width_utils as wu
 
 axon_width_like_requirement = clu.axon_width_like_requirement
