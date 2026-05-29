@@ -6,7 +6,6 @@ spine_utils` work without `datajoint`/`dotmotif`/`caveclient` installed:
   (was used before its import on line 2370).
 - PRE-2: `dj_utils` is lazily imported inside `spine_utils` (upstream
   `raise e(...)` bug fires only when `datajoint` is missing).
-- PRE-3: `dotmotif_utils` is lazily imported inside `graph_filters`.
 
 If any core module regresses to a module-load dependency on a broken/optional
 chain, the corresponding import below fails.
