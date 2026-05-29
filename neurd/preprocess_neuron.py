@@ -2,9 +2,7 @@
 import copy
 from copy import deepcopy
 import itertools
-from importlib import reload
 import matplotlib.pyplot as plt
-from meshparty import trimesh_io
 
 import networkx as nx
 from scipy.spatial import KDTree
@@ -42,81 +40,9 @@ process_version = 10 #no skeleton jumping hopefully
 min_distance_threshold = 0.00001
 
 #--------------- default arguments to use ----------#
-def plot_correspondence(
-    mesh,
-    correspondence,
-    idx_to_show = None,
-    submesh_from_face_idx = True,
-    verbose = True,
-    ):
-    """
-    Purpose: Want to plot mesh correspondence first pass
 
-    Pseudocode: 
-    For each entry:
-    1) Plot mesh (from idx)
-    2) plot skeleton
-    """
-
-    if idx_to_show is None:
-        idx_to_show = list(correspondence.keys())
-
-    idx_to_show = nu.array_like(idx_to_show)
-
-    for k,v in correspondence.items():
-        if k not in idx_to_show:
-            continue
-
-        try:
-            submesh_idx = v["correspondence_face_idx"]
-        except:
-            submesh_idx = v["branch_face_idx"]
-        subskeleton = v["branch_skeleton"]
-        if verbose:
-            print(f"For branch {k}: # of mesh faces = {len(submesh_idx)}, skeleton length = {sk.calculate_skeleton_distance(subskeleton)}")
-        if submesh_from_face_idx:
-            submesh = mesh.submesh([submesh_idx],append=True)
-        else:
-            try:
-                submesh = v["correspondence_mesh"]
-            except:
-                submesh = v["branch_mesh"]
-
-        nviz.plot_objects(
-            mesh,
-            subskeleton,
-            meshes = [submesh],
-            meshes_colors = ["red"],
-            buffer = 0,
-        )
         
 
-def plot_correspondence_on_single_mesh(
-    mesh,
-    correspondence,
-    ):
-    """
-    Purpose: To plot the correspondence dict
-    once a 1 to 1 was generated
-
-    """
-
-    try:
-        meshes = [k["branch_mesh"] for k in correspondence.values()]
-    except:
-        meshes = [k["correspondence_mesh"] for k in correspondence.values()]
-        
-    skeletons = [k["branch_skeleton"] for k in correspondence.values()]
-    colors = mu.generate_non_randon_named_color_list(len(meshes))
-
-    nviz.plot_objects(
-        meshes = meshes,
-        meshes_colors=colors,
-        skeletons=skeletons,
-        skeletons_colors=colors,
-        buffer = 0,
-    )
-    
     
 def mesh_correspondence_first_pass(
     mesh,
@@ -501,14 +427,7 @@ def closest_dist_from_floating_mesh_to_skeleton(
                         for k in curr_limb.values()])
     float_sk_endpts = sk.find_skeleton_endpoint_coordinates(float_sk)
     
-    if plot_floating_mesh:
-        print(f"plot_floating_mesh decomp")
-        nviz.plot_objects(
-            floating_mesh,
-            skeletons=[float_sk],
-            scatters=[float_sk_endpts],
-            scatter_size=1
-        )
+ 
 
     main_sk_coordinates = skeleton.reshape(-1,3)
     limb_kd = KDTree(main_sk_coordinates)
@@ -520,16 +439,7 @@ def closest_dist_from_floating_mesh_to_skeleton(
     if verbose:
         print(f"min_dist = {min_dist}, closest_coord = {closest_coord}")
         
-    if plot_closest_coordinate:
-        print(f"")
-        nviz.plot_objects(
-            floating_mesh,
-            skeletons=[skeleton],
-            scatters=[float_sk_endpts[min_idx],
-                     closest_coord],
-            scatter_size=1,
-            scatters_colors=["red","blue"]
-        )
+
         
     return min_dist
 
@@ -670,9 +580,7 @@ def attach_floating_pieces_to_limb_correspondence(
                 
             floating_limbs_correspondence.append(curr_corr)
             
-            if debug_corr:
-                #if len(k.faces) == 129010:
-                nviz.plot_limb_correspondence(curr_corr)
+            
             
             if debug_corr:
                 print(f"--> time = {time.time() - st_time}")
@@ -694,7 +602,6 @@ def attach_floating_pieces_to_limb_correspondence(
 #     raise Exception("")
     
 
-#     nviz.plot_objects(skeletons=floating_limb_skeletons,
 #                      scatters=floating_limbs_skeleton_endpoints,
 #                      scatter_size=1)
 
@@ -797,7 +704,6 @@ def attach_floating_pieces_to_limb_correspondence(
                 print(f"Status of Main limb stitch point moved = {change_status}")
 
         #     #checking that match was right
-        #     nviz.plot_objects(meshes=[floating_limbs_above_threshold[winning_float],current_mesh_data[0]["branch_meshes"][winning_float_match_main_limb]],
         #                   meshes_colors=["red","aqua"],
         #                 skeletons=[floating_limbs_skeleton[winning_float],main_limb_skeletons[winning_float_match_main_limb]],
         #                  skeletons_colors=["red","aqua"],
@@ -1587,11 +1493,6 @@ def preprocess_limb(mesh,
     #     raise Exception("Returning MP correspondence")
 
 
-    # nviz.plot_objects(main_mesh=tu.combine_meshes([limb_mesh_mparty,current_neuron["S0"].mesh]),
-    #                   main_mesh_color="green",
-    #     skeletons=sk_large_size_filt,
-    #      meshes=[limb_mesh_mparty.submesh([k],append=True) for k in mesh_large_idx_size_filt],
-    #       meshes_colors="red")
 
 
 
@@ -4551,10 +4452,6 @@ def high_fidelity_axon_decomposition_old(neuron_obj,
     limb_network_stating_info = {0:{0:{"touching_verts":touching_soma_vertices,
                                       "endpoint":starting_coordinate}}}
 
-    if plot_new_axon_limb_correspondence:
-        nviz.plot_limb_correspondence(limb_correspondence_individual,
-                                     scatters = [starting_coordinate],
-                                     scatter_size=1)
         
         
     
@@ -4608,27 +4505,13 @@ def high_fidelity_axon_decomposition_old(neuron_obj,
             if verbose:
                 print("Not attempting to fix the limb correspondence because the axon_starting_coordainte was already an endpoint")
 
-        
-        if plot_connecting_skeleton_fix:
-            upstream_branch = neuron_obj[axon_limb_name][upstream_node_to_axon_starting_branch]
-            meshes,skeletons = nviz.limb_correspondence_plottable(limb_correspondence_individual)
-            nviz.plot_objects(meshes=meshes + [upstream_branch.mesh],
-                              meshes_colors="random",
-                              skeletons=skeletons +  [upstream_branch.skeleton],
-                              skeletons_colors="random",
-                                          scatters=[axon_starting_coordinate],
-                                         scatter_size=0.3)
+     
     else:
         if verbose:
             print(f"Upstream node was None so don't have to adjust")
             
             
-    if plot_final_limb_correspondence:
-        nviz.plot_limb_correspondence(limb_correspondence_individual,
-                             scatters=[limb_network_stating_info[0][0]["endpoint"],
-                                      limb_network_stating_info[0][0]["touching_verts"]],
-                              skeleton_colors=["red","blue"],
-                             scatter_size=[0.2,0.07])
+
     
     if return_starting_info:
         return limb_correspondence_individual,limb_network_stating_info
@@ -4795,10 +4678,7 @@ def high_fidelity_axon_decomposition(neuron_obj,
     limb_network_stating_info = {0:{0:{"touching_verts":touching_soma_vertices,
                                       "endpoint":starting_coordinate}}}
 
-    if plot_new_axon_limb_correspondence:
-        nviz.plot_limb_correspondence(limb_correspondence_individual,
-                                     scatters = [starting_coordinate],
-                                     scatter_size=1)
+
 
 
 
@@ -4882,11 +4762,7 @@ def high_fidelity_axon_decomposition(neuron_obj,
         starting_node = starting_node_floating_pieces
 
         
-        if plot_new_axon_limb_correspondence_after_stitch:
-            print(f"\n\nLimb correspondence after stitching")
-            nviz.plot_limb_correspondence(limb_correspondence_individual,
-                                         scatters = [starting_coordinate],
-                                         scatter_size=1)
+      
         
 
 #     if verbose:
@@ -4944,26 +4820,13 @@ def high_fidelity_axon_decomposition(neuron_obj,
                 print("Not attempting to fix the limb correspondence because the axon_starting_coordainte was already an endpoint")
 
 
-        if plot_connecting_skeleton_fix:
-            upstream_branch = neuron_obj[axon_limb_name][upstream_node_to_axon_starting_branch]
-            meshes,skeletons = nviz.limb_correspondence_plottable(limb_correspondence_individual)
-            nviz.plot_objects(meshes=meshes + [upstream_branch.mesh],
-                              meshes_colors="random",
-                              skeletons=skeletons +  [upstream_branch.skeleton],
-                              skeletons_colors="random",
-                                          scatters=[axon_starting_coordinate],
-                                         scatter_size=0.3)
+        
     else:
         if verbose:
             print(f"Upstream node was None so don't have to adjust")
 
 
-    if plot_final_limb_correspondence:
-        nviz.plot_limb_correspondence(limb_correspondence_individual,
-                             scatters=[limb_network_stating_info[0][0]["endpoint"],
-                                      limb_network_stating_info[0][0]["touching_verts"]],
-                              skeleton_colors=["red","blue"],
-                             scatter_size=[0.2,0.07])
+    
 
     if return_starting_info:
         return limb_correspondence_individual,limb_network_stating_info
@@ -5067,18 +4930,7 @@ def limb_meshes_expansion(
         print(f"len(insignificant_limbs_filt) = {len(insignificant_limbs_filt)}")
 
 
-    if plot_filtered_pieces:
-        soma_color = "red"
-        non_soma_touch_color = "black"
-        insignificant_limb_color = "green"
-
-        nviz.plot_objects(
-            soma_mesh,
-            main_mesh_color="red",
-            meshes=list(non_soma_touching_meshes_filt)+ list(insignificant_limbs_filt),
-            meshes_colors=[non_soma_touch_color]*len(non_soma_touching_meshes_filt) + [insignificant_limb_color]*len(insignificant_limbs_filt),
-        )
-
+    
     if len(non_soma_touching_meshes_filt) <= 0:
         if return_meshes_divided:
             return np.array([]),np.array([]),np.array([]),np.array([])
@@ -5179,19 +5031,7 @@ def limb_meshes_expansion(
     new_limbs_nst = non_soma_touching_meshes_filt[nst_idx]
     new_limbs_il = insignificant_limbs_filt[il_idx]
     
-    if plot_final_limbs:
-        
-        if len(list(new_limbs_nst) + list(new_limbs_il)) > 0:
-            print(f"plot_final_limbs")
-            nviz.plot_objects(
-                soma_mesh,
-                main_mesh_color="red",
-                meshes=list(new_limbs_nst) + list(new_limbs_il),
-                meshes_colors=mu.generate_non_randon_named_color_list(len(new_non_sig_limbs),colors_to_omit=["red"]),
-            )
-        else:
-            print(f"No new limb meshes to plot")
-        
+    
         
     nst_still_idx = np.delete(np.arange(len(non_soma_touching_meshes)),non_soma_touching_meshes_filt_idx[nst_idx])
     il_still_idx = np.delete(np.arange(len(insignificant_limbs)),insignificant_limbs_filt_idx[il_idx])
@@ -5199,15 +5039,7 @@ def limb_meshes_expansion(
     nst_still_meshes = non_soma_touching_meshes[nst_still_idx]
     il_still_meshes = insignificant_limbs[il_still_idx]
     
-    if plot_not_added_limbs:
-        print(f"plot_not_added_limbs")
-        nviz.plot_objects(
-            soma_mesh,
-            main_mesh_color="red",
-            meshes=list(nst_still_meshes) + list(il_still_meshes),
-            meshes_colors=mu.generate_non_randon_named_color_list(len(nst_still_meshes) + len(il_still_meshes)
-                                                                  ,colors_to_omit=["red"]),
-        )
+    
         
     if return_meshes_divided:
         if verbose:
@@ -5337,12 +5169,10 @@ preprocessing_args = dict(
 
 #--- from neurd_packages ---
 from . import neuron
-from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
+
 from . import soma_extraction_utils as sm
-from . import spine_utils as spu
-from . import axon_utils as au
+
 
 #--- from mesh_tools ---
 from mesh_tools import compartment_utils as cu

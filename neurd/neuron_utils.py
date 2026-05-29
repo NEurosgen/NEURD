@@ -3563,16 +3563,6 @@ def find_parent_child_skeleton_angle(curr_limb_obj,
 
     parent_child_angle = np.round(nu.angle_between_vectors(up_vec,d_vec_child),2)
     
-    if plot_extracted_skeletons:
-        bs = [parent_node,child_node]
-        parent_color = "red"
-        child_color = "blue"
-        print(f"Parent ({parent_node}):{parent_color}, child ({child_node}):{child_color}")
-        c = [parent_color,child_color]
-        nviz.plot_objects(meshes=[curr_limb_obj[k].mesh for k in bs],
-                         meshes_colors=c,
-                         skeletons =[up_sk_flipped,d_sk],
-                         skeletons_colors=c)
         
        
 
@@ -3800,10 +3790,6 @@ def filter_limbs_below_soma_percentile(neuron_obj,
             
     if visualize_remianing_neuron:
         remaining_limbs = convert_int_names_to_string_names(keep_limb_idx)
-        ret_col = nviz.visualize_neuron(neuron_obj,
-                     visualize_type=["mesh","skeleton"],
-                     limb_branch_dict=dict([(k,"all") for k in remaining_limbs]),
-                     return_color_dict=True)
             
     if verbose:
         print(f"\n\nTotal removed Limbs = {np.delete(np.arange(len(neuron_obj.get_limb_node_names())),keep_limb_idx)}")
@@ -4282,27 +4268,6 @@ def neuron_spine_density(neuron_obj,
     
     
     
-    if plot_candidate_branches:
-        return_dataframe=False
-        close_limb_branch_dict = ns.query_neuron(curr_neuron_obj,
-                                            functions_list=["skeletal_distance_from_soma_excluding_node","no_spine_median_mesh_center",
-                                                            "n_spines","spine_density","skeletal_length"],
-                                            query=(f"(skeletal_distance_from_soma_excluding_node<{skeletal_distance_threshold})"
-                                                   f" and (no_spine_median_mesh_center > {lower_width_bound})"
-                                                   f" and (no_spine_median_mesh_center < {upper_width_bound})"
-                                                  f" and (n_spines > {spine_threshold})"
-                                                   f" and skeletal_length > {skeletal_length_threshold} "
-                                                  ),
-                                             return_dataframe=return_dataframe
-
-
-                                          )
-        
-        nviz.visualize_neuron(curr_neuron_obj,
-                              visualize_type=["mesh"],
-                             limb_branch_dict=close_limb_branch_dict,
-                              mesh_color="red",
-                              mesh_whole_neuron=True)
         
         
     
@@ -5004,8 +4969,6 @@ def branches_within_skeletal_distance(limb_obj,
 
     limb_branch_dict=dict(L6=viable_downstream_nodes+[start_branch])
 
-    nviz.plot_limb_branch_dict(current_neuron,
-                              limb_branch_dict)
 
     """
 
@@ -5186,12 +5149,6 @@ def low_branch_length_clusters(neuron_obj,
             limb_branch_dict[limb_name] = potential_error_branches
 
             
-    if plot:
-        print(f"Plotting final low_branch clusters = {limb_branch_dict}")
-        if len(limb_branch_dict) > 0:
-            nviz.plot_limb_branch_dict(neuron_obj,limb_branch_dict)
-        else:
-            print(f"---- Nothing to plot -------")
     return limb_branch_dict
 
 def neuron_limb_branch_dict(neuron_obj):
@@ -5758,7 +5715,6 @@ def original_mesh_face_to_limb_branch(neuron_obj,
     
     matching_faces  = np.where((original_mesh_face_idx_to_limb_branch[:,0]==3) & 
             (original_mesh_face_idx_to_limb_branch[:,1]== 2))[0]
-    nviz.plot_objects(original_mesh.submesh([matching_faces],append=True))
     
     
     """
@@ -6375,8 +6331,6 @@ def limb_mesh_from_branches(
         neuron_mesh_list.append(branch_obj.mesh)
         
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
-    if plot:
-        nviz.plot_objects(neuron_mesh_from_branches)
     return neuron_mesh_from_branches
     
 def neuron_mesh_from_branches(neuron_obj,
@@ -6403,8 +6357,6 @@ def neuron_mesh_from_branches(neuron_obj,
     neuron_mesh_list += neuron_obj.get_soma_meshes()
 
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
-    if plot_mesh:
-        nviz.plot_objects(neuron_mesh_from_branches)
     return neuron_mesh_from_branches
 
 def limb_mesh_from_branches(limb_obj,
@@ -6430,8 +6382,6 @@ def limb_mesh_from_branches(limb_obj,
         neuron_mesh_list.append(branch_obj.mesh)
 
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
-    if plot_mesh:
-        nviz.plot_objects(neuron_mesh_from_branches)
     return neuron_mesh_from_branches
 
 def non_soma_touching_meshes_not_stitched(neuron_obj,
@@ -6650,8 +6600,6 @@ def branches_combined_mesh(limb_obj,branches,
     meshes = [limb_obj[k].mesh for k in branches]
     mesh_inter = tu.combine_meshes(meshes)
     
-    if plot_mesh:
-        nviz.plot_objects(mesh_inter)
     return mesh_inter
 
 def coordinate_to_offset_skeletons(limb_obj,
@@ -6693,19 +6641,6 @@ def coordinate_to_offset_skeletons(limb_obj,
     
     skeleton_offset_end_points = [k[-1][-1] for k in offset_skeletons]
 
-    if plot_offset_skeletons:
-        colors = mu.generate_non_randon_named_color_list(len(offset_skeletons),
-                                                         user_colors=["purple","aqua","green","red",])
-        for b,c in zip(branches,colors):
-            print(f"{b}:{c}")
-            
-        meshes = [limb_obj[k].mesh for k in branches]
-        nviz.plot_objects(meshes=meshes,
-                          meshes_colors=colors,
-                          skeletons=offset_skeletons,
-                          skeletons_colors=colors,
-                         scatters=skeleton_offset_end_points,
-                         scatters_colors=colors)
         
     if return_skeleton_endpoints:
         return offset_skeletons,skeleton_offset_end_points
@@ -6845,14 +6780,6 @@ def upstream_endpoint(limb_obj,
     skeleton connecting to the upstream branch
     
     branch_idx = 263
-    nviz.plot_objects(main_mesh = neuron_obj[0].mesh,
-                     skeletons=[neuron_obj[0][branch_idx].skeleton],
-                      scatters=[nru.upstream_endpoint(neuron_obj[0],
-                         branch_idx),
-                               nru.downstream_endpoint(neuron_obj[0],
-                         branch_idx)],
-                      scatters_colors=["red","blue"]
-                     )
     
     """
     return neighbor_endpoint(limb_obj,
@@ -7031,10 +6958,6 @@ def branch_path_to_start_node(limb_obj,
 
 def branch_path_to_soma(limb_obj,branch_idx,plot = False,):
     path = xu.shortest_path(nx.Graph(limb_obj.concept_network_directional),limb_obj.current_starting_node,branch_idx)
-    if plot:
-        nviz.plot_limb_path(
-            limb_obj,path, 
-        )
     return path
     
 def min_width_upstream(limb_obj,
@@ -7519,25 +7442,6 @@ def pair_branch_connected_components(limb_obj,
                                 values = upstream_final_widths)
     
 
-    if plot_skeleton:
-        upstream_node = nru.upstream_node(limb_obj,branch_idx)
-        if upstream_node is None:
-            upstream_node = []
-        else:
-            upstream_node = [upstream_node]
-            
-        downstream_nodes = list(nru.downstream_nodes(limb_obj,branch_idx))
-        total_branches_to_mesh = upstream_node + downstream_nodes
-        
-        nviz.plot_objects(main_mesh = limb_obj[branch_idx].mesh,
-                         main_mesh_color="red",
-                         skeletons=[upstream_final_skeleton],
-                         skeletons_colors="red",
-                          meshes=[limb_obj[k].mesh for k in total_branches_to_mesh],
-                          meshes_colors="blue",
-                          scatters=[upstream_common_endpoint],
-                          scatters_colors=["red"]
-                         )
     
     if return_width:
         return upstream_final_skeleton,upstream_width_average
@@ -7592,25 +7496,6 @@ def restrict_skeleton_from_start_plus_offset_upstream(
                                                    )
     
     
-    if plot_skeleton:
-        upstream_node = nru.upstream_node(limb_obj,branch_idx)
-        if upstream_node is None:
-            upstream_node = []
-        else:
-            upstream_node = [upstream_node]
-            
-        downstream_nodes = list(nru.downstream_nodes(limb_obj,branch_idx))
-        total_branches_to_mesh = upstream_node + downstream_nodes
-        
-        nviz.plot_objects(main_mesh = limb_obj[branch_idx].mesh,
-                         main_mesh_color="red",
-                         skeletons=[upstream_final_skeleton],
-                         skeletons_colors="red",
-                          meshes=[limb_obj[k].mesh for k in total_branches_to_mesh],
-                          meshes_colors="blue",
-                          scatters=[start_coordinate],
-                          scatters_colors=["red"]
-                         )
     return upstream_final_skeleton
 
 
@@ -7671,25 +7556,6 @@ def restrict_skeleton_from_start_plus_offset_downstream(
                                                    )
     
     
-    if plot_skeleton:
-        upstream_node = nru.upstream_node(limb_obj,branch_idx)
-        if upstream_node is None:
-            upstream_node = []
-        else:
-            upstream_node = [upstream_node]
-            
-        downstream_nodes = list(nru.downstream_nodes(limb_obj,branch_idx))
-        total_branches_to_mesh = upstream_node + downstream_nodes
-        
-        nviz.plot_objects(main_mesh = limb_obj[branch_idx].mesh,
-                         main_mesh_color="red",
-                         skeletons=[upstream_final_skeleton],
-                         skeletons_colors="red",
-                          meshes=[limb_obj[k].mesh for k in total_branches_to_mesh],
-                          meshes_colors="blue",
-                          scatters=[start_coordinate],
-                          scatters_colors=["red"]
-                         )
     return upstream_final_skeleton
 
 def copy_neuron(neuron_obj):
@@ -7788,9 +7654,6 @@ def candidate_groups_from_limb_branch(
     if print_candidates:
         print(f"candidates = {candidates}")
         
-    if plot_candidates:
-        nviz.plot_candidates(neuron_obj,
-               candidates)
         
     if max_distance_from_soma_for_start_node is not None:
         """
@@ -7812,11 +7675,6 @@ def candidate_groups_from_limb_branch(
         if print_candidates:
             print(f"candidates = {candidates}\n")
 
-        if plot_candidates:
-            print(f"After filtering candidates for starting node distances, candidates are")
-            nviz.plot_candidates(neuron_obj,
-                   candidates,
-                   verbose = False)
             
             
     if return_one:
@@ -7912,14 +7770,6 @@ def skeleton_over_limb_branch_dict(neuron_obj,
     if stack_skeletons:
         individual_sk = sk.stack_skeletons(individual_sk)
         
-    if plot_skeleton:
-        if stack_skeletons:
-            p_sk = [individual_sk]
-        else:
-            p_sk = individual_sk
-            
-        nviz.plot_objects(neuron_obj.mesh,
-                          skeletons = p_sk)
         
     return individual_sk
 
@@ -7944,15 +7794,6 @@ def mesh_over_limb_branch_dict(neuron_obj,
     if combine_meshes:
         individual_mesh = tu.combine_meshes(individual_mesh)
         
-    if plot_mesh:
-        if combine_meshes:
-            p_sk = [individual_mesh]
-        else:
-            p_sk = individual_mesh
-            
-        nviz.plot_objects(neuron_obj.mesh,
-                          meshes = p_sk,
-                         meshes_colors = ["red"])
         
     return individual_mesh
 
@@ -8074,8 +7915,6 @@ def all_donwstream_branches_from_limb_branch(neuron_obj,
     if verbose:
         print(f"downstream limb_branch = {disconn_limb_branch}")
         
-    if plot:
-        nviz.plot_limb_branch_dict(neuron_obj,disconn_limb_branch)
         
     return disconn_limb_branch
 
@@ -8165,9 +8004,6 @@ def fill_in_and_filter_branch_groups_from_upstream_without_branching(limb_obj,
     if verbose:
         print(f"final_branches = {final_branches} ")
         
-    if plot_filtered_branches:
-        print(F"Plotting final branches")
-        nviz.plot_limb_path(limb_obj,final_branches)
         
     return final_branches
 
@@ -8564,9 +8400,6 @@ def starting_node_combinations_of_limb_sorted_by_microns_midpoint(neuron_obj,
 def shortest_path(limb_obj,start_branch_idx,destiation_branch_idx,
                  plot_path=False):
     shortest_p = np.array(xu.shortest_path(limb_obj.concept_network,start_branch_idx,destiation_branch_idx))
-    if plot_path:
-        print(f"Plotting path: {shortest_p}")
-        nviz.plot_limb_path(limb_obj,shortest_p)
     return shortest_p
 
 def get_soma_meshes(neuron_obj):
@@ -8602,12 +8435,6 @@ def skeleton_nodes_from_limb_branch(
     elif nu.is_array_like(limb_branch_dict):
         limb_branch_sks = [neuron_obj[k].skeleton for k in limb_branch_dict]
 
-    if plot_skeletons_before_downsampling:
-        nviz.plot_objects(
-        skeletons = limb_branch_sks,
-            skeletons_colors="random"
-
-        )
 
     if downsample_factor is not None:
         if verbose:
@@ -8633,13 +8460,6 @@ def skeleton_nodes_from_limb_branch(
         )
 
 
-    if plot_nodes:
-        print(f"Plotting nodes extracted from limb branch")
-        nviz.plot_objects(
-        skeletons=limb_branch_sks,
-            scatters=[nodes.reshape(-1,3)],
-            scatter_size=scatter_size
-        )
     
     return nodes
 
@@ -8655,10 +8475,6 @@ def skeleton_nodes_from_branches_on_limb(
     nru.skeleton_nodes_from_branches_on_limb(neuron_obj[0],[0,1,2],plot_nodes = True)
     
     #checking
-    nviz.plot_objects(
-        meshes = [neuron_obj[0][k].mesh for k in [0,1,2]],
-        skeletons = [neuron_obj[0][k].skeleton for k in [0,1,2]]
-    )
     
     """
     
@@ -8875,8 +8691,6 @@ def combined_somas_neuron_obj(
     #1) Combine the soma meshes
     preprocessed_data_cp["soma_meshes"] = [tu.combine_meshes(neuron_obj.preprocessed_data["soma_meshes"])]
 
-    if plot_soma_mesh:
-        nviz.plot_objects(preprocessed_data_cp["soma_meshes"][0])
 
     #2) redo the soma to piece connectivity
     preprocessed_data_cp["soma_to_piece_connectivity"] = {0:list(nu.union1d_multi_list(list(
@@ -8917,9 +8731,6 @@ def combined_somas_neuron_obj(
     neuron_obj.preprocessed_data = preprocessed_data_cp
     
     # --------2) Fixing the concept network--------
-    if plot_soma_limb_network:
-        print(f"BEFORE reorganization: ")
-        nviz.plot_soma_limb_concept_network(neuron_obj)
     
     sdf_comb = nu.weighted_average([neuron_obj[k].sdf for k in neuron_obj.get_soma_node_names()],
             [len(neuron_obj[k].mesh.faces) for k in neuron_obj.get_soma_node_names()])
@@ -8943,9 +8754,6 @@ def combined_somas_neuron_obj(
     neuron_obj.concept_network.add_edges_from([(soma_temp_name,k) for k in neuron_obj.get_limb_node_names(return_int=False)])
     
     nx.relabel_nodes(neuron_obj.concept_network,dict(S_new="S0"),copy=False)
-    if plot_soma_limb_network:
-        print(f"AFTER reorganization: ")
-        nviz.plot_soma_limb_concept_network(neuron_obj)
     
     
     #3) --------fixing the all_concept_network_data:--------
@@ -8970,8 +8778,6 @@ def mesh_not_in_neuron_branches(neuron_obj,
     """
     leftover_mesh = tu.subtract_mesh(neuron_obj.mesh,
                 nru.neuron_mesh_from_branches(neuron_obj))
-    if plot:
-        nviz.plot_objects(leftover_mesh)
         
     return leftover_mesh
     
@@ -9013,9 +8819,6 @@ def filter_away_neuron_limbs(
 
     limb_idxs = np.array(neuron_obj.get_limb_names(return_int=True))
 
-    if plot_limbs_to_filter:
-        print(f"Limbs to filter away: {limb_idx_to_filter}")
-        nviz.visualize_neuron(neuron_obj,limb_branch_dict={f"L{k}":"all" for k in limb_idx_to_filter})
 
     keep_idx = np.setdiff1d(limb_idxs,limb_idx_to_filter)
     map_idx = {k:i for i,k in enumerate(keep_idx) }
@@ -9058,8 +8861,6 @@ def filter_away_neuron_limbs(
     if verbose:
         print(f"neuron_obj.concept_network.nodes at end = {neuron_obj.concept_network.nodes}")
 
-    if plot_final_neuron:
-        nviz.visualize_neuron(neuron_obj,limb_branch_dict="all")
     
     return neuron_obj
 
@@ -9205,11 +9006,6 @@ def neighborhood_mesh(
     if verbose:
         print(f"Neighborhood mesh = {mesh}")
         
-    if plot:
-        nviz.plot_objects(
-            meshes = [limb_obj[branch_idx].mesh,mesh],
-            meshes_colors=[branch_color,neighborhood_color]
-        )
     
     return mesh
 
@@ -9432,8 +9228,6 @@ def translate_neuron_obj(
         neuron_obj_rot = hvu.align_neuron_obj(neuron_obj_rot,
                                              mesh_center=mesh_center,
                                              verbose =True)
-    nviz.visualize_neuron(
-        neuron_obj_rot,limb_branch_dict = "all")
     
     Ex: 
     neuron_obj_1 = nru.translate_neuron_obj(
@@ -9505,8 +9299,6 @@ def translate_neuron_obj(
 
         neuron_obj[s_name].mesh_center = neuron_obj[s_name].mesh_center + translation
         
-    if plot_final_neuron:
-        nviz.visualize_neuron(neuron_obj,limb_branch_dict = "all")
     return neuron_obj
 
 def align_neuron_objs_at_soma(
@@ -9539,11 +9331,6 @@ def align_neuron_objs_at_soma(
         plot_final_neuron = False) 
         for k in neuron_objs_trans]
 
-    if plot:
-        nviz.plot_objects(
-            meshes = [k.mesh for k in neuron_objs_trans],
-            meshes_colors = "random",
-        )
 
     return neuron_objs_trans
 
@@ -9559,11 +9346,6 @@ def non_axon_like_limb_branch_on_dendrite(
             )]
     )
 
-    if plot:
-        nviz.plot_limb_branch_dict(
-            n_obj,
-            non_axon_like_on_dendrite
-        )
         
     return non_axon_like_on_dendrite
 
@@ -10265,7 +10047,6 @@ from . import neuron
 from . import neuron
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
-from . import neuron_visualizations as nviz
 from . import preprocess_neuron as pre
 from . import proofreading_utils as pru
 from . import soma_extraction_utils as sm

@@ -127,15 +127,7 @@ def axon_like_segments(neuron_obj,include_ais=False,filter_away_end_false_positi
         limb_branch_dict_upstream_filter = filter_axon_neuron_false_positive_end_nodes(neuron_obj,
                                                                                       limb_branch_dict_upstream_filter)
         
-    if visualize_at_end:
-        colors_dict_returned = nviz.visualize_neuron(current_neuron,
-                                             visualize_type=["mesh"],
-                      limb_branch_dict=limb_branch_dict_upstream_filter,
-                     mesh_color="red",
-                     mesh_color_alpha=1,
-                     mesh_whole_neuron=True,
-                     return_color_dict=True)
-    
+
     return limb_branch_dict_upstream_filter
 
 
@@ -213,13 +205,7 @@ def bouton_meshes(mesh,
     new_meshes = np.array(new_meshes)
     cgal_info = np.array(cgal_info)
     
-    if plot_segmentation:
-        print(f"Segmentation Info:")
-        for j,(m,c) in enumerate(zip(new_meshes,cgal_info)):
-            print(f"Mesh {j}: {m} ({c})")
-        nviz.plot_objects(meshes=new_meshes,
-                         meshes_colors="random")
-    
+
         
 
     boutons_idx = np.where(cgal_info>cdf_threshold)[0]
@@ -342,13 +328,7 @@ def bouton_meshes(mesh,
                 print(f"bouton_meshes_cdf = {bouton_meshes_cdf}")
                 print(f"original_bouton_idx = {original_bouton_idx}")
                 
-        if plot_boutons_after_size_threshold:
-            print(f"Boutons after size threshold of \n"
-                  f"min_size_threshold={min_size_threshold}"
-                 f"\nmax_size_threshold = {max_size_threshold}")
-            nviz.plot_objects(mesh,
-                             meshes=bouton_meshes,
-                             meshes_colors="red")
+      
                 
                 
         
@@ -405,10 +385,7 @@ def bouton_meshes(mesh,
     if plot_boutons:
         if len(bouton_meshes) == 0:
             print(f"No boutons to plot")
-        else:
-            nviz.plot_objects(mesh,
-                            meshes=bouton_meshes,
-                          meshes_colors="red")
+        
             
     if return_cdf_widths:
         new_meshes_widths = np.array([mesh_size(m,
@@ -563,16 +540,7 @@ def calculate_boutons(neuron_obj,
                   f"axons not checked for boutons (blue) = {axons_not_checked_for_boutons}\n",
                  f"axons checked for boutons (red) = {axon_checked_for_boutons}")
 
-        if plot_axon_branches_to_check:
-            color_dict = nviz.limb_branch_dicts_to_combined_color_dict([axons_not_checked_for_boutons,
-                                                                       axon_checked_for_boutons,
-                                                                       ],
-                                                                      color_list = ["blue","red"])
-            nviz.visualize_neuron(neuron_obj,
-                                      visualize_type=["mesh"],
-                                      limb_branch_dict=neuron_obj.axon_limb_branch_dict,
-                                      mesh_color=color_dict,
-                                     mesh_color_alpha=1)
+        
 
     else:
         axon_checked_for_boutons = neuron_obj.axon_limb_branch_dict
@@ -1170,10 +1138,7 @@ def complete_axon_processing_old(neuron_obj,
                         )
     
     
-    if plot_boutons_web:
-        nviz.plot_boutons(neuron_obj_with_web,
-                  mesh_whole_neuron_alpha = 0.2,
-                 plot_web=True)
+
         
     if add_axon_description:
         neuron_obj_with_web.description += f"_axon_v{au.axon_version}"
@@ -1219,10 +1184,6 @@ def wide_angle_t_candidates(neuron_obj,
                    return_dataframe=False,
                     limb_branch_dict_restriction=axon_branches)
 
-    if plot_two_downstream_thin_axon_limb_branch:
-        print(f"Plotting two_downstream_thin_axon_limb_branch")
-        nviz.plot_limb_branch_dict(neuron_obj,
-                                  two_downstream_thin_axon_limb_branch)
 
     # find the ones that have wide angle children
     child_angle_min = 120
@@ -1233,10 +1194,7 @@ def wide_angle_t_candidates(neuron_obj,
                    return_dataframe=False,
                     limb_branch_dict_restriction=two_downstream_thin_axon_limb_branch)
 
-    if plot_wide_angled_children:
-        print(f"Plotting wide_angled_children")
-        nviz.plot_limb_branch_dict(neuron_obj,
-                                  wide_angled_children)
+
         
     if verbose:
         print(f"two_downstream_thin_axon_limb_branch = {two_downstream_thin_axon_limb_branch}")
@@ -1369,8 +1327,7 @@ def short_thick_branches_limb_branch_dict(neuron_obj,
             print(f"Restricting to only axon")
             print(f"limb_branch_dict = {return_dict}")
             
-    if plot_limb_branch_dict:
-        nviz.plot_limb_branch_dict(neuron_obj,return_dict)
+
 
     return return_dict
 
@@ -1660,9 +1617,7 @@ def axon_spines_limb_branch_dict(
                                   syu.downstream_dist_min_over_syn],
                    query=short_end_nodes_query,
                                               )
-    if plot_short_end_nodes_with_syn:
-        print(f"short_end_nodes_with_syn = {short_end_nodes_with_syn}")
-        nviz.plot_limb_branch_dict(neuron_obj,short_end_nodes_with_syn)
+
                              
     
     axon_spines_query = (f"(ray_trace_perc >= {ray_trace_min}) and "
@@ -1693,13 +1648,11 @@ def axon_spines_limb_branch_dict(
     if verbose:
         print(f"limb_branch_dict AFTER starting node removal:\n{return_dict}")
 
-    if plot_axon_spines_branch_dict:
-        print(f"plot_axon_spines_branch_dict = {return_dict}")
-        nviz.plot_limb_branch_dict(neuron_obj,return_dict)
+
 
     return return_dict
 
-    return axon_dict
+
 
 # ------------ 7/17: New axon classification ------------ #
 def axon_classification_using_synapses(
@@ -1943,9 +1896,7 @@ def axon_classification_using_synapses(
                 print(f"low_density_limb_branch = {low_density_limb_branch}")
                 print(f"low_density_limb_branch_within_dist = {low_density_limb_branch_within_dist}")
 
-            if plot_filt_branches_without_postsyn_req:
-                nviz.plot_limb_branch_dict(neuron_obj,
-                                          low_density_limb_branch_within_dist)
+
 
             # ------ 2) Restrict to Branches without a lot of postsyns downstream nearby -----
             low_postsyn = ns.query_neuron(neuron_obj,
@@ -1959,9 +1910,7 @@ def axon_classification_using_synapses(
             if verbose:
                 print(f"low_postsyn = {low_postsyn}")
 
-            if plot_low_postsyn_branches:
-                nviz.plot_limb_branch_dict(neuron_obj,
-                                          low_postsyn)
+
 
         #     axon_candidates = []
         #     for l_idx,b_idxs in low_postsyn.items():
@@ -2220,11 +2169,7 @@ def axon_classification_using_synapses(
     if verbose:
         print(f"full_axon_limb_branch = {full_axon_limb_branch}")
 
-    if plot_final_axon:
-        print(f"# of final axon groups = {len(axon_full_candidates)}")
-        print(f"full_axon_limb_branch = {full_axon_limb_branch}")
-        nviz.plot_limb_branch_dict(neuron_obj,full_axon_limb_branch)
-        print(f"After plotting plot_limb_branch_dict")
+
 
 
     if set_axon_labels:
@@ -2661,9 +2606,7 @@ def compute_axon_on_dendrite_limb_branch_dict(
     if verbose:
         print(f"pre_down_limb_branch = {pre_down_limb_branch}")
 
-    if plot_axon_on_dendrite:
-        nviz.plot_limb_branch_dict(neuron_obj,
-                                  pre_down_limb_branch)
+
     if set_axon_labels:
         labels = ["axon-like","axon-error"]
         if clean_prior_labels:
@@ -2811,9 +2754,7 @@ def compute_dendrite_on_axon_limb_branch_dict(
     if verbose:
         print(f"dendr_like_axon = {dendr_like_axon}")
 
-    if plot_dendr_like_axon:
-        print(f"Plotting: plot_dendr_like_axon")
-        nviz.plot_limb_branch_dict(neuron_obj,dendr_like_axon)
+
         
         
     if coarse_dendrite_filter:
@@ -2886,18 +2827,14 @@ def compute_dendrite_on_axon_limb_branch_dict(
             print(f"spiney_limb_branch_query = {spiney_limb_branch_query}")
             print(f"spiney_limb_branch = {spiney_limb_branch}")
 
-        if plot_spiney_branches:
-            print(f"Plotting: spiney_limb_branch")
-            nviz.plot_limb_branch_dict(neuron_obj,spiney_limb_branch)
+
 
         post_down_limb_branch = nru.limb_branch_union([spiney_limb_branch,post_down_limb_branch])
 
     if verbose:
         print(f"Final dendrite on axon: {post_down_limb_branch}")
 
-    if plot_final_dendrite_on_axon:
-        print(f"Plotting: final_dendrite_on_axon")
-        nviz.plot_limb_branch_dict(neuron_obj,post_down_limb_branch)
+
 
     if set_axon_labels:
         labels = ["dendrite-like","dendrite-error"]
@@ -3195,9 +3132,7 @@ def complete_axon_processing(neuron_obj,
             if verbose:
                 print(f"After high fidelity: # of neuron_obj.synapses_somas = {len(neuron_obj.synapses_somas)}")
         
-            if plot_high_fidelity_axon:
-                print(f"High Fidelity Axon")
-                nviz.plot_axon(neuron_obj_high_fid_axon)
+           
 
             #4) Bouton Identification
             neuron_obj_with_boutons = au.calculate_boutons(#parameters for run
@@ -3230,10 +3165,7 @@ def complete_axon_processing(neuron_obj,
                 print(f"neuron_obj_with_web.align_matrix = {neuron_obj_with_web.align_matrix}")
 
 
-            if plot_boutons_web:
-                nviz.plot_boutons(neuron_obj_with_web,
-                          mesh_whole_neuron_alpha = 0.2,
-                         plot_web=True)
+            
 
             if add_axon_description:
                 neuron_obj_with_web.description += f"_axon_v{au.axon_version}"
@@ -3352,9 +3284,7 @@ def axon_classification_without_synapses(
     if verbose:
         print(f"Final axon limb branch = {return_value}")
         
-    if plot_final_axon:
-        print(f"Plotting final axon after classification with no synapses: {return_value}")
-        nviz.plot_limb_branch_dict(neuron_obj,return_value)
+
         
     if return_candidate:
         return_value = nru.candidate_groups_from_limb_branch(neuron_obj,
@@ -3903,7 +3833,7 @@ from . import neuron_searching as ns
 from . import neuron_simplification as nsimp
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
+
 from . import preprocess_neuron as pre
 from . import proofreading_utils as pru
 from . import spine_utils as spu

@@ -164,9 +164,6 @@ def delete_branches_from_neuron(
                 verbose=verbose
                 )
             
-    if plot_final_neuron:
-        print(f"Plotting final neuron after deletion")
-        nviz.visualize_neuron_lite(neuron_obj)
     
     return neuron_obj
     
@@ -672,11 +669,6 @@ def branching_simplification(
     if verbose:
         print(f"\n***Total time for branch simplification = {time.time() - st}")
         
-    if plot_after_simplification:
-        nviz.visualize_neuron(
-            n_obj_ret,
-            limb_branch_dict="all"
-        )
             
     return n_obj_ret
 
@@ -686,7 +678,6 @@ from . import branch_utils as bu
 from . import neuron_searching as ns
 from . import neuron_utils as nru
 from . import proofreading_utils as pru
-from . import neuron_visualizations as nviz
 
 #--- from datasci_tools ---
 from datasci_tools import networkx_utils as xu

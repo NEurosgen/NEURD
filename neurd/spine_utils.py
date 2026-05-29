@@ -1035,8 +1035,6 @@ def plot_head_neck(spine_obj,
         print(f"neck_mesh ({neck_color}): {neck_mesh}")
         print(f"no_head_mesh ({no_head_color}): {no_head_mesh}")
 
-    nviz.plot_objects(meshes = [neck_mesh,head_mesh,no_head_mesh],
-                     meshes_colors=[neck_color,head_color,no_head_color])
     
     
 def mesh_from_name_or_idx(
@@ -1341,8 +1339,6 @@ def plot_spines_head_neck(neuron_obj,
                           combine_meshes = True,
                          ):
     
-    nviz.visualize_neuron_lite(neuron_obj,
-                              show_at_end=False)
     meshes_colors = []
     
     spine_heads = spu.spines_head_meshes(neuron_obj)
@@ -1369,11 +1365,6 @@ def plot_spines_head_neck(neuron_obj,
         meshes = spine_heads+spine_necks+spine_no_heads+boutons
         
     
-    nviz.plot_objects(meshes = meshes,
-                     meshes_colors=meshes_colors,
-                     append_figure=True,
-                     mesh_alpha=mesh_alpha,
-                     show_at_end=show_at_end,)
     
 # -------------- End of Spines Obj -------------- #
     
@@ -1771,19 +1762,6 @@ def get_spine_meshes_unfiltered_from_mesh(
         spines_sdf_greatest_to_least = np.array(spine_submesh_split_sdf)[greatest_to_least]
         spine_submesh_split_idx = np.array(spine_submesh_split_idx)[greatest_to_least]
         
-        if plot:
-            print(f"--- plotting shaft meshes after graph fix -- ")
-            if len(spines_greatest_to_least) == 0:
-                meshes = None
-            else:
-                meshes = spines_greatest_to_least
-            
-            nviz.plot_objects(
-                current_mesh,
-                meshes = list(spines_greatest_to_least),
-                meshes_colors = "red",
-                buffer = 0,
-            )
         
         if ensure_mesh_conn_comp:
             spines_greatest_to_least_new = []
@@ -2219,14 +2197,6 @@ def spine_head_neck(
         
     
     
-    if plot_head_neck:
-        neck_color = "green"
-        head_color = "red"
-        print(f"head_mesh ({head_color}): {head_mesh}")
-        print(f"neck_mesh ({neck_color}): {neck_mesh}")
-
-        nviz.plot_objects(meshes = [neck_mesh,head_mesh],
-                         meshes_colors=[neck_color,head_color])
         
     if return_meshes:
         return_value= [head_mesh,neck_mesh]
@@ -2258,8 +2228,6 @@ def bouton_non_bouton_idx_from_branch(branch_obj,
     )
 
     """
-    if plot_branch_boutons:
-        nviz.plot_branches_with_boutons(branch_obj)
 
     head_neck_shaft_idx = np.ones(branch_obj.mesh_face_idx.shape)*spu.head_neck_shaft_dict["non_bouton"]
 
@@ -2273,8 +2241,6 @@ def bouton_non_bouton_idx_from_branch(branch_obj,
         head_neck_shaft_idx[boutons_idx] = spu.head_neck_shaft_dict["bouton"]
 
 
-    if plot_face_idx:
-        nviz.plot_mesh_face_idx(branch_obj.mesh,head_neck_shaft_idx)
     return head_neck_shaft_idx
 
 def head_neck_shaft_idx_from_branch(branch_obj,
@@ -2329,12 +2295,6 @@ def head_neck_shaft_idx_from_branch(branch_obj,
             print(f'# of neck faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["neck"])}')
             print(f'# of no_head faces = {np.sum(head_neck_shaft_idx == spu.head_neck_shaft_dict["no_head"])}')
 
-    if plot_face_idx:
-        nviz.plot_objects(meshes = tu.split_mesh_into_face_groups(branch_obj.mesh,
-                                  head_neck_shaft_idx,
-                                  return_dict=False,
-                                  return_idx = False),
-                          meshes_colors="random")
     return head_neck_shaft_idx
 
 def spine_density(obj,um = True):
@@ -2659,11 +2619,6 @@ def calculate_spines_on_branch(
     if print_flag:
         print(f"--> n_spines found before filtering = {len(spine_submesh_split)}")
         
-    if plot_spines_before_filter:
-        print(f"plot_spines_before_filter: {len(spine_submesh_split)}")
-        nviz.plot_objects(branch.mesh,
-                         meshes = spine_submesh_split,
-                         meshes_colors="red")
         
         
     # Step 2: Filter Spines by Face length
@@ -2676,11 +2631,6 @@ def calculate_spines_on_branch(
         spine_submesh_split_filtered = spine_submesh_split
     
     
-    if plot_spines_after_face_threshold:
-        print(f"plot_spines_after_face_threshold and sk_length_threshold: {len(spine_submesh_split_filtered)}")
-        nviz.plot_objects(branch.mesh,
-                         meshes = spine_submesh_split_filtered,
-                         meshes_colors="red")
         
         
     # Step 3: Filter Spines by Bounding Box
@@ -2689,11 +2639,6 @@ def calculate_spines_on_branch(
         spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
                                                                                  side_length_threshold=side_length_threshold)
     
-        if plot_spines_after_bbox_threshold:
-            print(f"plot_spines_after_bbox_threshold: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(branch.mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
         
         
     if filter_out_border_spines:
@@ -2706,11 +2651,6 @@ def calculate_spines_on_branch(
                                                                     verbose=print_flag
                                                                    )
         
-        if plot_spines_after_border_filter:
-            print(f"plot_spines_after_bbox_threshold: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(branch.mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
             
     if skeleton_endpoint_nullification:
         if print_flag:
@@ -2722,11 +2662,6 @@ def calculate_spines_on_branch(
                                                     curr_branch_end_coords,
                                                     distance_threshold=skeleton_endpoint_nullification_distance)
         
-        if plot_spines_after_skeleton_endpt_nullification:
-            print(f"plot_spines_after_skeleton_endpt_nullification: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(branch.mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
             
     
     
@@ -2742,11 +2677,6 @@ def calculate_spines_on_branch(
         spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
                                                     soma_kdtree=soma_kdtree)
         
-        if plot_spines_after_soma_nullification:
-            print(f"plot_spines_after_soma_nullification: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(branch.mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
             
             
     if calculate_spine_volume or filter_by_volume: 
@@ -2768,11 +2698,6 @@ def calculate_spines_on_branch(
             
             spine_volumes = spine_volumes[volume_kept_idx]
             
-        if plot_spines_after_volume_filter:
-            print(f"plot_spines_after_volume_filter: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(branch.mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
         
     # --- 4/14/25 addition --
     if filter_by_face_area_mean:
@@ -2785,11 +2710,6 @@ def calculate_spines_on_branch(
         spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
         spine_volumes = [spine_volumes[k] for k in kept_idx]
         
-        if plot_spines_after_filter_by_face_area_mean:
-                print(f"plot_spines_after_filter_by_face_area_mean: {len(spine_submesh_split_filtered)}")
-                nviz.plot_objects(branch.mesh,
-                                meshes = spine_submesh_split_filtered,
-                                meshes_colors="red")
             
     # --- 4/14/25 addition --
     if filter_by_boundary_to_area_ratio:
@@ -2802,11 +2722,6 @@ def calculate_spines_on_branch(
         spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
         spine_volumes = [spine_volumes[k] for k in kept_idx]
         
-        if plot_spines_after_filter_by_boundary_to_area_ratio_min:
-                print(f"plot_spines_after_filter_by_boundary_to_area_ratio_min: {len(spine_submesh_split_filtered)}")
-                nviz.plot_objects(branch.mesh,
-                                meshes = spine_submesh_split_filtered,
-                                meshes_colors="red")
                          
     
         
@@ -2862,7 +2777,6 @@ def calculate_spines_on_neuron(
         print_flag = True,
     )
     
-    nviz.plot_spines(recovered_neuron)
     
     """
     
@@ -2905,10 +2819,7 @@ def calculate_spines_on_neuron(
                            functions_list=functions_list,
                            query=current_query,
                                          plot_limb_branch_dict=plot_query)
-    else:
-        if plot_query:
-            nviz.plot_limb_branch_dict(neuron_obj,limb_branch_dict)
-            
+
     if print_flag:
         print(f"limb_branch_dict = {limb_branch_dict}")
         
@@ -3114,8 +3025,6 @@ def spine_length(
     curr_sk_length = sk.calculate_skeleton_distance(curr_sk)
     if verbose:
         print(f"skeletal length = {curr_sk_length}")
-    if plot:
-        nviz.plot_objects(spine_mesh,curr_sk)
     return curr_sk_length
 
 def complete_spine_processing(
@@ -3324,14 +3233,6 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
         coordinate_border_verts = coordinate
     
 
-    if plot_intersecting_vertices:
-        print(f"plot_intersecting_vertices")
-        nviz.plot_objects(mesh,
-                         meshes=[spine_obj.mesh],
-                          meshes_colors="red",
-                         scatters=[overlap_verts,coordinate],
-                          scatters_colors=["orange",'blue'],
-                         scatter_size=0.5)
 
     #4) Find the closest mesh coordinate
     closest_branch_face_idx = tu.closest_face_to_coordinate(mesh,coordinate)
@@ -3352,14 +3253,6 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
     if verbose:
         print(f"closest_sk_coordinate= {closest_sk_coordinate}")
 
-    if plot_closest_skeleton_coordinate:
-        print(f"plot_closest_skeleton_coordinate")
-        nviz.plot_objects(mesh,skeleton,
-                         meshes=[spine_obj.mesh],
-                          meshes_colors="red",
-                         scatters=[closest_sk_coordinate],
-                          scatters_colors=['blue'],
-                         scatter_size=0.5)
 
     
     for k in attr_to_set:
@@ -3575,11 +3468,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
 
     """
 
-    if plot_spines_before_filter:
-        print(f"plot_spines_before_filter: {len(spines)}")
-        nviz.plot_objects(mesh,
-                         meshes = spines,
-                         meshes_colors="red")
         
 
 
@@ -3612,12 +3500,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
         spines_sdf=spines_sdf[spine_idx]
         spines_mesh_idx = spines_mesh_idx[spine_idx]
 
-        if plot_spines_after_border_filter:
-            print(f"plot_spines_after_bbox_threshold: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(mesh,
-                    meshes = spine_submesh_split_filtered,
-                    meshes_colors="red"
-            )
         if verbose:
             print(f"After filter_out_border_spines: # of spines = {len(filter_out_border_spines)}")
 
@@ -3648,11 +3530,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
         spines_sdf=spines_sdf[spine_idx]
         spines_mesh_idx = spines_mesh_idx[spine_idx]
 
-        if plot_spines_after_skeleton_endpt_nullification:
-            print(f"plot_spines_after_skeleton_endpt_nullification: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
             
         if verbose:
             print(f"After skeleton_endpoint_nullification: # of spines = {len(spine_submesh_split_filtered)}")
@@ -3684,11 +3561,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
         spines_sdf=spines_sdf[spine_idx]
         spines_mesh_idx = spines_mesh_idx[spine_idx]
 
-        if plot_spines_after_soma_nullification:
-            print(f"plot_spines_after_soma_nullification: {len(spine_submesh_split_filtered)}")
-            nviz.plot_objects(mesh,
-                             meshes = spine_submesh_split_filtered,
-                             meshes_colors="red")
             
         if verbose:
             print(f"After soma_vertex_nullification: # of spines = {len(spine_submesh_split_filtered)}")
@@ -3706,13 +3578,6 @@ def spine_objs_with_border_sk_endpoint_and_soma_filter_from_scratch_on_branch_ob
         sdf = s
     ) for k,k_idx,s in zip(spine_submesh_split_filtered,spines_mesh_idx,spines_sdf,)]
     
-    if plot:
-        nviz.plot_objects(
-            mesh,
-            meshes = [k.mesh for k in spine_objs],
-            meshes_colors = "red",
-            buffer = 0,
-        )
     
     if verbose:
         print(f"Final Number of Spine Objects = {len(spine_objs)}")
@@ -3809,13 +3674,6 @@ def plot_spine_objs(
     scatters = None
     if plot_mesh_centers:
         scatters = [np.vstack([k.mesh_center for k in spine_objs]).reshape(-1,3)]
-    nviz.plot_objects(
-        mesh,
-        meshes = [k.mesh for k in spine_objs],
-        meshes_colors = spine_color,
-        scatters=scatters,
-        mesh_alpha=mesh_alpha,
-    )
 def filter_spine_objs_from_restrictions(
     spine_objs,
     restrictions,
@@ -3892,17 +3750,6 @@ def plot_spine_objs_on_branch(
     
     spines_obj = nu.to_list(spines_obj)
     meshes = [k.mesh for k in spines_obj]
-    if plot_spines_individually:
-        nviz.plot_objects(
-            meshes=meshes,
-            meshes_colors = "random"
-        )
-    nviz.plot_objects(
-        branch_obj.mesh,
-        meshes = meshes,
-        meshes_colors="red",
-        scatters=[k.centroid for k in meshes]
-    )
     
 def spine_volume_to_spine_area(spine_obj):
     if spine_obj.volume is None:
@@ -4045,11 +3892,6 @@ def example_trying_to_skeletonize_spine(spine_obj):
         filter_end_node_length=300,
     )
 
-    if plot:
-        nviz.plot_objects(
-            mesh,
-            sk.stack_skeletons(segment_branches_filtered)
-        )
         
 def split_head_mesh(
     spine_obj,
@@ -4436,15 +4278,6 @@ def plot_spines_objs_with_head_neck_and_coordinates(
         [neck_color]*len(neck_meshes) + 
         [no_head_color]*len(no_head_meshes)
     )
-    nviz.plot_objects(
-        mesh,
-        meshes = head_meshes + neck_meshes + no_head_meshes,
-        meshes_colors = colors,
-        scatters=[base_coords,center_coords],
-        scatters_colors=[base_coordinate_color,center_coordinate_color],
-        mesh_alpha=mesh_alpha,
-        buffer = 0,
-    )
 
 def spine_objs_bare_minimum_filt_with_attr_from_branch_obj(
     branch_obj=None,
@@ -4698,10 +4531,6 @@ def plot_spine_objs_and_syn_from_syn_df(
     spine_objs_restr = np.array(output_spine_objs)[spine_idxs]
     syn_df_restr = syn_df.query(f"spine_id in {list(spine_idxs)}")
     display(syn_df_restr[["volume","spine_id","spine_compartment"]])
-    nviz.plot_objects(
-        meshes = [k.mesh for k in spine_objs_restr],
-        scatters=[syu.synapse_coordinates_from_synapse_df(syn_df_restr)]
-    )
     
 
 def synapse_df_with_spine_match(
@@ -4809,10 +4638,6 @@ def spine_objs_and_synapse_df_computed_from_branch_idx(
         upstream_skeletal_length = nst.total_upstream_skeletal_length(limb_obj,branch_idx)
         branch_obj = limb_obj[branch_idx]
 
-    if plot_branch_mesh_before_spine_detection:
-        nviz.plot_objects(
-            branch_obj.mesh
-        )
 
     if soma_kdtree_on_limb is None:
         if soma_verts_on_limb is None:
@@ -5020,16 +4845,6 @@ def plot_spine_face_idx_dict(
         meshes += comp_meshes
         meshes_colors += comp_colors
         
-    nviz.plot_objects(
-        mesh_to_plot,
-        meshes = meshes,
-        meshes_colors = meshes_colors,
-        mesh_alpha=mesh_alpha,
-        show_at_end = curr_show_at_end,
-        scatters=scatters,
-        scatters_colors = scatters_colors,
-        **kwargs
-    )
     
     if synapse_dict is not None:
         plot_spine_synapse_coords_dict(
@@ -5075,13 +4890,6 @@ def plot_spine_synapse_coords_dict(
             scatters_colors.append(curr_color)
                 
     #return meshes
-    nviz.plot_objects(
-        mesh,
-        scatters = scatters,
-        scatters_colors = scatters_colors,
-        scatter_size=scatter_size,
-        **kwargs
-    )
     
 def spine_compartments_face_idx_for_neuron_mesh(
     limb_branch_spine_dict,
@@ -5255,17 +5063,6 @@ def spine_df_for_db_from_spine_objs(
     )
 def example_plot_coordinates_from_spine_df_idx(idx,spine_objs):
     spine_obj = spine_objs[idx]
-    nviz.plot_objects(
-        meshes = [spine_obj.head_mesh,spine_obj.neck_mesh],
-        meshes_colors=["red","green"],
-        scatters=[np.array([
-            spine_df[[f"{comp}_bbox_min_{ax}_nm" for ax in ['x','y','z']]].iloc[idx,:].to_numpy(),
-            spine_df[[f"{comp}_bbox_max_{ax}_nm" for ax in ['x','y','z']]].iloc[idx,:].to_numpy()])
-                 for comp in ['head','neck']] + [
-            spine_df[[f"{comp}_{ax}_nm" for ax in ['x','y','z']]].iloc[idx].to_numpy()
-        for comp in ["base_coordinate","mesh_center"]],
-        scatters_colors=["red","green","black","purple"],
-    )
     
 def examle_plot_spines_from_spine_df_query(
     spine_df,
@@ -5451,18 +5248,6 @@ def plot_spine_coordinates_from_spine_df(
     
     #return scatters
     
-    nviz.plot_objects(
-        mesh,
-        scatters=scatters,
-        scatters_colors=[
-            base_color_default,
-            center_color_default,
-            head_color_default,
-            head_color_default,
-            neck_color_default,
-            neck_color_default,
-        ]
-    )
     
 def example_plot_small_volume_spines_from_spine_df(
     neuron_obj,
@@ -5857,14 +5642,6 @@ def split_mesh_into_spines_shaft(
         if print_flag:
             print("No spine meshes detected")
             
-    if plot_shaft:
-        print(f"--- initial shaft meshes before graph fixing")
-        nviz.plot_objects(
-            current_mesh,
-            meshes = shaft_meshes,
-            meshes_colors = "red",
-            buffer = plot_shaft_buffer,
-        )
     if return_sdf:
         return spine_meshes,spine_meshes_idx,shaft_meshes,shaft_meshes_idx,cgal_sdf_data
     else:
@@ -6999,7 +6776,6 @@ from . import cell_type_utils as ctu
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import synapse_utils as syu
 from . import width_utils as wu
 

@@ -811,14 +811,6 @@ def mesh_shaft(
         [k.mesh for k in obj.spines_obj],
         return_mesh = return_mesh)
 
-    if plot:
-        if not return_mesh:
-            plot_mesh = obj.mesh.submesh([shaft_mesh],append=True)
-        else:
-            plot_mesh = shaft_mesh
-        nviz.plot_objects(obj.mesh,
-                         meshes = [plot_mesh],
-                         meshes_colors="red")
         
     return shaft_mesh
     
@@ -1605,7 +1597,6 @@ attributes_dict_h01 = dict()
 #--- from neurd_packages ---
 from . import branch_attr_utils as bau
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import spine_utils as spu
 from . import synapse_utils as syu
 from . import width_utils as wu

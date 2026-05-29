@@ -156,12 +156,6 @@ def neuron_path_analysis(neuron_obj,
 
         neuron_path_inserts_by_limb[curr_limb_idx] =  limb_path_dict
 
-    if plot_paths:
-        nviz.visualize_neuron(neuron_obj,
-                          visualize_type=["mesh"],
-                          limb_branch_dict=total_paths,
-                         mesh_color="red",
-                         mesh_whole_neuron=True)   
 
     if return_dj_inserts:
         # Need to collapse this into a list of dictionaries to insert
@@ -297,11 +291,6 @@ def fork_divergence_from_skeletons(upstream_skeleton,
 
     #align the skeletons
 
-    if plot_restrictions:
-        nviz.plot_objects(skeletons = downstream_sk + d_skeletons_resized,
-                         skeletons_colors=["black"]*len(d_skeletons_resized) + ["red"]*len(d_skeletons_restricted),
-                         scatters=[joining_endpoint_1.reshape(-1,3)],
-                         scatter_size=0.5)
 
     d_ordered_paths = [sk.skeleton_coordinate_path_from_start(k,start_endpoint_coordinate=joining_endpoint_1) for k in d_skeletons_restricted]
     
@@ -411,17 +400,6 @@ def fork_divergence_from_branch(limb_obj,
             downstream_sk_colors = mu.generate_color_list(n_colors = len(downstream_nodes),
                                   colors_to_omit = [upstream_sk_color])
 
-        if plot_fork_skeleton:
-            downstream_meshes = [limb_obj[d].mesh for d in downstream_nodes]
-            upstream_mesh = limb_obj[upstream_node].mesh
-            nviz.plot_objects(main_mesh=upstream_mesh,
-                              main_mesh_color=upstream_sk_color,
-                                main_skeleton=upstream_sk,
-                              main_skeleton_color=upstream_sk_color,
-                              meshes=downstream_meshes,
-                              meshes_colors=downstream_sk_colors,
-                             skeletons=downstream_sk,
-                             skeletons_colors=downstream_sk_colors)
 
         
         return_value = nst.fork_divergence_from_skeletons(upstream_skeleton = upstream_sk,
@@ -1503,18 +1481,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
     if verbose:
         print(f"curr_angle = {curr_angle}")
         
-    if plot_extracted_skeletons:
-        bs = [branch_1_idx,branch_2_idx]
-        parent_color = "red"
-        child_color = "blue"
-        print(f"Parent ({branch_1_idx}):{parent_color}, child ({branch_2_idx}):{child_color}")
-        c = [parent_color,child_color]
-        nviz.plot_objects(meshes=[limb_obj[k].mesh for k in bs],
-                         meshes_colors=c,
-                         skeletons =[up_sk,d_sk],
-                         skeletons_colors=c,
-                         scatters=endpoints,
-                         scatters_colors = c)
 
     return curr_angle
 
@@ -1627,18 +1593,6 @@ def min_synapse_dist_to_branch_point(limb_obj,
         print(f"All distances: {all_dist}")
         print(f"min_distance_from_branch_point: {min_distance_from_branch_point}")
 
-    if plot_closest_synapse:
-        if len(all_dist) == 0:
-            print(f"No synapses to plot")
-        else:
-            branch_point = nru.downstream_endpoint(limb_obj,branch_idx)
-            closest_coordinate = [k.coordinate for k in np.concatenate([curr_syn,down_syn])
-                                         if (k.upstream_dist == min_distance_from_branch_point 
-                                             or k.downstream_dist == min_distance_from_branch_point)][0]
-            nviz.plot_branch_with_neighbors(limb_obj,branch_idx,down_nodes,
-                                        scatters=[branch_point.reshape(-1,3),closest_coordinate.reshape(-1,3)],
-                                            scatters_colors=["red","yellow"],
-                                        verbose = False)
 
     return min_distance_from_branch_point
 
@@ -1814,13 +1768,6 @@ def synapses_downstream_within_dist(limb_obj,
     if verbose:
         print(f"# of postsyns = {len(post_syns)}")
 
-    if plot_synapses:
-        syn_coords = syu.synapses_to_coordinates(post_syns)
-        nviz.plot_objects(limb_obj.mesh,
-                         meshes=[limb_obj[branch_idx].mesh],
-                         meshes_colors="red",
-                         scatters=[syn_coords],
-                         scatter_size=1)
     return post_syns
 
 def synapses_post_downstream_within_dist(limb_obj,
@@ -1978,9 +1925,6 @@ def fork_divergence(limb_obj,
             return_value = skip_value
 
 
-    if plot_fork_skeleton:
-        nviz.plot_branch_with_neighbors(limb_obj,30,main_skeleton = upstream_sk,
-                                       skeletons=downstream_sk)
 
     if return_value is None:
         return_value = nst.fork_divergence_from_skeletons(upstream_skeleton = upstream_sk,
@@ -2181,10 +2125,6 @@ def fork_min_skeletal_distance_from_skeletons(downstream_skeletons,
                                                 start_coordinate = joining_endpoint_1,
                                                ) for k in d_skeletons_resized]
 
-    if plot_skeleton_restriction:
-        nviz.plot_objects(skeletons=new_sks, # + d_skeletons_resized,
-                         skeletons_colors=["red","blue"],#,"yellow","yellow"],
-                         scatters=[joining_endpoint_1])
 
     distances_between_skeletons = sk.closest_distances_from_skeleton_vertices_to_base_skeleton(new_sks[0],
                                                               new_sks[1],
@@ -2476,36 +2416,17 @@ def trajectory_angle_from_start_branch_and_subtree(limb_obj,
                                                  )
     starting_coordinate = nru.upstream_endpoint(limb_obj,start_branch_idx)
 
-    if plot_skeleton_before_restriction:
-        nviz.plot_objects(limb_obj.mesh,
-                         skeletons=[downstream_skeleton],
-                         scatters=[starting_coordinate],
-                         scatter_size=1)
 
     restricted_sk = sk.restrict_skeleton_to_distance_from_coordinate(downstream_skeleton,
                                                     coordinate=starting_coordinate,
                                                     distance_threshold=downstream_distance)
 
-    if plot_skeleton_after_restriction:
-        nviz.plot_objects(limb_obj.mesh,
-                         skeletons=[restricted_sk],
-                         scatters=[starting_coordinate],
-                         scatter_size=1)
 
     endpoints = sk.find_skeleton_endpoint_coordinates(restricted_sk,coordinates_to_exclude = starting_coordinate)
 
     if verbose:
         print(f"endpoints = {endpoints}")
 
-    if plot_skeleton_endpoints:
-        start_color = "red"
-        endpoint_color = "blue"
-        print(f"Starting point = {start_color}, endpoints = {endpoint_color}")
-        nviz.plot_objects(limb_obj.mesh,
-                         skeletons=[restricted_sk],
-                         scatters=[starting_coordinate,endpoints],
-                          scatters_colors=[start_color,endpoint_color],
-                         scatter_size=0.5)
 
     subtree_vectors = [nu.vector_from_endpoints(starting_coordinate,k) for k in endpoints] 
     if verbose:
@@ -2662,8 +2583,6 @@ def skeleton_perc_dist_match_ref_vector(limb_obj,
 
 
     branch_obj = limb_obj[branch_idx]
-    if plot_branch:
-        nviz.plot_branches_with_spines(branch_obj,)
 
     #branch_obj
     #1) Resize the branch skeleton and order the skeleton
@@ -3718,8 +3637,6 @@ def euclidean_distance_from_soma_limb_branch(
 
     lb_dict = {k:np.array(v) for k,v in lb_dict.items()}
     
-    if plot:
-        nviz.plot_limb_branch_dict(neuron_obj,lb_dict)
     
     return lb_dict
 
@@ -4355,7 +4272,6 @@ from . import microns_volume_utils as mcu
 from . import microns_volume_utils as mvu
 from . import neuron_searching as ns
 from . import neuron_utils as nru
-from . import neuron_visualizations as nviz
 from . import synapse_utils as syu
 
 
