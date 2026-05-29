@@ -310,76 +310,6 @@ def find_mesh_width_array_border(curr_limb,
     return return_arrays
 
 
-def new_width_from_mesh_skeleton(skeleton,
-                                mesh,
-                                skeleton_segment_size=1000,
-                                width_segment_size = None,
-                                return_average=True,
-                                distance_by_mesh_center=True,
-                            distance_threshold_as_branch_width = False,
-                            distance_threshold = 3000,
-                              summary_measure="median",
-                              verbose=False,
-                               backup_width=None):
-    """
-    Purpose: To calculate the new width from a
-    skeleton and the surounding mesh
-    """
-    print_flag = verbose
-    f = getattr(np,summary_measure)
-    
-    ex_branch_no_spines_mesh = mesh
-    
-    #resizes the branch to the desired width (HELPS WITH SMOOTHING OF THE SKELETON)
-    
-    ex_branch_skeleton_resized = sk.resize_skeleton_with_branching(skeleton,segment_width = skeleton_segment_size)
-
-
-    #The size we want the widths to be calculated at
-    if not width_segment_size is None:
-        ex_branch_skeleton_resized = sk.resize_skeleton_with_branching(ex_branch_skeleton_resized,segment_width = width_segment_size)
-    
-    if distance_threshold_as_branch_width:
-        distance_threshold = branch_width
-    else:
-        distance_threshold = distance_threshold
-    
-    (total_distances,
-     total_distances_std,
-     new_submesh,
-     unique_faces) = cu.get_skeletal_distance_no_skipping(main_mesh=ex_branch_no_spines_mesh,
-                                    edges=ex_branch_skeleton_resized,
-                                     buffer=0.01,
-                                    bbox_ratio=1.2,
-                                   distance_threshold=distance_threshold,
-                                    distance_by_mesh_center=distance_by_mesh_center,
-                                    print_flag=False,
-                                    edge_loop_print=False
-                                                         )
-    
-    total_distances = np.array(total_distances)
-    #print(f"total_distances = {total_distances}")
-    
-    old_width_calculation = backup_width
-    
-    branch_width_average = f(total_distances)
-    if branch_width_average < 0.0001:
-        #just assing the old width
-        if print_flag:
-            print("Assigning the old width calculation because no valid new widths")
-        branch_width_average = old_width_calculation
-        total_distances = np.ones(len(ex_branch_skeleton_resized))*branch_width_average
-    else:
-        total_distances[total_distances == 0] = branch_width_average #IF RETURNED 0 THEN FILL with 
-
-        if print_flag:
-            print(f"Overall {summary_measure} = {branch_width_average}")
-            print(f"Total_distances = {total_distances}")
-
-    if return_average:
-        return branch_width_average
-    else:
-        return total_distances
     
     
 def calculate_new_width_for_neuron_obj(neuron_obj,
@@ -510,27 +440,6 @@ def calculate_new_width_for_neuron_obj(neuron_obj,
                     
                     
 
-def neuron_width_calculation_standard(
-    neuron_obj,
-    widths_to_calculate = ("median_mesh_center",
-                           "no_spine_median_mesh_center"),
-    verbose = True,
-    limb_branch_dict=None,
-    **kwargs):
-    for w in widths_to_calculate:
-        st = time.time()
-        if verbose:
-            print(f"\n\n----Working on width: {w}-----")
-        calculate_new_width_for_neuron_obj(
-            neuron_obj,
-            width_name=w,
-            verbose = verbose,
-            limb_branch_dict=limb_branch_dict,
-            **kwargs)
-        if verbose:
-            print(f"Time for calculating {w}: {time.time() - st}")
-            
-    return neuron_obj
 
 
 #--- from neurd_packages ---
