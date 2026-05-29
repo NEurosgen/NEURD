@@ -82,51 +82,7 @@ def parent_skeletal_angle_extra_offset(
 
 
 
-    
-def width_upstream(
-    limb_obj,
-    branch_idx,
-    verbose = False,
-    min_skeletal_length = 2000,
-    skip_low_skeletal_length_upstream = True,
-    default_value = 10000000):
-    """
-    Purpoose: To get the width of the upstream segement
-    
-    Pseudocode:
-    1) Get the parent node
-    2) Get the parent width
-    
-    Ex: 
-    from neurd import limb_utils as lu
-    lu.width_upstream(neuron_obj[1],5,verbose = True)
-    """
-    parent_node = nru.parent_node(limb_obj,branch_idx)
-    
-    if min_skeletal_length is None:
-        min_skeletal_length = 0
-        
-    parent_sk_length = None
-    width = default_value
-    
-    while parent_node is not None:
-        parent_sk_length = limb_obj[parent_node].skeletal_length
-        if parent_sk_length < min_skeletal_length:
-            parent_node = nru.parent_node(limb_obj,parent_node)
-        else:
-            break
 
-    if parent_node is not None:
-        width = nru.width(limb_obj[parent_node])
-        parent_sk_length = limb_obj[parent_node].skeletal_length
-    
-    if verbose:
-        print(f"parent_node = {parent_node} (width = {width}, parent_sk_length = {parent_sk_length})")
-        
-    return width
-
-
-    
 
 # ------------ automatically create limb functions out of existing functions ------
 
