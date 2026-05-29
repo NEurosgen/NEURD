@@ -78,6 +78,23 @@ Gate `pytest tests/unit/` остался зелёным (**60 passed, 1 skipped*
 
 ---
 
+## Фаза 7 — урезка стадий 3–5 пайплайна (2026-05-29)
+
+Пользователю нужны только soma + декомпозиция (`Neuron(mesh=)`), как и делает
+`process_all_neurons.py`. Стадии 3–5 оркестратора (width refinement / branch
+simplification / spine head-neck-shaft packaging) не нужны.
+
+- [segmentation_pipeline.py](neurd/segmentation_pipeline.py) урезан до 2 стадий
+  (соме + декомпозиция); убраны импорты `bu`, `nsimp`, `spu` и параметр
+  `branch_simplification`.
+- **Удалён `neuron_simplification.py`** (684 LOC) — его импортировал только
+  `segmentation_pipeline` (стадия 4). `refine_width_…` и `add_head_neck_shaft_spine_objs`
+  остаются в `branch_utils`/`spine_utils` (это core, ф-ции используются внутри них).
+
+`neurd/*.py`: 17 → **16**. Gate: **59 passed, 1 skipped**.
+
+---
+
 ## Чего НЕ трогаем
 
 - Upstream-пакеты (`datasci_tools`, `mesh_tools`, `meshparty`) — только обёртки/шимы в `neurd/`.
@@ -104,8 +121,8 @@ Gate `pytest tests/unit/` остался зелёным (**60 passed, 1 skipped*
 
 ## Метрики
 
-| Метрика | До (старт) | Фаза 5 | Фаза 6 |
-|---|---|---|---|
-| Файлов `neurd/*.py` | 44 | 39 | **17** |
-| Core-файлов с кластерными dep | 11 | 0 | 0 |
-| Unit-тестов passed | 81 | 74 | **60** (1 skipped) |
+| Метрика | До (старт) | Фаза 5 | Фаза 6 | Фаза 7 |
+|---|---|---|---|---|
+| Файлов `neurd/*.py` | 44 | 39 | 17 | **16** |
+| Core-файлов с кластерными dep | 11 | 0 | 0 | 0 |
+| Unit-тестов passed | 81 | 74 | 60 | **59** (1 skipped) |
