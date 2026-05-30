@@ -2951,7 +2951,8 @@ def restrict_skeleton_from_start_plus_offset_upstream(
     
     if start_coordinate is None:
         start_coordinate = downstream_endpoint(limb_obj,branch_idx)
-        
+
+    from neurd.concept_network_utils import subgraph_around_branch  # P3: local import breaks neuron_utils<->concept_network_utils cycle
     upstream_node_list = subgraph_around_branch(limb_obj,
                            branch_idx,
                             downstream_distance = -1,
@@ -3009,7 +3010,8 @@ def restrict_skeleton_from_start_plus_offset_downstream(
     
     if start_coordinate is None:
         start_coordinate = upstream_endpoint(limb_obj,branch_idx)
-        
+
+    from neurd.concept_network_utils import subgraph_around_branch  # P3: local import breaks neuron_utils<->concept_network_utils cycle
     upstream_node_list = subgraph_around_branch(limb_obj,
                            branch_idx,
                            downstream_distance=comparison_distance + offset + 1000,
@@ -3434,6 +3436,7 @@ def calculate_decomposition_products(
     skeleton = neuron_obj.skeleton
     
     # --- skeleton stats
+    from neurd.neuron_statistics import skeleton_stats_from_neuron_obj  # P3: local import breaks neuron_utils<->neuron_statistics cycle
     sk_stats = skeleton_stats_from_neuron_obj(
             neuron_obj,
             include_centroids=True,
@@ -3492,10 +3495,10 @@ attributes_dict_h01 = dict()
 
 #--- from neurd_packages ---
 
-from .concept_network_utils import subgraph_around_branch
-# 'from . import neuron' removed (P1): broke the neuron_utils <-> neuron module-load
-# cycle. Branch is now a local import inside branches_to_concept_network (only use site).
-from .neuron_statistics import skeleton_stats_from_neuron_obj
+# P1/P3: neuron_utils is now a true intra-package SINK (imports nothing from neurd at
+# module level), so all 9 modules that import it load without a cycle. The three names it
+# used (neuron.Branch, concept_network_utils.subgraph_around_branch,
+# neuron_statistics.skeleton_stats_from_neuron_obj) are now local imports at their call sites.
 
 #--- from mesh_tools ---
 from mesh_tools import compartment_utils as cu
