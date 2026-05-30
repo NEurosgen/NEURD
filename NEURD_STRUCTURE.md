@@ -1,12 +1,14 @@
-# NEURD — Структура модулей (актуально на 2026-05-29)
+# NEURD — Структура модулей (актуально на 2026-05-30)
 
 Карта текущего состояния форка после Фаз 1–5.
 Источник истины — сам код; этот файл — навигационная карта.
 
 См. также: [DEPS_PLAN.md](DEPS_PLAN.md), [PIPELINE.md](PIPELINE.md),
-[DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) — гайд по глубокому reachability-анализу.
+[DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) — гайд по глубокому reachability-анализу,
+[REFACTOR_PLAN.md](REFACTOR_PLAN.md) — план дальнейшей чистки (граф импортов, циклы, приоритеты).
 
-**Текущий размер:** `neurd/` — 16 файлов `*.py`, ~27.4k строк (после Фазы 9 dead-code).
+**Текущий размер:** `neurd/` — 16 файлов `*.py`, ~24.8k строк (доп. вычистка
+neuron_utils/preprocess_neuron/neuron_statistics, 2026-05-30).
 **Unit-тесты:** 59 passed, 0 failed, 1 skipped. **Характеризационный тест:** 4 passed.
 
 ---
