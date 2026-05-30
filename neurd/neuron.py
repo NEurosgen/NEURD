@@ -63,28 +63,24 @@ def dc_check(current_object,attribute,default_value = None):
         return default_value
 
 def copy_concept_network(curr_network):
-    copy_network = dc(curr_network)
+    # Build a fresh graph of the same type WITHOUT deepcopying Branch/Soma objects first.
+    # The previous dc(curr_network) created N wasteful Branch copies (with full mesh arrays)
+    # that were immediately thrown away when class_constructor rebuilt them below.
+    # Now: one copy per node instead of two, halving peak RAM for the copy operation.
+    copy_network = curr_network.__class__()
+    copy_network.graph.update(dc(curr_network.graph))
 
-    for n in copy_network.nodes():
-        """ Old way that didn't account for dynamic updates
-        current_node_class = copy_network.nodes[n]["data"].__class__
-        #print(f"current_node_class = {current_node_class}")
-        copy_network.nodes[n]["data"] = current_node_class(copy_network.nodes[n]["data"])
-        
-        """
-        
-        """
-        New way:
-        1) get the name of the class
-        2) get a reference to the definition based on the current module definition 
-        3) Use that instantiation
-        
-        """
-        current_node_class_name = copy_network.nodes[n]["data"].__class__.__name__
-        class_constructor = getattr(current_module,current_node_class_name)
-        copy_network.nodes[n]["data"] = class_constructor(copy_network.nodes[n]["data"])
-        
-        
+    for n, attrs in curr_network.nodes(data=True):
+        copy_network.add_node(n, **{k: dc(v) for k, v in attrs.items() if k != "data"})
+
+    for u, v, edge_attrs in curr_network.edges(data=True):
+        copy_network.add_edge(u, v, **dc(edge_attrs))
+
+    for n in curr_network.nodes():
+        original = curr_network.nodes[n]["data"]
+        class_constructor = getattr(current_module, original.__class__.__name__)
+        copy_network.nodes[n]["data"] = class_constructor(original)
+
     return copy_network
 
 class Branch:
