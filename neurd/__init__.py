@@ -103,40 +103,45 @@ from pathlib import Path
 
 from datasci_tools import module_utils as modu
 
-# mesh_tools.meshlab.Poisson.initialize_script_filters() returns the Screened Poisson
-# parameters WITHOUT 'type' keys, so Scripter writes <xmlfilter>/<xmlparam> XML format
-# which MeshLabServer 2020.09 silently ignores (it only parses <filter>/<Param>).
-# Fix: replace with a version that has RichXxx type info so Scripter emits the correct
-# <filter>/<Param> format. Values are identical to the originals.
+# MeshLab Poisson is a silent NO-OP on MeshLabServer 2020.09 here, but costs ~60 s of
+# subprocess+xvfb spawn per call (~9 calls ≈ 536 s — the single biggest cost in the
+# pipeline, see PIPELINE.md / profile). The Screened Poisson filter does not actually
+# reconstruct on this build: captured (input, output) pairs are BYTE-IDENTICAL (vertices
+# and faces unchanged), and the wrapper returns the input mesh. Soma detection works
+# anyway — the sphere validator / volume ratio are robust to non-watertight meshes — so
+# Poisson never contributed to the result. (A prior fix patching its script filters to
+# emit <filter>/<Param> XML did not make the filter run; verified still a no-op.)
+#
+# Replicate that EXACT behavior in-process: skip the subprocess, return the input mesh.
+# This is byte-for-byte behavior-preserving (validated by test_segmentation_pipeline)
+# and removes ~536 s. A real watertight reconstruction (open3d) would CHANGE the soma
+# detector's input and is intentionally NOT done here — it is a separate quality
+# experiment to evaluate against a soma baseline.
 try:
     from mesh_tools.meshlab import Poisson as _Poisson
 
-    @classmethod  # type: ignore[misc]
-    def _poisson_script_filters_fixed(cls):
-        return {
-            'Remove Duplicate Vertices': {},
-            'Smooths normals on a point sets': {
-                'K': dict(type='RichInt', value='10'),
-                'useDist': dict(type='RichBool', value='false'),
-            },
-            'Surface Reconstruction: Screened Poisson': {
-                'cgDepth':       dict(type='RichInt',   value='0'),
-                'confidence':    dict(type='RichBool',  value='false'),
-                'depth':         dict(type='RichInt',   value='11'),
-                'fullDepth':     dict(type='RichInt',   value='6'),
-                'iters':         dict(type='RichInt',   value='8'),
-                'pointWeight':   dict(type='RichFloat', value='4'),
-                'preClean':      dict(type='RichBool',  value='false'),
-                'samplesPerNode':dict(type='RichFloat', value='1.5'),
-                'scale':         dict(type='RichFloat', value='1.1'),
-                'visibleLayer':  dict(type='RichBool',  value='false'),
-            },
-            'Remove Duplicate Vertices': {},
-            'Delete Current Mesh': {},
-        }
+    def _poisson_inprocess_noop(
+        self, vertices=[], faces=[], segment_id=None, return_mesh=True,
+        input_mesh_path="", mesh_filename="", printout=True,
+        delete_temp_files=True, **kwargs,
+    ):
+        import random as _r
+        import trimesh as _tm
+        if segment_id is None:
+            segment_id = _r.randint(100, 100000)
+        if len(mesh_filename) <= 0:
+            mesh_filename = f"neuron_{segment_id}.off"
+        # output path mirrors the real wrapper ({input_stem}_poisson.off); only its
+        # `.stem` is consumed downstream (for naming the next temp file), not its bytes.
+        output_obj = self.temp_folder_obj / f"{Path(mesh_filename).stem}_poisson.off"
+        if len(vertices) == 0 and input_mesh_path:
+            mesh = self.fetch_mesh_from_off(str(input_mesh_path))
+        else:
+            mesh = _tm.Trimesh(vertices=vertices, faces=faces, process=False)
+        return (mesh, output_obj) if return_mesh else output_obj
 
-    _Poisson.initialize_script_filters = _poisson_script_filters_fixed
-    del _Poisson, _poisson_script_filters_fixed
+    _Poisson.__call__ = _poisson_inprocess_noop
+    del _Poisson, _poisson_inprocess_noop
 except Exception:
     pass
 
