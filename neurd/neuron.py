@@ -2394,7 +2394,7 @@ class Neuron:
 #                                             combine_close_skeleton_nodes = combine_close_skeleton_nodes,
 #                                             combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold)
                     elif preprocessing_version == 2:
-                        
+                        from neurd import preprocess_neuron as pre  # P3: local import breaks neuron<->preprocess_neuron cycle
                         preprocessed_data = pre.preprocess_neuron(
                                                 mesh,
                                         segment_id=segment_id,
@@ -3378,7 +3378,8 @@ class Neuron:
 
 
 from . import branch_utils as bu
-from . import preprocess_neuron as pre
+# P3: `preprocess_neuron as pre` is now a local import in __init__ (only use site) to
+# break the neuron<->preprocess_neuron cycle.
 from . import soma_extraction_utils as sm
 from . import spine_utils as spu
 from . import width_utils as wu
