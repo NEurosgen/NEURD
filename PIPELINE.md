@@ -1,148 +1,140 @@
-# NEURD — Конвейер сегментации меша (стадии и швы)
+# NEURD — slim-пайплайн сегментации: как работает + патчи
 
-Операционная карта end-to-end pipeline: от меша сегмента до автопруфридинга и
-compartment-меток. Стадии и «швы» взяты из исполняемой спецификации
-[tests/integration/test_autoproof_pipeline.py](tests/integration/test_autoproof_pipeline.py)
-(каждый `test_N_*` = одна стадия) и оркестратора
-[neuron_pipeline_utils.py](neurd/neuron_pipeline_utils.py).
+Что геометрически происходит на пути `mesh → Neuron`, где это в коде, что можно/нельзя
+трогать, и какие compat-патчи держат всё на numpy2/trimesh4 без Docker.
+Карта модулей — в [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md).
 
-См. также:
-- [PIPELINE_GEOMETRY.md](PIPELINE_GEOMETRY.md) — **как пайплайн работает геометрически и в коде** (что и почему можно/нельзя менять).
-- [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md) — карта модулей.
-
-## Статус: ПАЙПЛАЙН ЗЕЛЁНЫЙ (2026-05-28)
-Все 9 стадий проходят end-to-end на numpy 2 / trimesh 4, **без Docker**. Юнит+оракул: 84 passed, 1 skipped.
-
-**Окружение:** conda-env `neurd` (`source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd`).
-Mesh-стадии шеллятся в `xvfb-run meshlabserver` — нужны оба бинаря (`sudo apt install meshlab xvfb`).
-Интеграционный тест помечает mesh-стадии `@_requires_mesh_tools` и скипает их, если тулинга нет.
-
-**Прогон:** `python -m pytest tests/integration/test_autoproof_pipeline.py -p no:cacheprovider -v` (~4–5 мин).
+> ⚠️ Downstream-стадии (multi-soma split, cell typing, axon, autoproof, after-proof stats)
+> и их модули **удалены** из форка. Здесь описан только живой slim-путь (2 стадии).
 
 ---
 
-## Стадии
+## 0. Картина целиком
 
-Поток данных: `segment_id → mesh → decimated mesh → soma → neuron_obj →
-[split] → neuron_obj_axon → neuron_obj_proof → stats`.
+Вход — **меш одного нейрона** из EM: огромная треугольная поверхность (сотни тысяч граней) —
+округлое **тело (сома)** с ветвящимися **отростками** (дендриты/аксон), покрытыми **шипиками**.
+Задача slim-пайплайна — превратить «мешок треугольников» в структуру: найти сому, разложить
+отростки на **скелет** (центрлайны) и **ветки**, построить **граф связности (concept network)**,
+снять сырые шипики. Три примитива, вокруг которых всё крутится: **SDF**, **скелет**, **concept network**.
 
-| # | Стадия | Вход → выход (шов) | Точка входа | Ключевые модули | MeshLab |
-|---|---|---|---|---|---|
-| 0 | **Конфиг** | dataset → глобалы модулей | `neurd.set_volume_params(volume)` | `__init__`, `parameter_utils`, `vdi_*` | — |
-| 1 | **Fetch mesh** | `segment_id` → `trimesh` | `vdi.fetch_segment_id_mesh(segment_id)` | `volume_utils`, `vdi_microns`/`vdi_h01` | — |
-| 2 | **Decimation** | mesh → decimated mesh | `tu.decimate(mesh, ratio)` *(mesh_tools)* | (внешнее) | ✅ |
-| 3 | **Soma identification** | mesh → soma_products | `sm.soma_indentification(mesh)` | `soma_extraction_utils` | ✅ |
-| 4 | **Decomposition** | mesh → `neuron_obj` | `neuron.Neuron(mesh=…).calculate_decomposition_products()` | `neuron`, `preprocess_neuron` | ✅ |
-| 5 | **Save / reload** | `neuron_obj` → диск → `neuron_obj` | `vdi.save_neuron_obj` / `vdi.load_neuron_obj` | `vdi_*` | — |
-| 6 | **Multi-soma split** | `neuron_obj` → `[neuron_obj, …]` | `neuron_obj.calculate_multi_soma_split_suggestions()` + `.multi_soma_split_execution()` | `soma_splitting_utils`, `proofreading_utils` | ✅* |
-| 7 | **Cell type + axon/dendrite** | `neuron_obj` → `neuron_obj_axon` | `npu.cell_type_ax_dendr_stage(n, mesh_decimated)` | см. ниже | ✅* |
-| 8 | **Auto proofreading** | `neuron_obj_axon` → `neuron_obj_proof` | `npu.auto_proof_stage(n_axon, mesh_decimated)` | `proofreading_utils`, `error_detection`, `graph_filters` | ✅* |
-| 9 | **After-proof stats / compartments** | `neuron_obj_proof` → dict статистик | `npu.after_auto_proof_stats(n_proof)` | `apical_utils`, `synapse_utils`, `neuron_statistics` | — |
+Каноничный путь — [segmentation_pipeline.py](neurd/segmentation_pipeline.py):
+1. **Идентификация сомы** — `sm.soma_indentification(mesh)`.
+2. **Декомпозиция** — `neuron.Neuron(mesh=...)` (внутри `preprocess_neuron`: скелетонизация,
+   ветви, сырые шипики, concept network).
 
-\* косвенно: внутри строится/правится меш или вызываются стадии, использующие MeshLab.
-
-### Подстадии `cell_type_ax_dendr_stage` (стадия 7)
-1. Refine width array — `bu.refine_width_array_to_match_skeletal_coordinates`
-2. Branch simplification (≥2 ребёнка) — `nsimp.branching_simplification`
-3. (опц.) фильтр low-branch dendrite-кластеров — `pru.apply_proofreading_filters_to_neuron`
-4. Match neuron ↔ nucleus — `nru.pair_neuron_obj_to_nuclei`
-5. Add synapses — `syu.add_synapses_to_neuron_obj`
-6. Spines → head/neck/shaft — `spu.add_head_neck_shaft_spine_objs`
-7. Cell typing (E/I) — `ctu.e_i_classification_from_neuron_obj` *(результат питает axon)*
-8. Label axon — `au.complete_axon_processing`
-9. Пакетирование статистик — `nst.skeleton_stats_*`, `syu.n_synapses_analysis_axon_dendrite`
-
-### Подстадии `after_auto_proof_stats` (стадия 9)
-Neuron stats → synapse stats → cell typing after proof → compartment features
-(`au.axon_features_*`, `apu.compartment_features_*`) → limb alignment.
+`process_all_neurons.py` (entry пользователя) идёт ещё короче — `neuron.Neuron(mesh=...)`
+напрямую в воркер-процессе на каждый OFF-меш. Stats-шаг `calculate_decomposition_products`
+**вне** slim-пути (его единственного вызывателя убрали; частично починен).
 
 ---
 
-## Внешние инструменты и кандидаты на замену
+## 1. Геометрические примитивы
 
-Тяжёлые/хрупкие внешние зависимости. **MeshLab — главная:** классический `meshlabserver`
-снят в новых релизах (заменён на PyMeshLab), это источник целого класса version-багов
-(см. Баги 2/4 ниже). `mesh_tools.*` — upstream-пакеты автора, замену делать обёрткой/патчем
-в `neurd/`, не правя upstream.
+- **SDF (Shape Diameter Function, «толщина»).** Для каждой грани луч **внутрь** меша по
+  инвертированной нормали; длина до выхода = локальная толщина. Сома толстая → высокий SDF;
+  дендриты/аксон тонкие → низкий. Главный признак «сома vs отростки» и оценки ширины веток.
+  **Код:** `mesh_tools.trimesh_utils.ray_trace_distance(mesh)` (embree если есть). ⚠️ В пайплайне
+  SDF ожидается **нормализованным в [0,1]** — пороги (`soma_width_threshold=0.32`) под эту шкалу.
+- **Скелет (skeleton).** 1D-граф по «середине» трубчатого отростка (осевая линия). Длина =
+  длина отростка; точки несут ширину (из SDF); разбивается на **ветки** в точках ветвления.
+  **Код:** скелетонизация в `preprocess_neuron.py` (meshafterparty/MAP, `mesh_tools.skeleton_utils`).
+- **Mesh segmentation по SDF.** Кластеризация граней по SDF. Оригинал — CGAL MRF graph-cut;
+  наш stub (`neurd/_cgal_segmentation.py`) — KMeans по log(SDF) без пространственного сглаживания
+  (контраст SDF сома/отростки велик → достаточно). **Код:** `tu.mesh_segmentation(mesh, clusters,
+  smoothness)` → sub-меши + **SDF-медиана сегмента** (сома = высокая медиана + подходящий размер).
+- **Concept network.** Направленный граф веток лимба: узлы=ветки, рёбра=«A продолжается в B»,
+  корень = точка касания сомы, направление upstream→downstream (от сомы наружу). Один граф на
+  (лимб, сома). **Код:** `nru.branches_to_concept_network(...)`, живёт в `Limb.concept_network`.
 
-| Где | Зависимость | Через что | Замена |
-|---|---|---|---|
-| Decimation (стадии 2,4) | MeshLab | `meshlab.Decimator` | `open3d`/`trimesh` quadric decimation |
-| Soma/decomp Poisson | MeshLab | `meshlab.Poisson` | `open3d` Screened Poisson |
-| Hole filling | MeshLab | `meshlab.FillHoles` | `trimesh.fill_holes` / open3d |
-| Interior removal | MeshLab | `meshlab.Interior` (Ambient Occlusion) | **нет прямого аналога** — узкое место |
-| Soma/spine segmentation | CGAL `cgal_Segmentation_Module` | `tu.mesh_segmentation()` | **СДЕЛАНО** — питон-stub (Баг 3) |
-| Скелетонизация | meshparty / CGAL | `preprocess_neuron` | отдельная зависимость, НЕ meshlab |
-
-> Полностью убрать `meshlabserver`+`xvfb` = заменить 4 meshlab-операции (Decimator,
-> Poisson, FillHoles, Interior). Первые три — лёгкие in-process аналоги; Interior — сложный.
-> Делать только на зелёном пайплайне + характеризационных тестах (см. ниже).
+### Иерархия объекта Neuron
+```
+Neuron
+ ├── somas:  S0, S1, ...                    (тела: меш + центр)
+ └── limbs:  L0, L1, ...                    (отростки = связные компоненты после вырезания сомы)
+       ├── branches: 0,1,2,...              (участки скелета между ветвлениями)
+       │     ├── mesh, mesh_face_idx        (подмеш ветки)
+       │     ├── skeleton                    (центрлайн)
+       │     ├── width_array (из SDF)
+       │     ├── endpoint_upstream/downstream
+       │     └── web                         (меш-«перепонка» в точке ветвления)
+       └── concept_network                   (граф веток, корень = касание сомы)
+```
+Файлы: `neuron.py` (классы), `neuron_utils.py` (`nru.*` — запросы по графу), `branch_utils.py`,
+`limb_utils.py`, `concept_network_utils.py`.
 
 ---
 
-## Применённые compat-патчи (numpy 2 / trimesh 4 / мёртвый meshlabserver)
+## 2. Две живые стадии — геометрия и код
 
-Все патчи — в `neurd/` (не в upstream). Большинство — monkeypatch'и в
-[neurd/__init__.py](neurd/__init__.py), применяемые при `import neurd` (до импорта mesh_tools).
+### Стадия 1 — Soma identification (`soma_extraction_utils`)
+Самая геометрически плотная. Найти меш(и) сомы:
+1. Decimation (грубее) → быстрый кандидат (`meshlab.Decimator`).
+2. Выделить крупные куски меша.
+3. **Poisson surface reconstruction** (`meshlab.Poisson`) → водонепроницаемая оболочка.
+4. **Remove interior** (`meshlab.Interior`, через Ambient Occlusion).
+5. **Mesh segmentation по SDF** (`tu.mesh_segmentation`, clusters≈3) → сегменты + SDF-медианы.
+6. **Отбор:** сегмент проходит если `SDF_median > soma_width_threshold` (0.32) **и** размер в
+   `[soma_size_threshold, _max]` → «толстый и крупный округлый кусок».
+7. **Sphere validator** (bbox ≈ шар) + **backtrack** грубой оболочки на грани оригинального меша.
+
+⚠️ Порог `0.32` и отбор завязаны на нормализованный [0,1] SDF — любой новый поставщик SDF
+**обязан** нормализовать (stub делает, перцентили [2,98]). Узкое место замены — шаги 3–4 (MeshLab).
+
+### Стадия 2 — Decomposition (`neuron.Neuron(...)` → `preprocess_neuron.preprocess_neuron`)
+1. Soma detection (переиспользует стадию 1, если не передана).
+2. **Вырезать сому** → остаток распадается на **лимбы** (связные компоненты).
+3. **Скелетонизация** каждого лимба (meshafterparty/MAP) → центрлайны.
+4. **Разбить скелет на ветки** в точках ветвления → `limb_correspondence` (branch_mesh,
+   branch_skeleton, width_from_skeleton на ветку).
+5. **Ширины** веток из SDF вдоль скелета. 6. **Concept network** на лимб.
+
+⚠️ Сердце core clump. `Branch.__init__` делает deepcopy submesh/skeleton — дорого по RAM
+(перф ниже), но менять рискованно. Скелетонизация (meshparty) — отдельная зависимость, НЕ meshlab.
+
+### Инварианты — НЕ менять без сквозного теста
+- Пороги отбора сомы (`soma_width_threshold=0.32`, size thresholds) — завязаны на [0,1] SDF.
+- `Branch`/`Limb`/`Neuron` и concept network — на структуре графа/атрибутах держится всё.
+- Семантика направления concept network (upstream/downstream от сомы).
+
+---
+
+## 3. Применённые compat-патчи (numpy2 / trimesh4 / мёртвый meshlabserver)
+
+Все — в `neurd/` (не upstream). Большинство — monkeypatch'и в
+[neurd/__init__.py](neurd/__init__.py), применяются при `import neurd` (до импорта mesh_tools).
+**Это load-bearing — понимать назначение перед правкой `__init__.py`.**
 
 | # | Симптом | Причина | Фикс (где) |
 |---|---|---|---|
-| 1 | `TypeError ... scalar index` в soma split | trimesh≥4 `mesh.split()` → `list`, не `ndarray` | `soma_extraction_utils.py` (72,1002,1123): `list(...)` + list-comprehension |
-| 2 | Poisson не выполняется, нет выходного файла | `meshlab.Poisson` пишет `<xmlfilter>` XML, MeshLabServer 2020.09 его игнорирует | `__init__.py`: патч `Poisson.initialize_script_filters` → `type=Rich*` (формат `<filter>`) |
-| 3 | `NameError: csm` (CGAL не установлен) | C++ расширение CGAL отсутствует | `__init__.py`: stub `_cgal_segmentation.py` в `sys.modules['cgal_Segmentation_Module']` (ray_trace SDF + KMeans) |
-| 4 | `scipy ValueError: axis 0 index ... exceeds` | MeshLabServer 2020.09 OFF-экспортёр: компактные вершины, но грани в старой нумерации | `__init__.py`: патч `Meshlab.fetch_mesh_from_off` → перенумерация `searchsorted(unique(faces), faces)` |
-| 5 | `IndexError ... size 1` в multi-soma split | две сомы на одном стартовом узле лимба → путь из 1 узла | `proofreading_utils.py:1147`: guard `if len(soma_to_soma_path) < 2: break` |
-| 6 | `ValueError: data_pts ... 2 dimensions` | новая pykdtree требует 2D, upstream строит KDTree из 1D дистанций | `__init__.py`: обёртка `skeleton_utils.KDTree` (1D→(N,1)) |
+| 1 | `TypeError ... scalar index` (soma split) | trimesh≥4 `mesh.split()` → `list`, не `ndarray` | `soma_extraction_utils.py`: `list(...)` + list-comprehension |
+| 2 | Poisson не выполняется, нет выходного файла | `meshlab.Poisson` пишет `<xmlfilter>` XML, MeshLabServer 2020.09 игнорирует | `__init__.py`: патч `Poisson.initialize_script_filters` → `type=Rich*` |
+| 3 | `NameError: csm` (CGAL не установлен) | C++ расширение CGAL отсутствует | `__init__.py`: stub `_cgal_segmentation.py` в `sys.modules['cgal_Segmentation_Module']` |
+| 4 | `scipy ValueError: axis 0 index ... exceeds` | MeshLabServer 2020.09 OFF-экспортёр: компактные вершины, грани в старой нумерации | `__init__.py`: патч `Meshlab.fetch_mesh_from_off` (перенумерация searchsorted) |
+| 5 | `IndexError ... size 1` (multi-soma split) | две сомы на одном стартовом узле → путь из 1 узла | `proofreading_utils.py:1147` guard *(модуль удалён; патч исторический)* |
+| 6 | `ValueError: data_pts ... 2 dimensions` | новая pykdtree требует 2D, upstream строит из 1D | `__init__.py`: обёртка `skeleton_utils.KDTree` (1D→(N,1)) |
 | 7 | `numpy_dep has no attribute 'in1d'` | `np.in1d` удалён в numpy 2 | `__init__.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
-| 8 | стадия 9: dotmotif | autoproof обязателен dotmotif; mainline — другой грамматич. диалект | форк reimerlab (см. ниже) + stub `dotmotif.executors.Neo4jExecutor` в `__init__.py` |
 
-> Детали корней любого бага — в `git log` соответствующих правок и в memory-записях
-> сессии 2026-05-28. Здесь — только что/где, чтобы понимать назначение патчей в `__init__.py`.
-
-### Новые зависимости (стадия 9 / autoproof)
-```
-pip install --no-deps git+https://github.com/reimerlab/dotmotif
-pip install grandiso lark-parser
-```
-**Форк reimerlab, не mainline PyPI** (у mainline другой синтаксис мотивов, спотыкается на
-`[sk_angle <= ...]`). neo4j-хвост (py2neo/tamarind/dask/neuprint) НЕ нужен — обрублен стабом
-`Neo4jExecutor`. ⚠️ Ещё не внесено в `requirements.txt` (git-форк требует особого оформления).
+> Корни багов — в `git log` соответствующих правок. Здесь — что/где, чтобы понимать `__init__.py`.
 
 ---
 
-## Тестируемость
-- Швы стадий закодированы в `test_autoproof_pipeline.py` как `test_N_*` (состояние через `self.__class__`).
-- **Оракул-тест CGAL-шва**: [tests/integration/test_cgal_segmentation_oracle.py](tests/integration/test_cgal_segmentation_oracle.py).
-  Эталон оригинального CGAL закоммичен: `tests/990_mesh.off` (7240 граней) +
-  `990_mesh-cgal_3_0.20.csv` (кластер/грань) + `..._sdf.csv`. Три теста:
-  целостность эталонов (всегда), контракт провайдера (длины, int-кластеры, SDF∈[0,1]),
-  fidelity (корреляция SDF с эталоном ≥0.85; питон-stub даёт ~0.95). Скипается без провайдера.
-- Характеризационные тесты на других швах можно добавлять тем же приёмом
-  (вход→выход стадии, эталон на fixture-меше). Делать ДО замены meshlab.
+## 4. Forward: замена meshlabserver + перф
 
----
+**Убрать `meshlabserver`+`xvfb` целиком** = заменить 4 meshlab-операции на in-process:
+| Операция | Сейчас | Замена | Сложность |
+|---|---|---|---|
+| Decimation | `meshlab.Decimator` | open3d/trimesh quadric | легко |
+| Poisson | `meshlab.Poisson` | open3d Screened Poisson | легко |
+| Hole filling | `meshlab.FillHoles` | `trimesh.fill_holes`/open3d | легко |
+| Interior removal | `meshlab.Interior` (Ambient Occlusion) | **нет прямого аналога** | сложно |
 
-## Производительность: гипотезы (НЕ профилировано)
+Делать только при зелёном характеризационном тесте; добавить характеризационный тест на шов
+операции перед заменой.
 
-> ⚠️ Статический анализ, не профайлер. Перед оптимизацией — подтвердить
-> `cProfile`/`memray` на fixture-меше. Профиль наблюдался ~8 ч + 32 ГБ на 0.5 ГБ меш.
-
-1. **MeshLab через диск+subprocess** (decimate/poisson/interior ×N): ASCII-сериализация
-   огромного меша + спавн процесса. Устранимо — in-process open3d/trimesh.
-2. **Eager deepcopy submesh на каждый Branch** (`neuron.py` `Branch.__init__`): тысячи
-   материализованных submesh-копий → главный драйвер RAM. Частично устранимо (view вместо copy).
-3. **deepcopy целого Neuron** на границах стадий (`return_copy=True`): удваивает пик RAM.
-4. **Скелетонизация** (meshparty/CGAL): легитимно дорогая CPU-работа, переписыванием не убрать.
-5. **Пер-branch циклы** (ширины/статистики/graph-queries): частично векторизуемо/кэшируемо.
-
-#1 и #2 — «low-hanging fruit», структурно устранимы. НО: #2/#3 трогают `Branch`/`Neuron`
-(сердце core clump) — опасно без характеризационных тестов.
-
----
-
-## Что делать дальше
-1. **Зафиксировать новые зависимости** (dotmotif git-форк + grandiso + lark-parser) — решить, как оформить git-форк в requirements.
-2. **Характеризационные тесты на швах** стадий (приём с оракулом), пока пайплайн зелёный.
-3. **Замена `meshlabserver`** на in-process (open3d/trimesh) — 4 операции, Interior сложнейшая;
-   фулл-цель: убрать meshlabserver+xvfb. Только после п.2.
-4. Отложено: decouple `cell_type_utils`, `DictType→dict` (детали — в memory).
+**Перф-гипотезы (НЕ профилировано; наблюдалось ~8 ч + 32 ГБ на 0.5 ГБ меш):**
+1. MeshLab через диск+subprocess (ASCII-сериализация + спавн) — устранимо in-process.
+2. Eager deepcopy submesh на каждый `Branch` (`neuron.py`) — главный драйвер RAM; view вместо copy
+   (рискованно — трогает ядро).
+3. deepcopy целого Neuron на границах стадий (`return_copy=True`) — удваивает пик RAM.
+4. Скелетонизация (meshparty/CGAL) — легитимно дорогая, не убрать переписыванием.
+</content>

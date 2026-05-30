@@ -1,114 +1,51 @@
-# NEURD — план дальнейшей чистки (актуально 2026-05-30)
+# NEURD — план чистки: сделано + что осталось (актуально 2026-05-30)
 
-Состояние: `neurd/` = **16 файлов, ~24.8k строк**. Slim-пайплайн `mesh → Neuron`
-зелёный (unit 59 passed / 1 skipped; характеризационный тест 4 passed, ~11 мин).
-Zero-ref dead-code исчерпан (см. [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md)).
-
-Этот файл — приоритизированный план «как чистить дальше», с опорой на фактический
-граф импортов (построен скриптом, не на глаз). Каждый шаг: что, зачем, риск, как проверять.
+Состояние: `neurd/` = **16 файлов, ~24.4k LOC**. Slim-пайплайн `mesh → Neuron` зелёный
+(unit 59 passed / 1 skipped; характеризационный тест 4 passed, ~11 мин). Граф внутренних
+импортов — **DAG (0 циклов)**. Глубокий dead-code — см. [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md).
 
 ---
 
-## 1. Фактический граф внутренних импортов (источник всех решений ниже)
+## 1. Как перепроверять граф импортов
 
-```
-branch_utils          -> neuron_statistics, neuron_utils, spine_utils, width_utils
-concept_network_utils -> neuron_statistics, neuron_utils, width_utils
-limb_utils            -> branch_utils, concept_network_utils, neuron_searching, neuron_statistics, neuron_utils
-neuron                -> branch_utils, neuron_statistics, neuron_utils, preprocess_neuron, soma_extraction_utils, spine_utils, width_utils
-neuron_searching      -> branch_utils, concept_network_utils, neuron_statistics, neuron_utils, width_utils
-neuron_statistics     -> branch_utils, concept_network_utils, neuron_searching, neuron_utils
-neuron_utils          -> neuron                       # ← god-hub, и при этом часть цикла
-preprocess_neuron     -> neuron, neuron_utils, soma_extraction_utils
-spine_utils           -> branch_utils, neuron_searching, neuron_statistics, neuron_utils, width_utils
-width_utils           -> neuron_utils
-soma_extraction_utils -> parameter_utils
-segmentation_pipeline -> neuron, soma_extraction_utils
-parameter_utils       -> (none)
-```
-
-**6 двусторонних циклов** (держатся на bottom-of-file импортах — band-aid):
-- `neuron_utils ↔ neuron`  ← КОРНЕВОЙ, держится на **1 строке**
-- `preprocess_neuron ↔ neuron`
-- `neuron_statistics ↔ neuron_searching`
-- `neuron_statistics ↔ concept_network_utils`
-- `neuron_statistics ↔ branch_utils`
-- `branch_utils ↔ spine_utils`
-
-**7 self-import band-aid'ов** (`from . import X as X` в конце файла, антипаттерн по
-конвенции проекта): soma_extraction_utils, concept_network_utils, branch_utils,
-limb_utils, neuron_searching, preprocess_neuron, spine_utils.
-
-Размеры (LOC): preprocess_neuron 4842, neuron_utils 3506, spine_utils 3419,
-neuron 3402, neuron_statistics 1994, soma_extraction_utils 1828, neuron_searching 1816,
-concept_network_utils 1341, branch_utils 881, parameter_utils 877, width_utils 457,
-limb_utils 122.
+Скрипт-обход (regex по заголовкам файлов), ребро `A→B` если `A` импортирует `B`:
+`^from \. import (\w+)`, `^from \.(\w+) import`, `^from neurd import (\w+)`,
+`^from neurd\.(\w+) import`. Затем DFS на циклы / 2-cycle детектор. До рефактора было
+6 двусторонних циклов + god-hub; сейчас DAG. Если правки снова заведут цикл — этот обход покажет.
 
 ---
 
-## 2. Приоритеты (от дешёвого/безопасного к дорогому/рискованному)
+## 2. Сделано (2026-05-30)
 
-### P1 — разорвать цикл `neuron_utils ↔ neuron` (дёшево, высокая отдача) ⭐
-`neuron_utils` — god-hub: его импортируют 8 модулей. Но сам он лезет в `neuron`
-**ровно один раз**: `neuron.Branch(starting_edge).endpoints` в
-[neuron_utils.py:426](neurd/neuron_utils.py#L426). Цикл держится на этой строке +
-band-aid `from . import neuron` (низ файла).
-
-**Действие:** убрать модульный `from . import neuron`; внутри той функции сделать
-локальный `from neurd.neuron import Branch` (или передавать endpoints аргументом).
-Тогда `neuron_utils` грузится автономно, и большой кусок графа выпрямляется.
-
-**Риск:** низкий. **Проверка:** fast-gate (`import neurd`, `pytest tests/unit/`) +
-характеризационный тест (Branch строится на пути декомпозиции).
-
-### P2 — убрать 7 self-import'ов (дёшево, конвенция проекта)
-В каждом из 7 модулей в конце файла висит `from . import <self> as <alias>`, а тело
-вызывает `alias.foo()` вместо `foo()`. По конвенции их надо убрать: заменить
-`alias.` → прямой вызов, удалить импорт.
-
-**Риск:** низкий, но механический объём (грепом по каждому alias). Делать **по одному
-модулю на коммит** (логические правки отдельно от косметики — конвенция).
-**Проверка:** fast-gate на каждый; характеризационный тест на батч.
-
-### P3 — выделить low-level helpers из god-hub `neuron_utils` (среднее)
-После P1 `neuron_utils` всё ещё 3.5k и тянется всеми. Идея пользователя «отдельный
-файл с часто используемыми функциями» здесь работает: вынести самые
-переиспользуемые чистые хелперы (не требующие классов Neuron/Limb/Branch) в новый
-модуль без внутрипакетных зависимостей (`neuron_base_utils.py` / `_base.py`).
-Тогда branch_utils/concept_network_utils/width_utils/… импортируют их из «листа»
-графа, а не из god-hub → меньше рёбер к `neuron_utils`.
-
-**Как выбирать что выносить:** функции из `neuron_utils`, которые (а) вызываются ≥3
-модулями и (б) не используют `neuron.*`/класс-объекты. Список собрать грепом
-`nru.<name>` по `neurd/`.
-**Риск:** средний (широкие callers). **Проверка:** fast-gate + характеризационный.
-
-### P4 (ОТМЕНЁН) — разбить большие файлы на пакеты
-Отменено 2026-05-30 по решению пользователя: это только читаемость/навигация, импорты
-само по себе НЕ упрощает (классы neuron.py ссылаются друг на друга и на god-hub `nru`),
-а цель — облегчить импорты. Если когда-нибудь понадобится ради навигации — делать через
-пакет с реэкспортом в `__init__.py` и только ПОСЛЕ P1, но в текущий план не входит.
-
-### P5 — глубокий dead-code (mark-and-sweep), как описано в DEAD_CODE_REACHABILITY.md
-Zero-ref исчерпан, но взаимно-ссылающиеся мёртвые кластеры (A↔B, оба недостижимы)
-им не ловятся. Метод (граф достижимости от корней-точек входа, over-approx динамики)
-расписан в [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) §2–§5. Самый
-вероятный улов — `calculate_decomposition_products` и его stats-цепочка (вне slim-пути).
-
-**Риск:** средний/высокий (динамический dispatch). **Проверка:** малые батчи +
-fast-gate + характеризационный каждый батч.
+- **P1 — разорван корневой цикл `neuron_utils ↔ neuron`.** `neuron_utils` (god-hub, импортируется
+  9 модулями) тянул `neuron.Branch` в одном месте → локальный импорт. Коммит `refactor(P1)`.
+- **P2 — убраны все 7 self-import'ов** (`from . import <self> as alias`). 5 модулей → прямые
+  вызовы; `concept_network_utils`/`spine_utils` → `alias = sys.modules[__name__]` (в call-site'ах
+  есть локальные имена-тени, слепой strip сломал бы); `limb_utils`/`soma_extraction_utils` —
+  где модуль-объект передаётся аргументом, явная self-ссылка. Коммит `refactor(P2)`.
+- **P3 — `neuron_utils` сделан intra-package sink'ом + устранены ВСЕ циклы (6→0, DAG).**
+  Лазифицированы 3 ссылки neuron_utils (cnu/nst) + одноразовые `neuron→preprocess_neuron`,
+  `cnu→nst`; сняты 3 мёртвых перекрёстных импорта (0 использований). Коммиты `refactor(P3)`.
+- **P5 — свежий zero-ref sweep (−424 LOC, 21 функция, 3 волны).** Манульная вычистка пользователя
+  (удаление `stats_df` и др.) осиротила батч; срезано до фикспоинта. Коммит `dead-code(P5)`.
+- **P4 — ОТМЕНЁН** пользователем: split больших файлов на пакеты улучшает только читаемость,
+  импорты не упрощает (классы `neuron.py` ссылаются друг на друга и на `nru`). В план не входит.
 
 ---
 
-## 3. Рекомендованный порядок
+## 3. Что осталось (по убыванию ценности)
 
-1. **P1** (цикл, 1 правка) → коммит.
-2. **P2** (self-imports, по модулю/коммит) → выпрямляет ещё рёбра.
-3. Перепроверить граф скриптом из §1 — сколько циклов осталось.
-4. **P3** (вынести хелперы) — самый большой выигрыш по «облегчить импорты».
-5. **P5** (deep dead-code) — ещё ужать LOC.
-6. ~~P4~~ — отменён.
+1. **Глубокий reachability dead-code** (mark-and-sweep от корней) — zero-ref исчерпан, но
+   взаимно-ссылающиеся мёртвые кластеры им не ловятся. Метод, корни, динамические хазарды,
+   подводные камни — в [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md). Самый вероятный
+   улов: `calculate_decomposition_products` + его stats-цепочка (вне slim-пути). ⚠️ Рискованно
+   из-за динамического dispatch — нужен характеризационный тест **на каждый батч**.
+2. **Поднять bottom-of-file импорты наверх.** Циклов больше нет → band-aid-импорты в конце
+   файлов (`#--- from neurd_packages ---`) можно перенести в шапку. Косметика, но снимает
+   историческую хрупкость. Отдельными коммитами, fast-gate каждый.
+3. **Замена `meshlabserver`** на in-process (open3d/trimesh) — см. PIPELINE.md §4. Только при
+   зелёном характеризационном тесте + характеризационный тест на шов операции перед заменой.
+4. **Перф/RAM** — `Branch.__init__` deepcopy submesh (PIPELINE.md §4). Трогает ядро, рискованно.
 
-Бэкстоп: fast-gate (~5 c) после каждого шага + коммит; характеризационный тест
-(~11 мин) один раз в самом конце всей серии.
-Команда сборки графа — в истории сессии (скрипт на Python, regex `^from \. import`).
+Бэкстоп на каждом шаге: fast-gate (~4 c) + характеризационный тест (~11 мин) на батч.
+</content>
