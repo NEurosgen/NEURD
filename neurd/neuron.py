@@ -2610,7 +2610,12 @@ class Neuron:
                 #xu.set_node_data(self.concept_network,node_name=soma_name,curr_data=Soma_obj,curr_data_label="data")
 
             print(f"--- 4) Finshed generating Limb objects and adding them to concept graph: {time.time() - neuron_start_time}")
-            
+
+            # Drop large preprocessed_data keys that are now fully materialised into
+            # Limb/Soma objects inside concept_network. Kept: limb_correspondence and
+            # limb_network_stating_info (mutated by neuron_utils after construction).
+            for _stale_key in ("limb_meshes", "limb_concept_networks", "soma_meshes"):
+                preprocessed_data.pop(_stale_key, None)
 
             if decomposition_type == "meshparty" and meshparty_adaptive_correspondence_after_creation:
                 neuron_start_time =time.time()
