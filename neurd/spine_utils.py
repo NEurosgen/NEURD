@@ -1798,6 +1798,7 @@ def calculate_spines_on_branch(
     
     print_flag = False,
     plot_segmentation = False,
+    cgal_folder = None,
     **kwargs,
     ):
     """
@@ -1941,8 +1942,11 @@ def calculate_spines_on_branch(
     if filter_by_boundary_to_area_ratio_min is None:
         filter_by_boundary_to_area_ratio_min = filter_by_boundary_to_area_ratio_min_global
     
-    cgal_path=Path("./cgal_temp")
-    
+    # cgal_folder lets a parallel driver isolate temp files per worker (the CGAL
+    # segmentation writes "{randint}_mesh.off" into this folder; a shared folder
+    # across forked workers would race). Defaults to the original ./cgal_temp.
+    cgal_path = Path(cgal_folder) if cgal_folder is not None else Path("./cgal_temp")
+
     # Step 1: Initial segmentation to get unfiltered spines
     spine_submesh_split= spu.get_spine_meshes_unfiltered_from_mesh(
         branch.mesh,
@@ -2071,7 +2075,7 @@ def calculate_spines_on_branch(
         return spine_submesh_split_filtered,spine_volumes
     else:
         return spine_submesh_split_filtered
-    
+
 def calculate_spines_on_neuron(
     neuron_obj,
     limb_branch_dict=None,
@@ -2080,15 +2084,15 @@ def calculate_spines_on_neuron(
     #query="median_mesh_center > 140 and n_faces_branch>100",#previous used median_mesh_center > 140
     query=None,#previous used median_mesh_center > 140
     plot_query = False,
-    
+
     # limb specific arguments for spine calculation:
     soma_vertex_nullification = None,
-    
+
     #---- arguments for the spine calculation on a branch ----
-    
-    #-- arguments for volume -- 
+
+    #-- arguments for volume --
     calculate_spine_volume = None,
-    
+
     print_flag=False,
     limb_branch_dict_exclude = None,
     **kwargs):
@@ -2167,16 +2171,16 @@ def calculate_spines_on_neuron(
         
         
     # --- Step 2: Calculating the Spines over ---
-        
+
     for limb_idx in limb_branch_dict.keys():
         curr_limb = neuron_obj[limb_idx]
-        
+
         if soma_vertex_nullification:
             soma_verts = np.concatenate([neuron_obj[f"S{k}"].mesh.vertices for k in curr_limb.touching_somas()])
             soma_kdtree = KDTree(soma_verts)
         else:
             soma_kdtree = None
-            
+
         for branch_idx in limb_branch_dict[limb_idx]:
             if limb_branch_dict_exclude is not None:
                 if limb_idx in limb_branch_dict_exclude:
