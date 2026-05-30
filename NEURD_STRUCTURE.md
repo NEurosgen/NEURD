@@ -2,7 +2,8 @@
 
 Навигационная карта slim-форка. Источник истины — код; этот файл собирает то, что
 нужно знать на старте сессии. Связанные доки: [PIPELINE.md](PIPELINE.md) (как работает
-пайплайн + compat-патчи), [REFACTOR_PLAN.md](REFACTOR_PLAN.md) +
+пайплайн + compat-патчи), [OPTIMIZATION.md](OPTIMIZATION.md) (профиль + план оптимизации,
+ветка `optimize_segmentation`), [REFACTOR_PLAN.md](REFACTOR_PLAN.md) +
 [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) (дальнейшая чистка).
 
 **Цель форка:** оставить только путь сегментации меша `mesh → Neuron` (сомы + лимбы/ветви
@@ -19,7 +20,7 @@ connectome/motif/proximity, GNN, визуализация, cloud/dataset-ада�
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd   # Python 3.12, numpy 2
 python -m pytest tests/unit/                  # fast-gate: 59 passed, 1 skipped (~4 c)
-python -m pytest tests/integration/test_segmentation_pipeline.py   # характеризационный: 4 passed (~11 мин)
+python -m pytest tests/integration/test_segmentation_pipeline.py   # характеризационный: 4 passed (~11 мин на main; ~2.5 мин на optimize_segmentation после Poisson-no-op)
 ```
 
 - **Fast-gate** (`tests/unit/`): import-smoke всех core-модулей + `parameter_utils` (36) +
