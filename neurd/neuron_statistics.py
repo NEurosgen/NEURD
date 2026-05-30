@@ -1,9 +1,9 @@
 
 import copy
-import networkx as nx
+
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
-import pandas as pd
+
 top_of_layer_vector = np.array([0,-1,0])
 
 def soma_starting_vector(limb_obj=None,
