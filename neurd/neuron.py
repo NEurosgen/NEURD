@@ -2315,9 +2315,10 @@ class Neuron:
                 
                 self.pipeline_products = pl.PipelineProducts(
                     getattr(mesh,"pipeline_products",None)
-                    )   
-                
-                return 
+                    )
+
+                self._clear_mesh_caches()
+                return
                 
                 
         
@@ -2664,15 +2665,33 @@ class Neuron:
             bu.set_branches_endpoints_upstream_downstream_idx(self,)
         except:
             pass
-        
+
+        self._clear_mesh_caches()
+
         if not suppress_all_output:
             print(f"Total time for neuron instance creation = {time.time() - neuron_creation_time}")
             
+    def _clear_mesh_caches(self):
+        """Clear trimesh lazy-property caches on the full mesh and every Limb mesh.
+
+        trimesh populates expensive derived arrays (vertex_adjacency_graph ~27 MB,
+        triangles ~5 MB, vertex_faces ~4 MB, …) on first access.  After full
+        construction those cached arrays are no longer needed and can be recomputed
+        on demand if any code path asks for them again.  Branch meshes are left
+        alone — they are small and accessed frequently during downstream analysis.
+        """
+        if hasattr(self, "mesh") and hasattr(self.mesh, "_cache"):
+            self.mesh._cache.clear()
+        for limb_name in self.get_limb_node_names() if hasattr(self, "concept_network") else []:
+            limb = self.concept_network.nodes[limb_name].get("data")
+            if limb is not None and hasattr(limb, "mesh") and hasattr(limb.mesh, "_cache"):
+                limb.mesh._cache.clear()
+
     @property
     def limbs(self):
         return [k for k in self]
-    
-    
+
+
     def __getattr__(self,k):
         if k[:2] == "__":
             raise AttributeError(k)
