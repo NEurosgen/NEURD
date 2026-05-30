@@ -698,136 +698,10 @@ def compute_edge_attributes_locally_upstream_downstream(
                 
 # --------- For the global deleteion functions ------------
 
-def compute_edge_attributes_globally(G,
-                                     edge_functions,
-                                     edges_to_compute=None,
-                                     arguments_for_all_edge_functions = None,
-                                     verbose=False,
-                                         set_default_at_end = True,
-                                         default_value_at_end = None,
-                                     **kwargs):
-    """
-    Purpose: to compute edge attributes
-    that need the whole graph to be computed
-    
-    """
-    G = copy.deepcopy(G)
-    
-    if edges_to_compute is None:
-        edges_to_compute = xu.edges(G)
-    
-    other_edges_to_remove = []
-    for e in edges_to_compute:
-        if verbose:
-            print(f"   Working on Edge {e}")
-            
-        for func_name,func_info in edge_functions.items():
-            if not callable(func_info):
-                func = func_info["function"]
-                if "arguments" in func_info.keys():
-                    args = func_info["arguments"]
-                else:
-                    args = dict()
-            else:
-                func = func_info
-                args = dict()
-                
-                
-            if arguments_for_all_edge_functions is not None:
-                func_args = dict(arguments_for_all_edge_functions)
-            else:
-                func_args = dict()
-
-            func_args.update(args)
-                
-            global_edge_dict = func(G,e[0],e[1],**func_args)
-            
-            if verbose:
-                print(f"      {func_name}: {global_edge_dict}")
-                
-            xu.apply_edge_attribute_dict_to_graph(G,global_edge_dict,label=func_name)
-            
-            
-    if set_default_at_end:
-        for func_name,func_info in edge_functions.items():
-            d_value = default_value_at_end
-            try:
-                if "default_value" in func_info:
-                    d_value = func_info["defualt_value"]
-            except:
-                pass
-            xu.set_edge_attribute_defualt(G,func_name,d_value)
-    return G
             
 
 
 
-# -------------- For node level edge attributes ------------- 3
-def compute_edge_attributes_around_node(G,
-                                        edge_functions,
-                                        edge_functions_args = dict(),
-                                        nodes_to_compute=None,
-                                        arguments_for_all_edge_functions = None,
-                                        verbose=False,
-                                        #directional = False,
-                                         set_default_at_end = True,
-                                         default_value_at_end = None,
-                                        **kwargs):
-    """
-    Purpose: To use all the edges around a node 
-    to compute edge features
-
-    """
-    G = copy.deepcopy(G)
-    
-    if nodes_to_compute is None:
-        nodes = list(G.nodes())
-    
-    if not nu.is_array_like(nodes_to_compute):
-        nodes_to_compute = [nodes_to_compute]
-        
-    if verbose:
-        print(f"nodes_to_compute = {nodes_to_compute}")
-
-    for n in nodes_to_compute:
-        node_edges = xu.node_to_edges(G,n)
-        for func_name,func_info in edge_functions.items():
-            if not callable(func_info):
-                func = func_info["function"]
-                if "arguments" in func_info.keys():
-                    args = func_info["arguments"]
-                else:
-                    args = dict()
-            else:
-                func = func_info
-                args = dict()
-                
-            if arguments_for_all_edge_functions is not None:
-                func_args = dict(arguments_for_all_edge_functions)
-            else:
-                func_args = dict()
-
-            func_args.update(args)
-                
-            node_edge_dict = func(G,node_edges,**func_args)
-            
-            if verbose:
-                print(f"      {func_name}: {node_edge_dict}")
-                
-            xu.apply_edge_attribute_dict_to_graph(G,node_edge_dict,label=func_name)
-            
-            
-    if set_default_at_end:
-        for func_name,func_info in edge_functions.items():
-            d_value = default_value_at_end
-            try:
-                if "default_value" in func_info:
-                    d_value = func_info["defualt_value"]
-            except:
-                pass
-            xu.set_edge_attribute_defualt(G,func_name,d_value)
-    return G
-            
 
 
 
@@ -1429,18 +1303,8 @@ def distance_from_soma(limb_obj,
 def width_basic(branch_obj):
     return branch_obj.width
                             
-    
-
-    
-
-# ------- 7/26: To help identify axons  -----------
-distance_away_from_endpoint= 6_000
-
-
 
 # ------------- 7/28: for apical -----------------
-
-
 
 def skeleton_perc_dist_match_ref_vector(limb_obj,
     branch_idx,
@@ -1506,7 +1370,7 @@ def skeleton_dist_match_ref_vector(limb_obj,
                                        verbose = True)
     
     """
-    perc_match,dist_match = nst.skeleton_perc_dist_match_ref_vector(limb_obj,
+    perc_match,dist_match = skeleton_perc_dist_match_ref_vector(limb_obj,
     branch_idx,
     max_angle = max_angle,
     min_angle = min_angle,
@@ -1531,7 +1395,7 @@ def skeleton_perc_match_ref_vector(limb_obj,
     a comparison vector
     
     """
-    perc_match,dist_match = nst.skeleton_perc_dist_match_ref_vector(limb_obj,
+    perc_match,dist_match = skeleton_perc_dist_match_ref_vector(limb_obj,
     branch_idx,
     max_angle = max_angle,
     min_angle = min_angle,
@@ -1974,56 +1838,6 @@ def coordinates_function_list(
     ])
 
 
-def stats_df(
-    neuron_obj,
-    functions_list=None,
-    query = None,
-    limb_branch_dict_restriction = None,
-    function_kwargs=None,
-    include_coordinates = False,
-    coordinates = None,
-    check_nans=False,
-    ):
-    """
-    Purpose: To return the stats on neuron branches 
-    that is used by the neuron searching to filter down
-    
-    Ex: 
-    from neurd import neuron_statistics as nst
-
-    limb_obj = neuron_obj[6]
-
-    s_df = nst.stats_df(
-        neuron_obj,
-        functions_list = [ns.width_new,
-        ns.skeletal_length,
-        ns.n_synapses_post_downstream],
-        limb_branch_dict_restriction=dict(L6=limb_obj.get_branch_names())
-            )
-    s_df
-    """
-    
-    if functions_list is None:
-        functions_list= []
-        
-    if query is not None:
-        functions_list += ns.functions_list_from_query(query)
-    
-    if include_coordinates:
-        neuron_obj = bu.set_branches_endpoints_upstream_downstream_idx(neuron_obj)
-        functions_list += list(nst.coordinates_function_list(coordinates))
-        
-    return ns.query_neuron(neuron_obj,
-                functions_list=functions_list,
-                function_kwargs = function_kwargs,       
-                return_dataframe_before_filtering=True,
-                           limb_branch_dict_restriction=limb_branch_dict_restriction,
-               query="",
-                check_nans=check_nans)
-    
-    
-        
-
 
 def neuron_stats(
     neuron_obj,
@@ -2177,4 +1991,4 @@ from datasci_tools import general_utils as gu
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
-from datasci_tools import pandas_utils as pu
+
