@@ -2875,7 +2875,7 @@ def preprocess_limb(mesh,
 
     # -------------- Part 18: Filter the limb correspondence for any short stubs ------------ #
     if filter_end_nodes_from_correspondence:
-        limb_correspondence_individual = pre.filter_limb_correspondence_for_end_nodes(limb_correspondence=limb_correspondence_individual,
+        limb_correspondence_individual = filter_limb_correspondence_for_end_nodes(limb_correspondence=limb_correspondence_individual,
                                                      mesh=limb_mesh_mparty,
                                                      starting_info=network_starting_info_revised_cleaned,
                                                     filter_end_node_length=filter_end_node_length,
@@ -3956,7 +3956,7 @@ def preprocess_neuron(
 #         raise Exception("")
         
         if apply_expansion:
-            new_limbs_nst,new_limbs_il,nst_still_meshes,il_still_meshes= pre.limb_meshes_expansion(
+            new_limbs_nst,new_limbs_il,nst_still_meshes,il_still_meshes= limb_meshes_expansion(
                 non_soma_touching_meshes,
                 insignificant_limbs,
                 seperate_soma_meshes,
@@ -4372,7 +4372,7 @@ def high_fidelity_axon_decomposition_old(neuron_obj,
             
             
     #---3) Run the limb preprocessing---
-    limb_correspondence_individual,concept_network = pre.preprocess_limb(axon_mesh_filtered,
+    limb_correspondence_individual,concept_network = preprocess_limb(axon_mesh_filtered,
                        soma_touching_vertices_dict = soma_touching_vertices_dict,
                         meshparty_segment_size = 100,
                         combine_close_skeleton_nodes=True,
@@ -4530,7 +4530,7 @@ def limb_meshes_expansion(
     
     Ex: 
     floating_piece_face_threshold_expansion = 500
-    new_limbs_nst,il_still_idx,nst_still_meshes,il_still_meshes = pre.limb_meshes_expansion(
+    new_limbs_nst,il_still_idx,nst_still_meshes,il_still_meshes = limb_meshes_expansion(
         neuron_obj_comb.non_soma_touching_meshes,
         neuron_obj_comb.insignificant_limbs,
         neuron_obj_comb["S0"].mesh,
@@ -4840,4 +4840,3 @@ from datasci_tools import system_utils as su
 from datasci_tools.tqdm_utils import tqdm
 
 
-from . import preprocess_neuron as pre

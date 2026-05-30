@@ -25,7 +25,7 @@ def parent_skeletal_angle(
     
     Ex: 
     from neurd import limb_utils as lu
-    lu.parent_skeletal_angle(
+    parent_skeletal_angle(
     branch_idx = 2,
     limb_obj = neuron_obj[1],
     verbose = True,
@@ -113,9 +113,11 @@ from datasci_tools import (
     ipyvolume_utils as ipvu,
 )
 
-from . import limb_utils as lu
 
-ns.set_limb_functions_for_search(lu,verbose = False)
+# P2: self-import `from . import limb_utils as lu` removed. set_limb_functions_for_search
+# needs the module object itself, so reference it explicitly via sys.modules.
+import sys as _sys
+ns.set_limb_functions_for_search(_sys.modules[__name__], verbose = False)
 
 
 
