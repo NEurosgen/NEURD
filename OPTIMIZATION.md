@@ -118,6 +118,32 @@ output-рискованно). Пользователю шипики **нужны
 (§отдельно): считается ~дважды по всем веткам (`median_mesh_center` внутри шипиков +
 `no_spine_median_mesh_center` после), `branch_mesh_no_spines` пересоздаётся на вызов.
 
+### 4b. Полный профиль СБОРКИ после спайн-фиксов (2026-05-31, fixture, cProfile)
+
+После KMeans+lazy-shaft ландшафт **сместился** — шипики больше не доминанта. Реальная сборка
+**92s** (cProfile раздут до 139s; пропорции верны):
+
+| Стадия | cumtime (проф.) | Что внутри |
+|---|---|---|
+| **`preprocess_limb` — скелетонизация+обвязка** | **~84s (доминанта)** | `skeletonize_and_clean_connected_branch_CGAL` 52s (3×); `convert_skeleton_to_graph` 16s (**1417 вызовов ≈29/ветку**); `skeleton_obj_to_branches` 12.7s; `filter_limb_correspondence_for_end_nodes` 11s; `resolve_empty_conflicting_face_labels` 14s |
+| **Сома-экстракция** | ~34s | meshlab `remove_interior` 11.6s (subprocess ×4), poisson-watertight чеки, `cgal_segmentation` (уже с KMeans-фиксом) |
+| Шипики | 14.3s | ✅ оптимизированы |
+
+**Подтверждает §4:** teasar-ядро дёшево, дорога **обвязка скелета — графы/networkx**. Самый горячий
+self-time: **`networkx.add_edges_from` 9.7s self (2775 вызовов)** внутри `convert_skeleton_to_graph`.
+
+⚠️ **Эти выигрыши КАЧЕСТВЕННО сложнее спайн-фиксов:**
+- Граф-обвязка (`convert_skeleton_to_graph`/`add_edges_from`) — **upstream `mesh_tools/skeleton_utils`**,
+  не наш код; networkx-построение графа. Ускорить можно (scipy-sparse/igraph вместо networkx, или
+  кэш если 1417 вызовов редундантны — НЕ проверено), но **output-риск** (топология скелета) и upstream.
+- `remove_interior` (11.6s, meshlab subprocess) — §5 #3, нужен in-process raycasting (open3d
+  RaycastingScene), высокая сложность, output-changing.
+
+**Развилка для след. сессии:** лёгкие высоко-уверенные спайн-выигрыши исчерпаны. Дальше — либо
+браться за skeleton-граф-обвязку (замерить редундантность `convert_skeleton_to_graph`: если граф
+строится повторно на одном скелете — кэш дешёв и output-preserving; если структурно — дорого/рискованно),
+либо за `remove_interior` (§5 #3). Оба — не «лёгкие места».
+
 ---
 
 ## 5. Plan вперёд (по убыванию замеренной отдачи) + СТЕНА
