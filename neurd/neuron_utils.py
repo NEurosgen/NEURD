@@ -399,8 +399,12 @@ def branches_to_concept_network(curr_branch_skeletons,
                              max_iterations= 1000000,
                                verbose=False):
     """
-    Will change a list of branches into 
+    Will change a list of branches into
     """
+    # local import to break the neuron_utils <-> neuron module-load cycle (P1):
+    # Branch is the only thing neuron_utils needs from neuron, and only here.
+    from neurd.neuron import Branch
+
     if verbose:
         print(f"Starting_edge inside branches_to_conept = {starting_edge}")
     
@@ -423,7 +427,7 @@ def branches_to_concept_network(curr_branch_skeletons,
         starting_node = 0
         #print("setting touching_soma_vertices 1")
         attrs = {starting_node:{"starting_coordinate":starting_coordinate,
-                                "endpoints":neuron.Branch(starting_edge).endpoints,
+                                "endpoints":Branch(starting_edge).endpoints,
                                "touching_soma_vertices":touching_soma_vertices,
                                 "soma_group_idx":soma_group_idx,
                                "starting_soma":starting_soma}
@@ -3489,7 +3493,8 @@ attributes_dict_h01 = dict()
 #--- from neurd_packages ---
 
 from .concept_network_utils import subgraph_around_branch
-from . import neuron
+# 'from . import neuron' removed (P1): broke the neuron_utils <-> neuron module-load
+# cycle. Branch is now a local import inside branches_to_concept_network (only use site).
 from .neuron_statistics import skeleton_stats_from_neuron_obj
 
 #--- from mesh_tools ---
