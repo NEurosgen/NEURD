@@ -145,6 +145,42 @@ try:
 except Exception:
     pass
 
+# MeshLab FillHoles is likewise BROKEN on this build: the Close-Holes script fails
+# (returncode 255, "filter Remove Faces from Non Manifold Edges not found"), and every
+# caller already catches that and continues with the unmodified mesh (e.g.
+# trimesh_utils.remove_mesh_interior: `try: mesh = fill_holes(mesh) except: continue`,
+# and soma_volume_ratio's fill-holes branch). So FillHoles is effectively a no-op that
+# still spawns xvfb+meshlabserver. Replace its __call__ with an in-process pass-through
+# returning the input mesh — behavior-preserving (caller keeps the original mesh either
+# way), no subprocess. (A real hole-fill, e.g. trimesh/pymeshfix, would CHANGE the mesh
+# and is intentionally not done here.)
+try:
+    from mesh_tools.meshlab import FillHoles as _FillHoles
+
+    def _fillholes_inprocess_noop(
+        self, vertices=[], faces=[], segment_id=None, return_mesh=True,
+        input_mesh_path="", mesh_filename="", printout=True,
+        delete_temp_files=True, **kwargs,
+    ):
+        import random as _r
+        import trimesh as _tm
+        if segment_id is None:
+            segment_id = _r.randint(100, 100000)
+        if len(mesh_filename) <= 0:
+            mesh_filename = f"neuron_{segment_id}.off"
+        fname = getattr(self, "filter_name", "fill_holes")
+        output_obj = self.temp_folder_obj / f"{Path(mesh_filename).stem}_{fname}.off"
+        if len(vertices) == 0 and input_mesh_path:
+            mesh = self.fetch_mesh_from_off(str(input_mesh_path))
+        else:
+            mesh = _tm.Trimesh(vertices=vertices, faces=faces, process=False)
+        return (mesh, output_obj) if return_mesh else output_obj
+
+    _FillHoles.__call__ = _fillholes_inprocess_noop
+    del _FillHoles, _fillholes_inprocess_noop
+except Exception:
+    pass
+
 # MeshLabServer 2020.09 OFF-exporter bug: after a vertex-deleting filter (e.g. the
 # interior-removal chain in remove_mesh_interior), it writes the compacted vertex
 # block (only surviving vertices) but leaves the face indices in the ORIGINAL
