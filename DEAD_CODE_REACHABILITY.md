@@ -1,12 +1,12 @@
 # Dead-code: deep reachability analysis — guide for future work
 
-Status after Фаза 9 (+ manual cleanup through 2026-05-30, `neurd/` now ~24.8k LOC):
-**zero-reference dead code is exhausted** in all 16 core modules
-(`pytest tests/unit/` 59 passed; characterization test 4 passed). This doc explains what
-was done, why more dead code probably still hides, and exactly how to find it **safely**.
+Status 2026-05-30 (`neurd/` ~24.4k LOC): **zero-reference dead code is exhausted** in all 16
+core modules (re-swept after the import-graph refactor; `pytest tests/unit/` 59 passed;
+characterization test 4 passed). This doc explains what was done, why more dead code probably
+still hides (mutually-referencing dead clusters), and exactly how to find it **safely**.
 
-See also: [DEPS_PLAN.md](DEPS_PLAN.md) §Фаза 9, [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md),
-[REFACTOR_PLAN.md](REFACTOR_PLAN.md) (further-cleanup plan: import graph, cycles, priorities),
+See also: [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md) (module map),
+[REFACTOR_PLAN.md](REFACTOR_PLAN.md) (what's done + remaining cleanup),
 [tests/integration/test_segmentation_pipeline.py](tests/integration/test_segmentation_pipeline.py)
 (the safety backstop).
 
