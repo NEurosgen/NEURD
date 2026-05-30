@@ -784,7 +784,7 @@ def extract_soma_center(
         recov_orig_mesh_no_interior = tu.subtract_mesh(recov_orig_mesh,[glia_pieces,nuclei_pieces])
     else:
         try:
-            recov_orig_mesh_no_interior, glia_pieces, nuclei_pieces  = sm.remove_nuclei_and_glia_meshes(
+            recov_orig_mesh_no_interior, glia_pieces, nuclei_pieces  = remove_nuclei_and_glia_meshes(
                 recov_orig_mesh,
                 verbose=True,
                 glia_volume_threshold_in_um = glia_volume_threshold_in_um,
@@ -1309,7 +1309,7 @@ def extract_soma_center(
                 try:
                     if verbose:
                         print(f"backtrack_soma_size_threshold = {backtrack_soma_size_threshold}")
-                    soma_mesh_list,soma_mesh_inside_pieces = sm.original_mesh_soma(
+                    soma_mesh_list,soma_mesh_inside_pieces = original_mesh_soma(
                                                     original_mesh = recov_orig_mesh_no_interior,
                                                     mesh=soma_mesh_poisson,
                                                     soma_size_threshold=backtrack_soma_size_threshold,
@@ -1623,7 +1623,7 @@ def soma_indentification(
      run_time, 
      total_soma_list_sdf,
      glia_pieces,
-     nuclei_pieces) = sm.extract_soma_center(
+     nuclei_pieces) = extract_soma_center(
         mesh = mesh_decimated,
         return_glia_nuclei_pieces=True,
         verbose = verbose,
@@ -1765,8 +1765,13 @@ from datasci_tools import numpy_utils as nu
 from datasci_tools import system_utils as su
 from datasci_tools import pipeline
 
-from . import soma_extraction_utils as sm
 from . import parameter_utils as paru
+
+# P2: self-import `from . import soma_extraction_utils as sm` removed. The param-system
+# `output_global_parameters_*` functions pass this module as `module=`, so bind a
+# self-reference explicitly instead of importing the module into itself.
+import sys as _sys
+sm = _sys.modules[__name__]
 
 
 def glia_nuclei_faces_from_mesh(

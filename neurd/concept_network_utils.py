@@ -1339,4 +1339,5 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 
-from . import concept_network_utils as cnu
+import sys as _sys  # P2: self-import antipattern removed; rebind module to alias (call sites have local-name shadows, safe to keep alias form)
+cnu = _sys.modules[__name__]

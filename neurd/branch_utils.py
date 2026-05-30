@@ -95,7 +95,7 @@ def set_branch_attr_on_limb_on_neuron(
     endpoints of a branch in a limb
     """
     for limb_idx in neuron_obj.get_limb_names():
-        neuron_obj[limb_idx] = bu.set_branch_attr_on_limb(neuron_obj[limb_idx],func,attr_name,**kwargs)
+        neuron_obj[limb_idx] = set_branch_attr_on_limb(neuron_obj[limb_idx],func,attr_name,**kwargs)
     return neuron_obj
         
 def set_branches_endpoints_upstream_downstream_idx(
@@ -103,7 +103,7 @@ def set_branches_endpoints_upstream_downstream_idx(
     **kwargs
     ):
     
-    neuron_obj = bu.set_branch_attr_on_limb_on_neuron(
+    neuron_obj = set_branch_attr_on_limb_on_neuron(
         neuron_obj,
         func = nru.upstream_downstream_endpoint_idx,
         attr_name = "endpoints_upstream_downstream_idx",
@@ -134,7 +134,7 @@ def skeleton_vector_endpoint(
     upstream skeleton point to downstream skeletal point
 
     Example: 
-    bu.skeleton_vector_endpoint(
+    skeleton_vector_endpoint(
     branch_obj,
     endpoint_type = "downstream",
     #endpoint_coordinate = np.array([2504610. ,  480431. ,   33741.2])
@@ -191,7 +191,7 @@ def skeleton_vector_upstream(
     **kwargs
     
     ):
-    return bu.skeleton_vector_endpoint(
+    return skeleton_vector_endpoint(
         branch_obj,
         endpoint_type = "upstream",
         directional_flow = directional_flow,
@@ -212,7 +212,7 @@ def skeleton_vector_downstream(
     **kwargs
     
     ):
-    return bu.skeleton_vector_endpoint(
+    return skeleton_vector_endpoint(
         branch_obj,
         endpoint_type = "downstream",
         directional_flow = directional_flow,
@@ -231,7 +231,7 @@ def skeleton_vector_upstream_extra_offset(
     ):
     if offset is None:
         offset = extra_offset_skeleton_vector_global
-    return bu.skeleton_vector_upstream(
+    return skeleton_vector_upstream(
         branch_obj,
         offset = offset,
         skeleton_attribute=skeleton_attribute,
@@ -246,7 +246,7 @@ def skeleton_vector_downstream_extra_offset(
     ):
     if offset is None:
         offset = extra_offset_skeleton_vector_global
-    return bu.skeleton_vector_downstream(
+    return skeleton_vector_downstream(
         branch_obj,
         offset = offset,
         skeleton_attribute=skeleton_attribute,
@@ -302,7 +302,7 @@ def width_upstream(
     **kwargs
     ):
     
-    return bu.width_endpoint(
+    return width_endpoint(
         branch_obj,
         endpoint = branch_obj.endpoint_upstream,
         **kwargs
@@ -313,7 +313,7 @@ def width_downstream(
     **kwargs
     ):
     
-    return bu.width_endpoint(
+    return width_endpoint(
         branch_obj,
         endpoint = branch_obj.endpoint_downstream,
         **kwargs
@@ -328,7 +328,7 @@ def width_upstream_extra_offset(
     if offset is None:
         offset = extra_offset_skeleton_vector_global
     
-    return bu.width_upstream(
+    return width_upstream(
         branch_obj,
         offset = offset,
         **kwargs
@@ -343,7 +343,7 @@ def width_downstream_extra_offset(
     if offset is None:
         offset = extra_offset_skeleton_vector_global
     
-    return bu.width_downstream(
+    return width_downstream(
         branch_obj,
         offset = offset,
         **kwargs
@@ -477,7 +477,7 @@ def is_skeleton_upstream_to_downstream(branch_obj,verbose = False):
 
 
 def width_array_upstream_to_downstream(branch_obj,verbose = False):
-    is_upstream = bu.is_skeleton_upstream_to_downstream(branch_obj,verbose)
+    is_upstream = is_skeleton_upstream_to_downstream(branch_obj,verbose)
     if is_upstream:
         return branch_obj.width_array
     else:
@@ -489,7 +489,7 @@ def width_array_skeletal_lengths_upstream_to_downstream(branch_obj,verbose = Fal
     if branch_obj.width_array_skeletal_lengths is None:
         return None
     
-    is_upstream = bu.is_skeleton_upstream_to_downstream(branch_obj,verbose)
+    is_upstream = is_skeleton_upstream_to_downstream(branch_obj,verbose)
     if is_upstream:
         return branch_obj.width_array_skeletal_lengths
     else:
@@ -513,7 +513,7 @@ def skeletal_coordinates_upstream_to_downstream(
         array = skeleton
         
         
-    is_upstream = bu.is_skeleton_upstream_to_downstream(branch_obj,verbose)
+    is_upstream = is_skeleton_upstream_to_downstream(branch_obj,verbose)
     if is_upstream:
         pass
     else:
@@ -550,7 +550,7 @@ def skeletal_coordinates_dist_upstream_to_downstream(
     **kwargs):
     
     if skeleton is None:
-        array = bu.skeletal_coordinates_upstream_to_downstream(branch_obj,**kwargs)
+        array = skeletal_coordinates_upstream_to_downstream(branch_obj,**kwargs)
     else:
         array = skeleton
         
@@ -620,7 +620,7 @@ def width_array_value_closest_to_coordinate(
         single_flag = False
         
     coordinate = np.array(coordinate).reshape(-1,3)
-    widths,sk_coordinates = bu.width_array_upstream_to_dowstream_with_skeletal_points(branch_obj)
+    widths,sk_coordinates = width_array_upstream_to_dowstream_with_skeletal_points(branch_obj)
     closest_widths = widths[nu.closest_idx_for_each_coordinate(
         coordinate,
         sk_coordinates,
@@ -671,7 +671,7 @@ def endpoint_upstream_with_offset(
     
     """
     Ex: 
-    bu.endpoint_upstream_with_offset(
+    endpoint_upstream_with_offset(
         branch_obj = limb_obj[26],
         verbose = True,
         offset = 200,
@@ -680,7 +680,7 @@ def endpoint_upstream_with_offset(
     
     """
     
-    return bu.endpoint_type_with_offset(
+    return endpoint_type_with_offset(
         branch_obj=branch_obj,
         endpoint_type="upstream",
         offset =offset,
@@ -695,7 +695,7 @@ def endpoint_downstream_with_offset(
     verbose= False,
     ):
     
-    return bu.endpoint_type_with_offset(
+    return endpoint_type_with_offset(
         branch_obj=branch_obj,
         endpoint_type="downstream",
         offset =offset,
@@ -879,4 +879,3 @@ from datasci_tools import ipyvolume_utils as ipvu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 
-from . import branch_utils as bu

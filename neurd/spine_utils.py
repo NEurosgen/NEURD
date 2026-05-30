@@ -3417,4 +3417,5 @@ from datasci_tools import statistics_utils as stu
 from datasci_tools import system_utils as su
 from datasci_tools import tqdm_utils as tqu
 
-from . import spine_utils as spu
+import sys as _sys  # P2: self-import antipattern removed; rebind module to alias (call sites have local-name shadows, safe to keep alias form)
+spu = _sys.modules[__name__]

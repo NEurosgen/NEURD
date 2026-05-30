@@ -220,7 +220,7 @@ def query_neuron_by_labels(neuron_obj,
     
     if not_matching_labels is None:
         not_matching_labels = []
-    return ns.query_neuron(neuron_obj,
+    return query_neuron(neuron_obj,
                query="labels_restriction == True",
                functions_list=["labels_restriction"],
                function_kwargs=dict(matching_labels=matching_labels,
@@ -444,7 +444,7 @@ def axon_segment_downstream_dendrites(curr_limb,limb_branch_dict,limb_name=None,
     curr_limb = uncompressed_neuron.concept_network.nodes[curr_limb_name]["data"]
     ns = reload(ns)
 
-    return_value = ns.axon_segment(curr_limb,limb_branch_dict=limb_branch_dict,
+    return_value = axon_segment(curr_limb,limb_branch_dict=limb_branch_dict,
                  limb_name=curr_limb_name,downstream_face_threshold=5000,
                      print_flag=False)
     return_value
@@ -600,7 +600,7 @@ def flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name=None,
     except:
         limb_branch_dict = {limb_name:[]}
 
-    ns.flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name)
+    flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name)
 
     """
 
@@ -972,8 +972,8 @@ def apply_function_to_neuron(current_neuron,current_function,function_kwargs=Non
     to a certain value as defined by the function passed
     
     Example: 
-    curr_function = ns.width
-    curr_function_mapping = ns.apply_function_to_neuron(recovered_neuron,curr_function)
+    curr_function = width
+    curr_function_mapping = apply_function_to_neuron(recovered_neuron,curr_function)
     
     """
     if function_kwargs is None:
@@ -999,7 +999,7 @@ def apply_function_to_neuron(current_neuron,current_function,function_kwargs=Non
     function_mapping = dict([(limb_name,dict()) for limb_name in curr_limb_names if limb_name in limb_branch_dict_restriction.keys()])
 
     #curr_run_type = getattr(current_function,"run_type","Branch")
-    curr_run_type = ns.get_run_type(current_function)
+    curr_run_type = get_run_type(current_function)
     #if it was a branch function that was passed
     if curr_run_type=="Branch":
         for limb_name in function_mapping.keys():
@@ -1095,14 +1095,14 @@ def generate_neuron_dataframe(current_neuron,
     4) return the dataframe
     
     Example: 
-    returned_df = ns.generate_neuron_dataframe(recovered_neuron,functions_list=[
-    ns.n_faces_branch,
-    ns.width,
-    ns.skeleton_distance_branch,
-    ns.skeleton_distance_limb,
-    ns.n_faces_limb,
-    ns.merge_limbs,
-    ns.limb_error_branches
+    returned_df = generate_neuron_dataframe(recovered_neuron,functions_list=[
+    n_faces_branch,
+    width,
+    skeleton_distance_branch,
+    skeleton_distance_limb,
+    n_faces_limb,
+    merge_limbs,
+    limb_error_branches
     ])
 
     returned_df[returned_df["merge_limbs"] == True]
@@ -1161,7 +1161,7 @@ def functions_list_from_query(
     Purpose: To turn a query into a list of functions
     
     Ex: 
-    ns.functions_list_from_query(query = 
+    functions_list_from_query(query = 
     "(n_synapses_pre >= 1) and (synapse_pre_perc >= 0.6) and (axon_width <= 270) and (n_spines <= 10) and (n_synapses_post_spine <= 3) and (skeletal_length > 2500) and (area > 1) and (closest_mesh_skeleton_dist < 500)",
       verbose = True                  )
 
@@ -1250,16 +1250,16 @@ def query_neuron(
 
 
     functions_list=[
-    ns.n_faces_branch,
+    n_faces_branch,
     "width",
-    ns.skeleton_distance_branch,
-    ns.skeleton_distance_limb,
+    skeleton_distance_branch,
+    skeleton_distance_limb,
     "n_faces_limb",
-    ns.merge_limbs,
-    ns.limb_error_branches
+    merge_limbs,
+    limb_error_branches
     ]
 
-    returned_output = ns.query_neuron(recovered_neuron,
+    returned_output = query_neuron(recovered_neuron,
                              functions_list,
                               current_query,
                               local_dict=local_dict,
@@ -1286,14 +1286,14 @@ def query_neuron(
     query="skeletal_distance_from_soma > -1 and (limb in @limb_list)"
     query_variables_dict = dict(limb_list=['L1','L2',"L3"])
 
-    limb_branch_dict_df = ns.query_neuron(uncompressed_neuron,
+    limb_branch_dict_df = query_neuron(uncompressed_neuron,
                                        query=query,
                                           function_kwargs=function_kwargs,
                                           query_variables_dict=query_variables_dict,
                    functions_list=current_functions_list,
                                       return_dataframe=True)
 
-    limb_branch_dict = ns.query_neuron(uncompressed_neuron,
+    limb_branch_dict = query_neuron(uncompressed_neuron,
                                        query=query,
                    functions_list=current_functions_list,
                                        query_variables_dict=query_variables_dict,
@@ -1303,7 +1303,7 @@ def query_neuron(
     
     """
     if functions_list is None:
-        functions_list = ns.functions_list_from_query(query)
+        functions_list = functions_list_from_query(query)
         
     if function_kwargs is None:
         function_kwargs=dict()
@@ -1784,7 +1784,7 @@ def set_limb_functions_for_search(
         def make_func(func):
             @rename(new_name)
             def dummy_func(curr_limb,limb_name=None,limb_branch_dict_restriction=None,**kwargs):
-                return ns.run_limb_function(func,curr_limb=curr_limb,
+                return run_limb_function(func,curr_limb=curr_limb,
                                  limb_name=limb_name,
                                  limb_branch_dict_restriction=limb_branch_dict_restriction,
                                  **kwargs)
@@ -1814,4 +1814,3 @@ from datasci_tools import numpy_utils as nu
 from datasci_tools import pandas_utils as pu
 from datasci_tools import system_utils as su
 
-from . import neuron_searching as ns
