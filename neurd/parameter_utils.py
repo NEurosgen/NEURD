@@ -32,14 +32,6 @@ def _is_jsonable(x):
         return False
 
 
-def _dict_to_json_file(data, filepath, indent=None):
-    filepath = str(Path(filepath).absolute())
-    if indent is None:
-        indent = _json_indent_default
-    if not filepath.endswith(".json"):
-        filepath += ".json"
-    with open(filepath, "w") as outfile:
-        json.dump(data, outfile, indent=indent)
 
 
 modes_default = (
@@ -467,95 +459,7 @@ def modes_global_param_and_attributes_dict_from_module(
     return mode_jsons
 
 
-def modes_global_param_and_attributes_dict_all_modules(
-    directory,
-    verbose = False,
-    clean_dict = True,
-    ):
-    """
-    Purpose: to generate the nested dictionary
-    for all of the modules in the neurd folder
 
-    Pseudocode: 
-    1) Load all of the modules in a directory 
-    (and get references to them)
-
-    2) For each module: generate the nested dictionary
-    
-    3) update the larger dictionary
-    """
-
-    modes = modes_default
-    final_dict = {k:dict() for k in modes}
-
-    mod_objs = modu.load_modules_in_directory(
-        directory,
-        return_objects=True,
-    )
-
-    for mod in mod_objs:
-        return_dict = modes_global_param_and_attributes_dict_from_module(
-        module = mod,
-        verbose = verbose,
-        clean_dict=clean_dict,
-        )
-
-        for k,v in return_dict.items():
-            final_dict[k].update(v)
-
-    return final_dict
-
-def global_param_and_attributes_dict_to_separate_mode_jsons(
-    data,
-    filepath = f"./",
-    filename = f"[mode_name]_config.json",
-    filename_mode_placeholder = "[mode_name]",
-    indent = None,
-    verbose = False,
-    modes = None
-    ):
-
-    """
-    Purpose: To dump the dictionaries
-    generated from modules into a json format
-
-    Pseudocode: 
-    For each mode: 
-    1) Get the dictionary
-    2) convert dictionary into a json file
-    """
-    if modes is None:
-        modes = modes_default
-    
-    modes = nu.to_list(modes)
-    
-    filepath = Path(filepath)
-    filepath.mkdir(exist_ok = True)
-    
-    saved_name = str(filename)
-
-    for mode in modes:
-        if filename_mode_placeholder in saved_name:
-            new_name = saved_name.replace(filename_mode_placeholder,mode)
-        else:
-            new_name = saved_name
-
-        if not new_name.endswith(".json"):
-            new_name = f"{new_name}.json"
-
-        mode_dict = data[mode]
-        #mode_dict = clean_mode_dict(mode_dict)
-
-        total_path = Path(filepath) / Path(new_name)
-
-        if verbose:
-            print(f"Writing mode = {mode} to:\n   {str(total_path.absolute())}")
-
-        _dict_to_json_file(
-            data = mode_dict,
-            filepath = total_path,
-            indent = indent,
-        )
         
 
 parameter_config_folder_name = "parameter_configs"
@@ -749,46 +653,6 @@ def set_parameters_for_directory_modules_from_obj(
                 setattr(module, attr_name, attr_value)
 
 
-def export_package_param_dict_to_file(
-    package_directory = None,
-    mode = "default",
-    clean_dict = False,
-    export_filepath = None,
-    export_folder = None,
-    export_filename = None,
-    return_dict = False,
-    ):
-    """
-    Purpose: To export the parameters for a certain
-    mode to a file
-    """
-    if package_directory is None:
-        package_directory = str(Path(__file__).parents[0].absolute())
-
-    nest_dict = modes_global_param_and_attributes_dict_all_modules(
-        package_directory,
-        clean_dict = clean_dict,
-        )[mode]
-
-    if export_filepath is None:
-        if export_folder is None:
-            export_folder = Path("./")
-        if export_filename is None:
-            export_filename = Path(f"parameters_config_{mode}.py")
-            
-        export_filepath = str((Path(export_folder) / Path(export_filename)).absolute())
-        
-        
-    export_filepath = str(Path(export_filepath).absolute())
-        
-    gu.print_nested_dict(
-        nest_dict,
-        filepath =export_filepath,
-        overwrite = True
-    )
-    
-    if return_dict:
-        return nest_dict
 
 
 def category_param_from_module(
@@ -825,51 +689,7 @@ def category_param_from_module(
 
     return output_dict
 
-def export_df(
-    parameters_obj,
-    module_col = "module",
-    parameter_col = "parameter name",
-    value_col = "default value"):
-    
-    
-    """
-    Purpose: Want to export a dataframe
-    with the parameter values for different modules
 
-    Returns
-    -------
-    df : pd.DataFrame
-        a dataframe with the following columns: module, parameter_name, value
-
-    Pseudocode
-    ----------
-    0) Create a list to store dictionaries
-    1) Iterate through all modules of parameters object
-        a. Get a list of all the parameter names, values
-        b. Create a list of dictionaries with names, values and 
-            add to the list
-    2) Create the dataframe
-    """
-
-    param_list = []
-    for k,v in parameters_obj.dict.items():
-        param_list+=[{
-            module_col:k,
-            parameter_col:h,
-            value_col:j
-        } for h,j in v.items()]
-        
-    return pd.DataFrame.from_records(param_list)
-
-def export_csv(
-    parameters_obj,
-    filename = "./parameters.csv",
-    **kwargs):
-    
-    return pu.df_to_csv(
-        export_df(parameters_obj,**kwargs),
-        filename
-    )
     
 
 
