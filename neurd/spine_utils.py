@@ -2226,46 +2226,6 @@ def calculate_spines_on_neuron(
 
 
 # ------------- 2/7 adjustments -----------------
-def adjust_obj_with_face_offset(
-    spine_obj,
-    face_offset,
-    verbose = False,
-    ):
-    """
-    Purpose: To adjust the spine properties that
-    would be affected by a different face idx
-    
-    Ex: 
-    b_test = neuron_obj[0][18]
-    sp_obj = b_test.spines_obj[0]
-    sp_obj.export()
-
-    spu.adjust_spine_obj_with_face_offset(
-        sp_obj,
-        face_offset = face_offset,
-        verbose = True
-    ).export()
-    """
-    new_obj = copy.deepcopy(spine_obj)
-    for k,v in spine_obj.export().items():
-        if "face_idx" not in k:
-            continue
-        
-        if v is None:
-            continue
-            
-        if k in ["head_face_idx","neck_face_idx"]:
-            continue
-            
-        if verbose:
-            print(f"Adjusting {k} because face_idx and not None")
-            
-        try:
-            setattr(new_obj,k,v + face_offset)
-        except:
-            setattr(new_obj,f"_{k}",v + face_offset)
-        
-    return new_obj
 
 def spine_length(
     spine_mesh,

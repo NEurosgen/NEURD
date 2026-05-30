@@ -1692,8 +1692,6 @@ def find_sibling_child_skeleton_angle(curr_limb_obj,
     
 
 
-def convert_string_names_to_int_names(limb_names):
-    return [int(k[1:]) for k in limb_names]
 
 def get_limb_string_name(limb_idx,start_letter="L"):
     if limb_idx is None:
@@ -2051,27 +2049,6 @@ def clean_neuron_all_concept_network_data(neuron_obj,verbose=False):
     
 #     return neuron_obj
 
-def connected_components_from_branches(
-    limb_obj,
-    branches,
-    use_concept_network_directional=False,
-    verbose = False
-    ):
-    """
-    Purpose: to find the connected components on a branch
-    """
-    
-    if use_concept_network_directional:
-        curr_network = nx.Graph(limb_obj.concept_network_directional)
-    else:
-        curr_network = nx.Graph(limb_obj.concept_network_directional)
-        #curr_network = limb_obj.concept_network
-
-    axon_subgraph = curr_network.subgraph(branches)
-    conn_comp = [np.array(list(k)) for k in nx.connected_components(axon_subgraph)]
-    if verbose:
-        print(f"conn_comp = {conn_comp}")
-    return conn_comp
 
 
 
@@ -2319,12 +2296,6 @@ def limb_branch_combining(
             
     return limb_branch_dict_new
 
-def limb_branch_setdiff(limb_branch_dict_list):
-    
-    return limb_branch_combining(
-                           limb_branch_dict_list,
-                           np.setdiff1d,
-                           verbose=False)
 
 
 def limb_branch_intersection(limb_branch_dict_list):

@@ -1300,8 +1300,6 @@ def distance_from_soma(limb_obj,
 
 
 
-def width_basic(branch_obj):
-    return branch_obj.width
                             
 
 # ------------- 7/28: for apical -----------------
@@ -1422,11 +1420,6 @@ def get_stat(obj,stat,**kwargs):
     
     
 # --------- Statisitcs for canddidates --------------
-def skeletal_length_over_candidate(neuron_obj,
-                                  candidate,
-                                  **kwargs):
-    sk_len = nru.skeletal_length_over_limb_branch(neuron_obj,nru.nru.limb_branch_from_candidate(candidate))
-    return sk_len
 
 
 
@@ -1826,16 +1819,6 @@ def limb_branch_from_stats_df(
                            for k in np.unique(limb_branch_pairings[:,0])])
     return limb_to_branch
 
-def coordinates_function_list(
-    coordinates = None
-    ):
-    if coordinates is None:
-        coordinates = ("mesh_center",
-               "endpoint_downstream",
-              "endpoint_upstream")
-    return  np.concatenate([
-        [f"{k}_{x}" for x in ["x","y","z"]] for k in coordinates
-    ])
 
 
 

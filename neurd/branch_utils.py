@@ -705,16 +705,6 @@ def endpoint_downstream_with_offset(
 
 
 
-def skeleton_angle_from_top(
-    branch_obj,
-    top_of_layer_vector = None):
-    if top_of_layer_vector is None:
-        top_of_layer_vector = nst.top_of_layer_vector
-
-
-    sk_vector = branch_obj.skeleton_vector_upstream
-    angle_from_top = np.round(nu.angle_between_vectors(nst.top_of_layer_vector,sk_vector),4)
-    return angle_from_top
 
 
     
@@ -726,99 +716,9 @@ def skeleton_angle_from_top(
 
 
     
-def all_width_values(
-    branch_obj,
-    width_attributes = (
-            "width_downstream",
-            "width_downstream_extra_offset",
-            "width_upstream",
-            "width_upstream",
-        ),
-    width_functions = None,
-    verbose = False,
-    default_value = 0,
-    return_dict = True,
-    ):
-    
-    if width_functions is None:
-        width_functions = []
-    
-    width_dict = {k:getattr(branch_obj,k,default_value) for k in width_attributes}
-    for func in width_functions:
-        try:
-            width_dict[func.__name__] = func(branch_obj)
-        except:
-            width_dict[func.__name__] = 0
-    
-    if verbose:
-        print(f"width_dict = {width_dict}")
         
-    if return_dict:
-        return width_dict
-    else:
-        return list(width_dict.values())
-        
-def width_extrema(
-        branch_obj,
-        verbose = False,
-        extrema = "max",
-        return_width_type = False,
-        verbose_widths = False,
-        **kwargs
-        ):
-    """
-    Purpose: To find the maximum width from all the different width versions
-    of a branch
-    """
-    width_dict = all_width_values(
-        branch_obj,
-        return_dict = True,
-        verbose = verbose_widths,
-        **kwargs
-    )
     
-    width_names = np.array(list(width_dict.keys()))
-    width_values = np.array(list(width_dict.values()))
     
-    arg_func = getattr(np,f"arg{extrema}")
-    idx = arg_func(width_values)
-    width_type = width_names[idx]
-    width_value = width_values[idx]
-    
-    if verbose:
-        print(f"{extrema} width value ({width_value}) from {width_type}")
-    if return_width_type:
-        return width_value,width_type
-    else:
-        return width_value
-    
-def width_max(
-        branch_obj,
-        verbose = False,
-        return_width_type = False,
-        **kwargs
-    ):
-    return width_extrema(
-        branch_obj,
-        verbose = verbose,
-        extrema = "max",
-        return_width_type = return_width_type,
-        **kwargs
-        )
-    
-def width_min(
-        branch_obj,
-        verbose = False,
-        return_width_type = False,
-        **kwargs
-    ):
-    return width_extrema(
-        branch_obj,
-        verbose = verbose,
-        extrema = "min",
-        return_width_type = return_width_type,
-        **kwargs
-        )
     
 # `mesh_tools.skeleton_utils` transitively pulls cloudvolume, which can fail
 # to import on some Python/cloudvolume combos (e.g. Python 3.8 + PEP 585).

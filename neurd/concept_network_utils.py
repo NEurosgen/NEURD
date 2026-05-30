@@ -399,25 +399,6 @@ def nodes_upstream_downstream(limb_obj,
         
     return all_downstream_nodes
 
-def nodes_downstream(limb_obj,
-                             branch_idx,
-                             distance = np.inf,
-                          include_branch_in_dist = False,
-                         only_non_branching = False,
-                         include_branch_idx = False,
-                         verbose = False,
-                         nodes_to_exclude = None,
-                    nodes_to_include = None):
-    return nodes_upstream_downstream(limb_obj,
-                             branch_idx,
-                             direction="downstream",
-                             distance = distance,
-                        include_branch_in_dist = include_branch_in_dist,
-                         only_non_branching = only_non_branching,
-                         include_branch_idx = include_branch_idx,
-                         verbose = verbose,
-                         nodes_to_exclude = nodes_to_exclude,
-                                    nodes_to_include=nodes_to_include,)
 
                     
                      

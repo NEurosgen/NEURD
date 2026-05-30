@@ -169,30 +169,6 @@ def spine_density(branch,limb_name=None,branch_name=None,**kwargs):
 
 # ----------- working with different labels -----------------#
 
-@run_options(run_type="Branch")
-def labels_restriction(branch,limb_name=None,branch_name=None,**kwargs):
-    poss_labels = kwargs.get("matching_labels",[])
-    not_possible_labels = kwargs.get("not_matching_labels",[])
-    match_type = kwargs.get("match_type","all")
-#     print(f"poss_labels = {poss_labels}")
-#     print(f"not_possible_labels = {not_possible_labels}")
-#     print(f"np.intersect1d(branch.labels,poss_labels) = {np.intersect1d(branch.labels,poss_labels)}")
-   
-    if match_type == "all":
-        if len(poss_labels) == len(np.intersect1d(branch.labels,poss_labels)):
-            if 0 == len(np.intersect1d(branch.labels,not_possible_labels)):
-                return True
-        return False
-    elif match_type == "any":
-        if len(np.intersect1d(branch.labels,not_possible_labels)) > 0:
-            return False
-        else:
-            if len(np.intersect1d(branch.labels,poss_labels)) > 0:
-                return True
-            else:
-                return False
-    else:
-        raise Exception(f"Unknown match type: {match_type}")
             
 
 @run_options(run_type="Branch")
@@ -213,21 +189,6 @@ def is_axon_like(branch,limb_name=None,branch_name=None,**kwargs):
 
 
 
-def query_neuron_by_labels(neuron_obj,
-    matching_labels=[],
-    not_matching_labels=None,
-    match_type = "all"):
-    
-    if not_matching_labels is None:
-        not_matching_labels = []
-    return query_neuron(neuron_obj,
-               query="labels_restriction == True",
-               functions_list=["labels_restriction"],
-               function_kwargs=dict(matching_labels=matching_labels,
-                                    not_matching_labels=not_matching_labels,
-                                    match_type=match_type
-
-                                   ))
         
 
 
