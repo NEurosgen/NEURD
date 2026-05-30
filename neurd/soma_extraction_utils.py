@@ -537,6 +537,9 @@ def extract_soma_center(
     current_mesh_faces=None,
     mesh = None,
 
+    max_somas=None,  # if set (e.g. 1 for single-neuron files), stop the multi-piece
+                     # search once this many somas are found, skipping the per-piece
+                     # interior-removal/segmentation of the remaining mesh pieces.
     outer_decimation_ratio= None,
     large_mesh_threshold = None,#60000,
     large_mesh_threshold_inner = None, #was changed so dont filter away som somas
@@ -882,6 +885,11 @@ def extract_soma_center(
         #start iterating through where go through all pieces before the poisson reconstruction
         no_somas_found_in_big_loop = 0
         for i,largest_mesh in enumerate(list_of_largest_mesh):
+            # single-neuron short-circuit: once enough somas are found, skip the
+            # remaining pieces (each costs an interior-removal meshlab spawn + segmentation).
+            if max_somas is not None and len(total_soma_list) >= max_somas:
+                print(f"Reached max_somas={max_somas}; skipping {len(list_of_largest_mesh)-i} remaining piece(s)")
+                break
             print(f"----- working on large mesh #{i}: {largest_mesh}")
 
             if remove_inside_pieces:
