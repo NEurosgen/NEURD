@@ -861,8 +861,9 @@ attributes_dict_h01 = dict()
 
 
 #--- from neurd_packages ---
+# P3: dropped dead import `spine_utils as spu` (0 uses) — breaks the
+# branch_utils<->spine_utils cycle.
 from . import neuron_utils as nru
-from . import spine_utils as spu
 
 from . import width_utils as wu
 from . import neuron_statistics as nst

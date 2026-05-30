@@ -22,7 +22,8 @@ def distance_between_nodes_di(limb_obj,
     
     if branch_path is None:
         return np.inf
-    
+
+    from neurd import neuron_statistics as nst  # P3: local import breaks concept_network_utils<->neuron_statistics cycle
     return nst.skeletal_length_along_path(limb_obj,branch_path)
 
 def distance_between_nodes_di_upstream(limb_obj,
@@ -1326,9 +1327,10 @@ def all_downstream_nodes(limb_obj,branch_idx):
 
 
 #--- from neurd_packages ---
-from . import neuron_statistics as nst
+# P3: `neuron_statistics as nst` is now a local import at its single real use site to
+# break the concept_network_utils<->neuron_statistics cycle.
 from . import neuron_utils as nru
-from . import width_utils as wu  
+from . import width_utils as wu
 
 #--- from mesh_tools ---
 from mesh_tools import skeleton_utils as sk

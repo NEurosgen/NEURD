@@ -1976,9 +1976,9 @@ attributes_dict_h01 = dict()
 
 
 #--- from neurd_packages ---
-from . import branch_utils as bu
+# P3: dropped dead imports `branch_utils as bu` and `neuron_searching as ns` (0 uses) —
+# breaks the neuron_statistics<->branch_utils and neuron_statistics<->neuron_searching cycles.
 from . import concept_network_utils as cnu
-from . import neuron_searching as ns
 from . import neuron_utils as nru
 
 
