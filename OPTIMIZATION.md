@@ -52,7 +52,8 @@ measure-first: профиль → захват эталона → секундн
 | `fedde35` | **`copy_concept_network` — убран двойной deepcopy** | пиковые Branch-аллокации при копировании 2N → N |
 | `2a86407` | **`preprocessed_data` очистка** — удалить `limb_meshes`/`limb_concept_networks`/`soma_meshes` после init | −190 МБ живых объектов; ключи были дубликатом данных уже в Limb/Soma |
 | `3643d3e` | **trimesh-кэши** — очистить Limb.mesh + neuron.mesh после init | −380 МБ живых объектов (−83% от измеренных атрибутов) |
-| (uncommitted) | **KMeans `n_init=10→1`** в `_cgal_segmentation.py` (наш Python-стенд CGAL) | fixture build **142s → 124.9s**, стадия шипиков 52.9s → 43.0s; **выход byte-identical** (1-D log(SDF) k-means++ сходится в тот же оптимум); baseline PASS. Бьёт по сому+шипикам (обе зовут `cgal_segmentation`) |
+| `bdfd8b7` | **KMeans `n_init=10→1`** в `_cgal_segmentation.py` (наш Python-стенд CGAL) | fixture build **142s → 124.9s**, стадия шипиков 52.9s → 43.0s; **выход byte-identical** (1-D log(SDF) k-means++ сходится в тот же оптимум); baseline PASS. Бьёт по сому+шипикам (обе зовут `cgal_segmentation`) |
+| (uncommitted) | **Ленивая шафт-рестрикция** — `restrict_meshes_to_shaft_meshes_without_coordinates` считает `mesh_volume`/`close_hole_area` (починка дыр) лениво в порядке cheap→expensive вместо жадного `stats_df` | стадия шипиков **43.0s → 14.3s (~3×)**, build 124.9s → **95.9s**; **byte-identical**: 28/28 вызовов `restrict` дали тот же выбор шафта, что жадный (вход не мутируется — `mesh_volume` читает, не меняет геометрию); baseline PASS |
 
 Poisson/FillHoles были байт-идентичными no-op (доказано захватом пар вход/выход), но платили
 ~536s+ за спавн. Соме-детект работает без них. Замены behavior-preserving — характеризационный
@@ -104,14 +105,18 @@ output-рискованно). Пользователю шипики **нужны
 | `restrict_meshes_to_shaft_meshes_without_coordinates` → `query_meshes_from_stats` → `stats_df`/`stitch` → `mesh_volume` → `fill_mesh_holes_with_fan` → `fix_normals`/`fix_winding` | **~66s (65%)** | «шафт vs спайн» считает **объём+площадь дыр каждого сегмента** через починку. `fix_winding` 42.7s, `group_rows` 27.8s (427K вызовов) — внутренности trimesh repair |
 | `mesh_segmentation` → `cgal_segmentation` → **sklearn KMeans** | 28.9s (KMeans 22s) | ✅ **ВЗЯТО:** `n_init=10→1`, см. §2 |
 
-**Следующая зацепка (#2, output-preserving, средняя сложность):**
-`restrict_meshes_to_shaft_meshes_without_coordinates` (`spine_utils.py:2949`) шлёт запрос
-`(close_hole_area > X) OR (mesh_volume > Y)`, затем `(n_faces > min)`. Но `query_meshes_from_stats`
-считает **все** функции жадно для **всех** сегментов, включая дорогой `mesh_volume`
-(fill_holes+fix_normals). Короткозамкнуть: сперва дешёвый `n_faces`, затем `close_hole_area`,
-а `mesh_volume` — только для тех, кто ещё не прошёл по OR. Финальный набор тот же → выход
-идентичен. Правка в `tu.query_meshes_from_stats`/`stats_df` (upstream, но логика ленивости,
-не геометрия). Потенциал — десятки секунд (объём — крупнейшее поддерево).
+**✅ Зацепка #2 ВЗЯТА (output-preserving):** `restrict_meshes_to_shaft_meshes_without_coordinates`
+теперь считает статистики лениво (cheap→expensive) вместо жадного `tu.stats_df`. Запрос
+`(close_hole_area > X OR mesh_volume > Y) AND (n_faces > min)`: `close_hole_area` нужен только при
+`n_faces>min`, `mesh_volume` — только при `n_faces>min И close_hole_area<=X`; остальным — 0-sentinel
+(их решают другие термы, значение не влияет). Тот же query-evaluator → byte-identical (28/28
+вызовов совпали с жадным; вход не мутируется — проверено: `mesh_volume`/`stitch` пишут в **новый**
+меш). **43s → 14.3s (~3×)**, см. §2.
+
+**Следующая зацепка (#3, не разобрана):** что осталось в 14.3s стадии шипиков — пере-профилировать
+(вероятно `mesh_segmentation`/CGAL-диск-roundtrip + `close_hole_area` на выживших). Также width
+(§отдельно): считается ~дважды по всем веткам (`median_mesh_center` внутри шипиков +
+`no_spine_median_mesh_center` после), `branch_mesh_no_spines` пересоздаётся на вызов.
 
 ---
 
