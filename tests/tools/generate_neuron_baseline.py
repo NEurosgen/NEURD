@@ -18,10 +18,8 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests" / "tools"))
 
 import neurd  # noqa: F401
-from neurd import preprocess_neuron as pre, soma_extraction_utils as sm
-from neurd import spine_utils as spu, neuron_utils as nru, neuron
+from neurd import parameters
 from neurd.segmentation_pipeline import segmentation_pipeline
-from datasci_tools import module_utils as modu
 from mesh_tools import trimesh_utils as tu
 
 from neuron_metrics import extract_metrics
@@ -32,9 +30,7 @@ _OUT = REPO / "tests" / "fixtures" / "neuron_baseline.json"
 
 def main():
     os.chdir(tempfile.mkdtemp(prefix="neuron_baseline_"))
-    modu.set_global_parameters_and_attributes_by_data_type(
-        module=[pre, sm, spu, nru, neuron], data_type="microns", set_default_first=True
-    )
+    parameters.params.use("microns")
     mesh = tu.load_mesh_no_processing(str(_FIXTURE))
     neuron_obj = segmentation_pipeline(mesh, verbose=False)
     metrics = extract_metrics(neuron_obj)

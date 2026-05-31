@@ -101,8 +101,6 @@ del _sys3, _MT3
 
 from pathlib import Path
 
-from datasci_tools import module_utils as modu
-
 # MeshLab Poisson is a silent NO-OP on MeshLabServer 2020.09 here, but costs ~60 s of
 # subprocess+xvfb spawn per call (~9 calls ≈ 536 s — the single biggest cost in the
 # pipeline, see PIPELINE.md / profile). The Screened Poisson filter does not actually
@@ -290,11 +288,11 @@ def set_volume_params(
     verbose=False,
     verbose_loop=False,
 ):
-    directory = Path(f"{__file__}").parents[0]
-    modu.all_modules_set_global_parameters_and_attributes(
-        data_type=volume,
-        directory=directory,
-        verbose=verbose,
-        verbose_loop=verbose_loop,
-        from_package="neurd",
-    )
+    """Switch the active parameter set ("microns" or "h01").
+
+    Canonical entry point now that parameters live in `neurd.parameters`;
+    delegates to the single explicit params object instead of monkey-patching
+    `*_global` variables across every module.
+    """
+    from . import parameters
+    parameters.params.use(volume)
