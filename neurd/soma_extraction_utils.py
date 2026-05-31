@@ -622,15 +622,29 @@ def extract_soma_center(
     # -------- Soma parameters -----------
     if outer_decimation_ratio is None:
         outer_decimation_ratio = outer_decimation_ratio_global
-        
+
     if large_mesh_threshold is None:
         large_mesh_threshold = large_mesh_threshold_global
-    
+
     if large_mesh_threshold_inner is None:
         large_mesh_threshold_inner = large_mesh_threshold_inner_global
-    
+
     if inner_decimation_ratio is None:
         inner_decimation_ratio = inner_decimation_ratio_global
+
+    # Experimental speed knobs (default = unchanged): the soma is a big smooth blob and
+    # its accuracy is not a target here, so decimating the soma-detection mesh harder
+    # cheapens the WHOLE soma stage at once (Poisson + SDF segmentation + meshlab
+    # Decimator/Interior). NEURD_SOMA_OUTER_DECIM / NEURD_SOMA_INNER_DECIM override the
+    # 0.25 ratios (smaller = fewer faces kept = faster, but risks falling below the
+    # soma_size_threshold -> "No Somas").
+    import os as _os
+    _eo = _os.environ.get("NEURD_SOMA_OUTER_DECIM")
+    if _eo:
+        outer_decimation_ratio = float(_eo)
+    _ei = _os.environ.get("NEURD_SOMA_INNER_DECIM")
+    if _ei:
+        inner_decimation_ratio = float(_ei)
         
         
     if max_fail_loops is None:

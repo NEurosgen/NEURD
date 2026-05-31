@@ -151,8 +151,11 @@ try:
                 # NEURD_POISSON_DEPTH overrides the octree depth (default 11 = Docker).
                 # Lower depth = far cheaper Poisson (~8x per level) but coarser surface;
                 # used to trade reconstruction fidelity for speed on large H01 neurons.
+                # NEURD_POISSON_ITERS overrides the Gauss-Seidel iters (default 8 = Docker);
+                # fewer iters ~= proportionally cheaper solve, minor quality loss.
                 _depth = int(_os.environ.get("NEURD_POISSON_DEPTH", "11"))
-                mesh = _mo.poisson_surface_reconstruction_meshlab(mesh, depth=_depth)
+                _iters = int(_os.environ.get("NEURD_POISSON_ITERS", "8"))
+                mesh = _mo.poisson_surface_reconstruction_meshlab(mesh, depth=_depth, iters=_iters)
                 self.temp_folder_obj.mkdir(parents=True, exist_ok=True)
                 mesh.export(str(output_obj))
             except Exception as _e:
