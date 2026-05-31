@@ -29,14 +29,9 @@ from neuron_metrics import extract_metrics  # noqa: E402
 # Importing neurd first activates the numpy-2 / cgal / meshlab compat shims that
 # datasci_tools and mesh_tools rely on (see neurd/__init__.py).
 import neurd  # noqa: F401,E402
-from neurd import preprocess_neuron as pre
-from neurd import soma_extraction_utils as sm
-from neurd import spine_utils as spu
-from neurd import neuron_utils as nru
 from neurd import neuron
+from neurd import parameters
 from neurd.segmentation_pipeline import segmentation_pipeline
-
-from datasci_tools import module_utils as modu
 from mesh_tools import trimesh_utils as tu
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "864691135510518224.off"
@@ -62,11 +57,7 @@ def decomposed_neuron(tmp_path_factory):
     prev_cwd = os.getcwd()
     os.chdir(work_dir)
     try:
-        modu.set_global_parameters_and_attributes_by_data_type(
-            module=[pre, sm, spu, nru, neuron],
-            data_type="microns",
-            set_default_first=True,
-        )
+        parameters.params.use("microns")
         mesh = tu.load_mesh_no_processing(str(_FIXTURE))
         assert len(mesh.faces) > 0, "fixture mesh has no faces"
         return segmentation_pipeline(mesh, verbose=False)

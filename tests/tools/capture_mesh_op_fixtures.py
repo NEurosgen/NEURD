@@ -53,17 +53,14 @@ def _wrap(cls, name):
 
 
 def main():
-    from neurd import preprocess_neuron as pre, soma_extraction_utils as sm
-    from neurd import spine_utils as spu, neuron_utils as nru, neuron
-    from datasci_tools import module_utils as modu
+    from neurd import soma_extraction_utils as sm
+    from neurd import parameters
 
     for cls, nm in [(ml.Poisson, "poisson"), (ml.Decimator, "decimate"), (ml.FillHoles, "fill_holes")]:
         _wrap(cls, nm)
 
     os.chdir(tempfile.mkdtemp(prefix="capture_mesh_ops_"))
-    modu.set_global_parameters_and_attributes_by_data_type(
-        module=[pre, sm, spu, nru, neuron], data_type="microns", set_default_first=True
-    )
+    parameters.params.use("microns")
     mesh = tu.load_mesh_no_processing(str(REPO / "tests" / "fixtures" / "864691135510518224.off"))
     sm.soma_indentification(mesh, verbose=False)
     print(f"\nDONE. Captured: { {k: v for k, v in _counters.items()} } -> {OUT}")

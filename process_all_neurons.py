@@ -30,11 +30,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 import numpy as np
 
 from neurd import neuron
-from neurd import preprocess_neuron as pre
-from neurd import soma_extraction_utils as sm
-from neurd import spine_utils as spu
-from neurd import neuron_utils as nst
-from datasci_tools import module_utils as modu
+from neurd import parameters
 from mesh_tools import trimesh_utils as tu
 
 # ---------------------- ПАРАМЕТРЫ ----------------------
@@ -309,10 +305,7 @@ def ensure_neurd_defaults():
     """
     Выставляем глобальные параметры NEURD под датасет H01.
     """
-    modules_to_set = [pre, sm, spu, nst]
-    modu.set_global_parameters_and_attributes_by_data_type(
-        module=modules_to_set, data_type=DATA_TYPE, set_default_first=True
-    )
+    parameters.params.use(DATA_TYPE)
 
 
 # ---------------------- МАНИФЕСТ ----------------------
