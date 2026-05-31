@@ -148,14 +148,18 @@ try:
         if _os.environ.get("NEURD_REAL_POISSON") == "1":
             try:
                 from neurd import _mesh_ops as _mo
-                # NEURD_POISSON_DEPTH overrides the octree depth (default 11 = Docker).
-                # Lower depth = far cheaper Poisson (~8x per level) but coarser surface;
-                # used to trade reconstruction fidelity for speed on large H01 neurons.
-                # NEURD_POISSON_ITERS overrides the Gauss-Seidel iters (default 8 = Docker);
-                # fewer iters ~= proportionally cheaper solve, minor quality loss.
+                # NEURD_POISSON_DEPTH: octree depth (default 11 = Docker; 9 = fast+good).
+                # NEURD_POISSON_BACKEND: "meshlab" (default, Docker-accurate) or "open3d"
+                #   (faster; subsamples point cloud, may over-segment thin neurites at depth=11
+                #   but worth testing at depth 8-9 where coarsening already smooths gaps).
+                # NEURD_POISSON_ITERS: Gauss-Seidel iters (meshlab only, default 8 = Docker).
                 _depth = int(_os.environ.get("NEURD_POISSON_DEPTH", "11"))
-                _iters = int(_os.environ.get("NEURD_POISSON_ITERS", "8"))
-                mesh = _mo.poisson_surface_reconstruction_meshlab(mesh, depth=_depth, iters=_iters)
+                _backend = _os.environ.get("NEURD_POISSON_BACKEND", "meshlab")
+                if _backend == "open3d":
+                    mesh = _mo.poisson_surface_reconstruction(mesh, depth=_depth)
+                else:
+                    _iters = int(_os.environ.get("NEURD_POISSON_ITERS", "8"))
+                    mesh = _mo.poisson_surface_reconstruction_meshlab(mesh, depth=_depth, iters=_iters)
                 self.temp_folder_obj.mkdir(parents=True, exist_ok=True)
                 mesh.export(str(output_obj))
             except Exception as _e:
