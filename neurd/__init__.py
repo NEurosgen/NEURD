@@ -125,6 +125,7 @@ try:
         input_mesh_path="", mesh_filename="", printout=True,
         delete_temp_files=True, **kwargs,
     ):
+        import os as _os
         import random as _r
         import trimesh as _tm
         if segment_id is None:
@@ -138,6 +139,20 @@ try:
             mesh = self.fetch_mesh_from_off(str(input_mesh_path))
         else:
             mesh = _tm.Trimesh(vertices=vertices, faces=faces, process=False)
+        # EXPERIMENT (NEURD_REAL_POISSON=1): restore a real watertight reconstruction
+        # (open3d) in place of the no-op, to test whether the original Docker pipeline's
+        # working MeshLab Poisson is what kept fragmented H01 limb meshes connected
+        # (some H01 neurons crash in correspondence_1_to_1 on a disconnected limb mesh).
+        # Off by default -> identical to the no-op; on -> reconstructs + writes to disk
+        # so return_mesh=False callers read the reconstructed bytes.
+        if _os.environ.get("NEURD_REAL_POISSON") == "1":
+            try:
+                from neurd import _mesh_ops as _mo
+                mesh = _mo.poisson_surface_reconstruction_meshlab(mesh)
+                self.temp_folder_obj.mkdir(parents=True, exist_ok=True)
+                mesh.export(str(output_obj))
+            except Exception as _e:
+                print(f"[real-poisson] failed, passthrough: {type(_e).__name__}: {_e}")
         return (mesh, output_obj) if return_mesh else output_obj
 
     _Poisson.__call__ = _poisson_inprocess_noop
