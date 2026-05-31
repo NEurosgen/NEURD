@@ -55,6 +55,31 @@ _BASE = dict(
     segmentation_at_end=True,
     largest_hole_threshold=17000,
     second_pass_size_threshold=None,
+    # preprocess_neuron
+    width_threshold_MAP=500,
+    size_threshold_MAP=2000,
+    size_threshold_MAP_stitch=2000,
+    apply_expansion=False,
+    max_stitch_distance=8000,
+    max_stitch_distance_CGAL=5000,
+    filter_end_node_length=4000,
+    axon_width_preprocess_limb_max=200,
+    limb_remove_mesh_interior_face_threshold=0,
+    surface_reconstruction_size=1000,
+    floating_piece_face_threshold=50,
+    invalidation_d=12000,
+    remove_mesh_interior_face_threshold=0,
+    mp_only_revised_invalidation_d=False,
+    mp_only_invalidation_d_axon_buffer=None,
+    mp_only_revised_invalidation_d_reference=None,
+    mp_only_revised_width_reference=None,
+    use_adaptive_invalidation_d=False,
+    use_adaptive_invalidation_d_floating=True,
+    combine_close_skeleton_nodes_threshold_meshparty_axon=1300,
+    filter_end_node_length_meshparty_axon=1150,
+    filter_end_node_length_axon=1150,
+    invalidation_d_axon=1500,
+    smooth_neighborhood_axon=0,
 )
 
 # h01-only deltas, applied on top of _BASE when mode == "h01".
@@ -71,6 +96,19 @@ _H01 = dict(
     backtrack_soma_size_threshold=15_000,
     last_size_threshold=15_000,
     second_pass_size_threshold=5_000,
+    # preprocess_neuron
+    width_threshold_MAP=1000,
+    size_threshold_MAP=10_000,
+    size_threshold_MAP_stitch=14_000,
+    apply_expansion=True,
+    max_stitch_distance=13_000,
+    max_stitch_distance_CGAL=13_000,
+    axon_width_preprocess_limb_max=350,
+    limb_remove_mesh_interior_face_threshold=150,
+    floating_piece_face_threshold=500,
+    use_adaptive_invalidation_d=True,
+    combine_close_skeleton_nodes_threshold_meshparty_axon=1700,
+    invalidation_d_axon=2500,
 )
 
 
