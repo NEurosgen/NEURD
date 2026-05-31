@@ -6,8 +6,6 @@ import random
 import time
 import trimesh
 from datasci_tools import numpy_dep as np
-from datasci_tools import general_utils as gu
-from datasci_tools import data_struct_utils as dsu
 
 
 
@@ -604,33 +602,33 @@ def extract_soma_center(
     
     # ------- Nuclei parameters -------------
     if nucleus_min is None:
-        nucleus_min = nucleus_min_global
+        nucleus_min = parameters.params.nucleus_min
         
     if nucleus_max is None:
-        nucleus_max = nucleus_max_global
+        nucleus_max = parameters.params.nucleus_max
         
     # ------ Glia parameters ------------
     if glia_volume_threshold_in_um is None:
-        glia_volume_threshold_in_um = glia_volume_threshold_in_um_global
+        glia_volume_threshold_in_um = parameters.params.glia_volume_threshold_in_um
         
     if glia_n_faces_threshold is None:
-        glia_n_faces_threshold = glia_n_faces_threshold_global
+        glia_n_faces_threshold = parameters.params.glia_n_faces_threshold
         
     if glia_n_faces_min is None:
-        glia_n_faces_min = glia_n_faces_min_global
+        glia_n_faces_min = parameters.params.glia_n_faces_min
         
     # -------- Soma parameters -----------
     if outer_decimation_ratio is None:
-        outer_decimation_ratio = outer_decimation_ratio_global
+        outer_decimation_ratio = parameters.params.outer_decimation_ratio
 
     if large_mesh_threshold is None:
-        large_mesh_threshold = large_mesh_threshold_global
+        large_mesh_threshold = parameters.params.large_mesh_threshold
 
     if large_mesh_threshold_inner is None:
-        large_mesh_threshold_inner = large_mesh_threshold_inner_global
+        large_mesh_threshold_inner = parameters.params.large_mesh_threshold_inner
 
     if inner_decimation_ratio is None:
-        inner_decimation_ratio = inner_decimation_ratio_global
+        inner_decimation_ratio = parameters.params.inner_decimation_ratio
 
     # Experimental speed knobs (default = unchanged): the soma is a big smooth blob and
     # its accuracy is not a target here, so decimating the soma-detection mesh harder
@@ -648,47 +646,47 @@ def extract_soma_center(
         
         
     if max_fail_loops is None:
-        max_fail_loops = max_fail_loops_global
+        max_fail_loops = parameters.params.max_fail_loops
     if remove_inside_pieces is None:
-        remove_inside_pieces = remove_inside_pieces_global
+        remove_inside_pieces = parameters.params.remove_inside_pieces
     if size_threshold_to_remove is None:
-        size_threshold_to_remove = size_threshold_to_remove_global
+        size_threshold_to_remove = parameters.params.size_threshold_to_remove
     if pymeshfix_clean is None:
-        pymeshfix_clean = pymeshfix_clean_global
+        pymeshfix_clean = parameters.params.pymeshfix_clean
     if check_holes_before_pymeshfix is None:
-        check_holes_before_pymeshfix = check_holes_before_pymeshfix_global
+        check_holes_before_pymeshfix = parameters.params.check_holes_before_pymeshfix
     if second_poisson is None:
-        second_poisson = second_poisson_global
+        second_poisson = parameters.params.second_poisson
     if soma_width_threshold is None:
-        soma_width_threshold = soma_width_threshold_global
+        soma_width_threshold = parameters.params.soma_width_threshold
     if soma_size_threshold is None:
-        soma_size_threshold = soma_size_threshold_global
+        soma_size_threshold = parameters.params.soma_size_threshold
     if soma_size_threshold_max is None:
-        soma_size_threshold_max = soma_size_threshold_max_global
+        soma_size_threshold_max = parameters.params.soma_size_threshold_max
     if volume_mulitplier is None:
-        volume_mulitplier = volume_mulitplier_global
+        volume_mulitplier = parameters.params.volume_mulitplier
     if side_length_ratio_threshold is None:
-        side_length_ratio_threshold = side_length_ratio_threshold_global
+        side_length_ratio_threshold = parameters.params.side_length_ratio_threshold
     if perform_pairing is None:
-        perform_pairing = perform_pairing_global
+        perform_pairing = parameters.params.perform_pairing
     if backtrack_soma_mesh_to_original is None:
-        backtrack_soma_mesh_to_original = backtrack_soma_mesh_to_original_global
+        backtrack_soma_mesh_to_original = parameters.params.backtrack_soma_mesh_to_original
     if backtrack_soma_size_threshold is None:
-        backtrack_soma_size_threshold = backtrack_soma_size_threshold_global
+        backtrack_soma_size_threshold = parameters.params.backtrack_soma_size_threshold
     if poisson_backtrack_distance_threshold is None:
-        poisson_backtrack_distance_threshold = poisson_backtrack_distance_threshold_global
+        poisson_backtrack_distance_threshold = parameters.params.poisson_backtrack_distance_threshold
     if close_holes is None:
-        close_holes = close_holes_global
+        close_holes = parameters.params.close_holes
     if boundary_vertices_threshold is None:
-        boundary_vertices_threshold = boundary_vertices_threshold_global
+        boundary_vertices_threshold = parameters.params.boundary_vertices_threshold
     if last_size_threshold is None:
-        last_size_threshold = last_size_threshold_global
+        last_size_threshold = parameters.params.last_size_threshold
     if segmentation_at_end is None:
-        segmentation_at_end = segmentation_at_end_global
+        segmentation_at_end = parameters.params.segmentation_at_end
     if largest_hole_threshold is None:
-        largest_hole_threshold = largest_hole_threshold_global
+        largest_hole_threshold = parameters.params.largest_hole_threshold
     if second_pass_size_threshold is None:
-        second_pass_size_threshold = second_pass_size_threshold_global
+        second_pass_size_threshold = parameters.params.second_pass_size_threshold
         
     
     
@@ -1667,133 +1665,17 @@ def soma_indentification(
     return soma_products
     
     
-# ------------------------- Parameters ---------------------
-# ------------- Setting up parameters -----------
-
-# -- default
-attributes_dict_default = dict(
-)    
-
-
-
-global_parameters_dict_default_nuclei = dsu.DictType(
-    nucleus_min = 700, #minimum number of faces for nuclei mesh peices
-    nucleus_max = (None,"int unsigned"), #maximum number of faces for nuclie mesh pieces if glia volume is not defined
-)
-
-global_parameters_dict_default_glia = dsu.DictType(
-    glia_volume_threshold_in_um = 2500, #minimum volume of glia mesh
-    glia_n_faces_threshold = 400_000, #minimum number of faes for glia mesh if volume is not defined
-    glia_n_faces_min = 100_000, #minimum number of faes for glia mesh if glia volume defined
-)
-
-global_parameters_dict_default_soma  = dsu.DictType(
-    outer_decimation_ratio=0.25 , #decimation ratio for 1st round of decimation
-    large_mesh_threshold = 20_000, #minimum face count threshold after 1st round of decimation
-    large_mesh_threshold_inner = 13_000, #minimum face count threshold after poisson reconstruction and split
-    inner_decimation_ratio = 0.25, #decimation ratio for 2nd round of decimation after poisson reconstruction
-    max_fail_loops = 10, #number of times soma finding can fail in finding an invalid soma in the outer/inner decimation loop
-
-    # other cleaning methods to run on segments after first decimation
-    remove_inside_pieces = True, #whether to remove inside pieces before processing
-    size_threshold_to_remove=1_000, #minium number of faces of mesh piece to remove
-    pymeshfix_clean=False,
-    check_holes_before_pymeshfix=False,
-    second_poisson=False,
-
-    #after 2nd round of decimation and mesh segmentation is applied
-    soma_width_threshold = 0.32, # minimuum sdf values of mesh segments
-    soma_size_threshold = 9_000, # minimum face count threshold of mesh segments
-    soma_size_threshold_max=1_200_000,# maximum face count threshold of mesh segments
-
-    #parameters for checking possible viable somas after mesh segmentation
-    volume_mulitplier=8, #for soma_volume_check funcion that makes sure not highly skewed bounding box volume to mesh volume 
-    side_length_ratio_threshold=6, #for side_length_check function making sure not highly swkewed x,y,z side length ratios
-
-    #whether to group certain poisson representations of somas together before backtrack to mesh
-    perform_pairing = False,
-
-
-    backtrack_soma_mesh_to_original=True, #will backtrack the poisson reconstruction soma to the original mesh
-    backtrack_soma_size_threshold=8000, #minimum number of faces for a backtracked mesh
-
-
-    #for filtering away somas once get backtracked to original mesh with certain filters
-    poisson_backtrack_distance_threshold=(None,"int unsigned"), #maximum distance between poisson reconstruction and backtracked soma
-    close_holes=False, #whether to close holes when doing poisson backtrack
-
-    boundary_vertices_threshold=(None,"int unsigned"), #filter away somas if too many boundary vertices
-
-
-    #filters at the very end for meshes that made it thorugh
-    last_size_threshold = 2000, #min faces count
-
-    segmentation_at_end=True, #whether to attempt to split meshes at end
-    largest_hole_threshold = 17000, #maximum hole length for a soma to allow the segmentaiton split at end
-
-    second_pass_size_threshold = (None,"int unsigned"),
-)
-
-global_parameters_dict_default = gu.merge_dicts([
-    global_parameters_dict_default_nuclei,
-    global_parameters_dict_default_glia,
-    global_parameters_dict_default_soma,
-])
-
-# -- microns--
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-
-#-- h01--
-global_parameters_dict_h01_glia = dict(
-    glia_n_faces_threshold=3000000,
-    glia_n_faces_min=3000000,
-)
-
-global_parameters_dict_h01_nuclei= dict(
-)
-
-global_parameters_dict_h01_soma = dict(
-    
-    large_mesh_threshold=40000,
-    large_mesh_threshold_inner=20000,
-    soma_size_threshold=15000,
-    soma_size_threshold_max=2000000,
-    backtrack_soma_size_threshold=15000,
-    last_size_threshold=15000,
-    second_pass_size_threshold=5000,
-)
-
-global_parameters_dict_h01 = gu.merge_dicts([
-    global_parameters_dict_h01_glia,
-    global_parameters_dict_h01_nuclei,
-    global_parameters_dict_h01_soma
-])
-
-attributes_dict_h01 = dict()
-
-
-
-
 #--- from mesh_tools ---
 from mesh_tools import meshlab
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import data_struct_utils as dsu
-from datasci_tools import general_utils as gu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import system_utils as su
 from datasci_tools import pipeline
 
-from . import parameter_utils as paru
-
-# P2: self-import `from . import soma_extraction_utils as sm` removed. The param-system
-# `output_global_parameters_*` functions pass this module as `module=`, so bind a
-# self-reference explicitly instead of importing the module into itself.
-import sys as _sys
-sm = _sys.modules[__name__]
+from . import parameters
 
 
 def glia_nuclei_faces_from_mesh(
@@ -1834,22 +1716,3 @@ def glia_nuclei_faces_from_mesh(
         return glia_faces,nuclei_faces,n_glia_faces,n_nuclei_faces
     else:
         return glia_faces,nuclei_faces
-
-
-def output_global_parameters_glia(**kwargs):
-    return paru.category_param_from_module(
-        module = sm,
-        category = "glia",
-    )
-
-def output_global_parameters_nuclei(**kwargs):
-    return paru.category_param_from_module(
-        module = sm,
-        category = "nuclei",
-    )
-
-def output_global_parameters_soma(**kwargs):
-    return paru.category_param_from_module(
-        module = sm,
-        category = "soma",
-    )
