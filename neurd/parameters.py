@@ -24,12 +24,53 @@ _BASE = dict(
     offset_width_endpoint=0,
     # neuron_utils
     skeletal_length_max_n_spines=3000,
+    # soma_extraction_utils
+    nucleus_min=700,
+    nucleus_max=None,
+    glia_volume_threshold_in_um=2500,
+    glia_n_faces_threshold=400_000,
+    glia_n_faces_min=100_000,
+    outer_decimation_ratio=0.25,
+    large_mesh_threshold=20_000,
+    large_mesh_threshold_inner=13_000,
+    inner_decimation_ratio=0.25,
+    max_fail_loops=10,
+    remove_inside_pieces=True,
+    size_threshold_to_remove=1_000,
+    pymeshfix_clean=False,
+    check_holes_before_pymeshfix=False,
+    second_poisson=False,
+    soma_width_threshold=0.32,
+    soma_size_threshold=9_000,
+    soma_size_threshold_max=1_200_000,
+    volume_mulitplier=8,
+    side_length_ratio_threshold=6,
+    perform_pairing=False,
+    backtrack_soma_mesh_to_original=True,
+    backtrack_soma_size_threshold=8000,
+    poisson_backtrack_distance_threshold=None,
+    close_holes=False,
+    boundary_vertices_threshold=None,
+    last_size_threshold=2000,
+    segmentation_at_end=True,
+    largest_hole_threshold=17000,
+    second_pass_size_threshold=None,
 )
 
 # h01-only deltas, applied on top of _BASE when mode == "h01".
 _H01 = dict(
     # neuron_utils
     skeletal_length_max_n_spines=6_000,
+    # soma_extraction_utils
+    glia_n_faces_threshold=3_000_000,
+    glia_n_faces_min=3_000_000,
+    large_mesh_threshold=40_000,
+    large_mesh_threshold_inner=20_000,
+    soma_size_threshold=15_000,
+    soma_size_threshold_max=2_000_000,
+    backtrack_soma_size_threshold=15_000,
+    last_size_threshold=15_000,
+    second_pass_size_threshold=5_000,
 )
 
 
