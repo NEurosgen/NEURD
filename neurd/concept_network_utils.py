@@ -1,6 +1,15 @@
+import sys as _sys
 
 import networkx as nx
-from datasci_tools import numpy_dep as np
+import numpy as np
+
+from mesh_tools import skeleton_utils as sk
+from mesh_tools import trimesh_utils as tu
+from datasci_tools import networkx_utils as xu
+from datasci_tools import numpy_utils as nu
+from . import neuron_utils as nru
+
+cnu = _sys.modules[__name__]
 
 non_branching_upstream = False
 
@@ -62,7 +71,6 @@ def branches_within_distance(limb_obj,
     """
     branch_names = np.array(limb_obj.get_branch_names())
     branch_dist = np.array([dist_func(limb_obj,branch_idx,k) for k in branch_names])
-    #print(f"branch_names and dist = \n {np.vstack([branch_names,branch_dist]).T.astype("int")}")
     
     branches_within_dist = branch_names[(branch_dist<=distance_threshold) & 
                                        (branch_dist != np.inf)]
@@ -71,7 +79,6 @@ def branches_within_distance(limb_obj,
         return branches_within_dist
     else:
         return branches_within_dist[branches_within_dist != branch_idx]
-
 
 def branches_within_distance_upstream(limb_obj,
                              branch_idx,
@@ -100,13 +107,8 @@ def branches_within_distance_downstream(limb_obj,
 
 #find all end nodes within a downstream threshold
 
-
 def branches_with_parent_branching(limb_obj):
     return xu.nodes_with_parent_branching(limb_obj.concept_network_directional)
-
-
-
-
 
 def subgraph_around_branch(limb_obj,
                            branch_idx,
@@ -123,7 +125,6 @@ def subgraph_around_branch(limb_obj,
                            plot_subgraph = False,
                            nodes_to_exclude=None,
                            nodes_to_include = None,
-                           verbose = False
                           ):
     """
     Purpose: To return a subgraph around a certain 
@@ -163,10 +164,6 @@ def subgraph_around_branch(limb_obj,
             
     if include_branch_in_downstream_dist:
         downstream_distance = downstream_distance - branch_idx_dist
-    if verbose:
-        print(f"branch_idx_dist = {branch_idx_dist}")
-        print(f"upstream_distance = {upstream_distance}")
-        print(f"downstream_distance = {downstream_distance}")
     
     upstream_branches = cnu.branches_within_distance_upstream(limb_obj,
                                                           branch_idx,
@@ -177,51 +174,31 @@ def subgraph_around_branch(limb_obj,
                                                           downstream_distance,
                                                           include_branch_idx=include_branch_idx)
     
-    if verbose:
-        print(f"upstream_branches= {upstream_branches}")
-        print(f"downstream_branches = {downstream_branches}")
-        
     if nodes_to_exclude is None:
         nodes_to_exclude = limb_obj.nodes_to_exclude
         
-    #print(f"nodes_to_exclude = {nodes_to_exclude}")
-    
     if nodes_to_exclude is not None:
         downstream_branches = np.setdiff1d(downstream_branches,nodes_to_exclude)
         upstream_branches = np.setdiff1d(upstream_branches,nodes_to_exclude)
-        if verbose:
-            print(f"Excluding Nodes: {nodes_to_exclude}")
-            print(f"After exclusion:\n downstream_branches = {downstream_branches}\nupstream_branches = {upstream_branches}")
     
     if nodes_to_include is not None:
         downstream_branches = np.intersect1d(downstream_branches,nodes_to_include)
         upstream_branches = np.intersect1d(upstream_branches,nodes_to_include)
-        if verbose:
-            print(f"Limiting to only Include Nodes: {nodes_to_include}")
-            print(f"After inclusion:\n downstream_branches = {downstream_branches}\nupstream_branches = {upstream_branches}")
     
-        
     if only_non_branching_upstream:
         upstream_branches = np.intersect1d(upstream_branches,cnu.upstream_nodes_without_branching(limb_obj,branch_idx,
                                                                                                   nodes_to_exclude=nodes_to_exclude))
-        if verbose:
-            print(f"\nAfter only_non_branching_upstream:\nupstream_branches = {upstream_branches} ")
     
     if only_non_branching_downstream:
 #         downstream_branches = np.setdiff1d(downstream_branches,cnu.branches_with_parent_branching(limb_obj))
         downstream_branches = np.intersect1d(downstream_branches,cnu.downstream_nodes_without_branching(limb_obj,branch_idx,
                                                                                                        nodes_to_exclude=nodes_to_exclude))
-        if verbose:
-            print(f"\nAfter only_non_branching_downstream:\ndownstream_branches = {downstream_branches} ")
         
     total_branches = np.hstack([upstream_branches,downstream_branches])
     if include_branch_idx:
         if branch_idx not in total_branches:
             total_branches = np.hstack([total_branches,[branch_idx]])
         
-    if verbose:
-        print(f"total_branches = {total_branches}")
-    
     if return_branch_idxs:
         return total_branches
     
@@ -288,74 +265,8 @@ def upstream_nodes_without_branching(limb_obj,
             
     return upstream_nodes
 
-
 # ------ 6/25: Helps find attributes that are downstream or upstream -------
 
-'''def downstream_attribute(limb_obj,
-                                 branch_idx,
-                                 attribute_name,
-                                 concat_func = np.concatenate,
-                         downstream_distance = np.inf,
-                         include_branch_in_downstream_dist = True,
-                         only_non_branching_downstream = True,
-                         include_branch_idx = True,
-                         verbose = False,
-                         nodes_to_exclude = None,
-                         return_nodes = False,
-                                 ):
-
-    """
-    Purpose: To retrieve and concatenate
-    the attributes of a branch and
-    all of the branches downsream
-    of the branch until there is a branching point
-    or within a certain distance
-
-    Pseudocode: 
-    1) Get all of the branches that are downstream
-    (either up to branch point or within certain distance)
-    2) Get the attributes of the branch and all those downstream
-    3) concatenate the attributes using the prescribed function
-
-    """
-
-    # 1) Get all of the branches that are downstream
-    # (either up to branch point or within certain distance)
-    all_downstream_nodes = cnu.subgraph_around_branch(limb_obj,
-                                                      branch_idx = branch_idx,
-                                                      include_branch_idx=include_branch_idx,
-                                                      include_branch_in_downstream_dist = include_branch_in_downstream_dist,
-                                    downstream_distance = downstream_distance,
-                                                      upstream_distance = -1,
-                                    only_non_branching_downstream=only_non_branching_downstream,
-                                                      verbose = verbose
-                                    )
-
-    if verbose:
-        print(f"With downstream_distance= {downstream_distance}, only_non_branching_downstream = {only_non_branching_downstream}")
-        print(f"all_downstream_nodes = {all_downstream_nodes}")
-        
-    if nodes_to_exclude is not None:
-        all_downstream_nodes = np.setdiff1d(all_downstream_nodes,nodes_to_exclude)
-        if verbose:
-            print(f"Excluding Nodes: {nodes_to_exclude}")
-            print(f"After exclusion: all_downstream_nodes = {all_downstream_nodes}")
-
-    #2) Get the attributes of the branch and all those downstream
-    down_attr = [getattr(limb_obj[k],attribute_name) for k in all_downstream_nodes]
-
-    #3) concatenate the attributes using the prescribed function
-    if len(down_attr) > 0:
-        down_attr_concat = concat_func(down_attr)
-    else:
-        down_attr_concat = down_attr 
-        
-
-    if return_nodes:
-        return down_attr_concat,all_downstream_nodes
-    else:
-        return down_attr_concat
-'''
 def other_direction(direction):
     if direction=="upstream":
         return "downstream"
@@ -370,7 +281,6 @@ def nodes_upstream_downstream(limb_obj,
                              distance = np.inf,include_branch_in_dist = True,
                          only_non_branching = True,
                          include_branch_idx = True,
-                         verbose = False,
                          nodes_to_exclude = None,
                              nodes_to_include=None):
     """
@@ -381,28 +291,18 @@ def nodes_upstream_downstream(limb_obj,
                 f"{direction}_distance":distance,
                 f"{other_direction(direction)}_distance":-1}
                 
-
     # 1) Get all of the branches that are downstream
     # (either up to branch point or within certain distance)
     all_downstream_nodes = cnu.subgraph_around_branch(limb_obj,
                                                       branch_idx = branch_idx,
                                                       include_branch_idx=include_branch_idx,
-                                                      verbose = verbose,
                                                       nodes_to_exclude=nodes_to_exclude,
                                                       nodes_to_include=nodes_to_include,
                                                       **arg_dict
                                     )
 
-    if verbose:
-        print(f"With direction = {direction}, distance= {distance}, only_non_branching = {only_non_branching}, include_branch_in_dist = {include_branch_in_dist}")
-        print(f"all_{direction}_nodes = {all_downstream_nodes}")
-        
     return all_downstream_nodes
 
-
-                    
-                     
-        
 def attribute_upstream_downstream(limb_obj,
                                  branch_idx,
                                   direction,
@@ -413,7 +313,6 @@ def attribute_upstream_downstream(limb_obj,
                          include_branch_in_dist = True,
                          only_non_branching = True,
                          include_branch_idx = True,
-                         verbose = False,
                          nodes_to_exclude = None,
                          return_nodes = False,
                                  ):
@@ -432,26 +331,6 @@ def attribute_upstream_downstream(limb_obj,
     3) concatenate the attributes using the prescribed function
 
     """
-    '''    
-    arg_dict = {f"include_branch_in_{direction}_dist":include_branch_in_dist,
-                f"only_non_branching_{direction}":only_non_branching,
-                f"{direction}_distance":distance,
-                f"{other_direction(direction)}_distance":-1}
-                
-
-    # 1) Get all of the branches that are downstream
-    # (either up to branch point or within certain distance)
-    all_downstream_nodes = cnu.subgraph_around_branch(limb_obj,
-                                                      branch_idx = branch_idx,
-                                                      include_branch_idx=include_branch_idx,
-                                                      verbose = verbose,
-                                                      nodes_to_exclude=nodes_to_exclude,
-                                                      **arg_dict
-                                    )
-
-    if verbose:
-        print(f"With direction = {direction}, distance= {distance}, only_non_branching = {only_non_branching}, include_branch_in_dist = {include_branch_in_dist}")
-        print(f"all_{direction}_nodes = {all_downstream_nodes}")'''
 
     all_downstream_nodes = cnu.nodes_upstream_downstream(limb_obj,
                              branch_idx,
@@ -460,10 +339,8 @@ def attribute_upstream_downstream(limb_obj,
                             include_branch_in_dist = include_branch_in_dist,
                          only_non_branching = only_non_branching,
                          include_branch_idx = include_branch_idx,
-                         verbose = verbose,
                          nodes_to_exclude = nodes_to_exclude,)
         
-
     #2) Get the attributes of the branch and all those downstream
     if attribute_func is None:
         down_attr = [getattr(limb_obj[k],attribute_name) for k in all_downstream_nodes]
@@ -476,78 +353,14 @@ def attribute_upstream_downstream(limb_obj,
     else:
         down_attr_concat = down_attr 
         
-
     if return_nodes:
         return down_attr_concat,all_downstream_nodes
     else:
         return down_attr_concat
-'''
-def upstream_attribute(limb_obj,
-                                 branch_idx,
-                                 attribute_name,
-                                 concat_func = np.concatenate,
-                         upstream_distance = np.inf,
-                         include_branch_in_upstream_dist = True,
-                         only_non_branching_upstream = non_branching_upstream,
-                         include_branch_idx = True,
-                         verbose = False,
-                       return_nodes=False,
-                       nodes_to_exclude = None,
-                                 **kwargs):
-
-    """
-    Purpose: To retrieve and concatenate
-    the attributes of a branch and
-    all of the branches downsream
-    of the branch until there is a branching point
-    or within a certain distance
-
-    Pseudocode: 
-    1) Get all of the branches that are downstream
-    (either up to branch point or within certain distance)
-    2) Get the attributes of the branch and all those downstream
-    3) concatenate the attributes using the prescribed function
-
-    """
-
-    # 1) Get all of the branches that are downstream
-    # (either up to branch point or within certain distance)
-    all_upstream_nodes = cnu.subgraph_around_branch(limb_obj,
-                                                      branch_idx = branch_idx,
-                                                      include_branch_idx=include_branch_idx,
-                                                      include_branch_in_upstream_dist = include_branch_in_upstream_dist,
-                                                    only_non_branching_upstream = only_non_branching_upstream
-                                                      upstream_distance = upstream_distance,
-                                                      downstream_distance = -1,
-                                                      verbose = verbose
-                                    )
-
-    if verbose:
-        print(f"With upstream_distance= {upstream_distance}, only_non_branching_upstream = {only_non_branching_upstream}, include_branch_idx = {include_branch_idx}")
-        print(f"all_upstream_nodes = {all_upstream_nodes}")
-        
-    if nodes_to_exclude is not None:
-        all_upstream_nodes = np.setdiff1d(all_upstream_nodes,nodes_to_exclude)
-        if verbose:
-            print(f"Excluding Nodes: {nodes_to_exclude}")
-            print(f"After exclusion: all_upstream_nodes = {all_upstream_nodes}")
-
-    #2) Get the attributes of the branch and all those downstream
-    up_attr = [getattr(limb_obj[k],attribute_name) for k in all_upstream_nodes]
-
-    #3) concatenate the attributes using the prescribed function
-    up_attr_concat = concat_func(up_attr)
-
-    if return_nodes:
-        return up_attr_concat,all_upstream_nodes
-    else:
-        return up_attr_concat
-'''
 
 def downstream_nodes_mesh_connected(limb_obj,branch_idx,
                                    n_points_of_contact = None,
-                                    downstream_branches=None,
-                                   verbose = False):
+                                    downstream_branches=None):
     """
     Purpose: will determine if at least N number of points of
     contact between the upstream and downstream meshes
@@ -567,9 +380,6 @@ def downstream_nodes_mesh_connected(limb_obj,branch_idx,
     conn_array = tu.mesh_list_connectivity(meshes=[limb_obj[k].mesh for k in [upstream_node] + list(downstream_nodes) ],
                              main_mesh = limb_obj.mesh)
     #intersect_array = nu.intersect2d(conn_array,np.array([[0,1],[0,2]]))
-    if verbose:
-        print(f"conn_array = {conn_array}")
-        print(f"n_points_of_contact = {n_points_of_contact}")
     
     if len(conn_array) >= n_points_of_contact:
         return True
@@ -584,7 +394,6 @@ def skeleton_upstream_downstream(limb_obj,
                         include_branch_idx = True,
                         include_branch_in_dist=True,
                         plot_skeleton = False,
-                       verbose = False,
                         **kwargs
                        ):
     """
@@ -608,10 +417,8 @@ def skeleton_upstream_downstream(limb_obj,
     include_branch_in_dist = include_branch_in_dist,
     distance = distance,
     only_non_branching = only_non_branching,
-    verbose = verbose,
      **kwargs)
 
-        
     return skel
 
 def skeleton_downstream(limb_obj,
@@ -621,7 +428,6 @@ def skeleton_downstream(limb_obj,
                         include_branch_idx = True,
                         include_branch_in_dist = True,
                         plot_skeleton = False,
-                       verbose = False,
                         **kwargs
                        ):
     return skeleton_upstream_downstream(limb_obj,
@@ -632,7 +438,6 @@ def skeleton_downstream(limb_obj,
                         include_branch_idx = include_branch_idx,
                         include_branch_in_dist = include_branch_in_dist,
                         plot_skeleton = plot_skeleton,
-                       verbose = verbose,
                         **kwargs
                        )
 
@@ -642,7 +447,6 @@ def skeleton_upstream(limb_obj,
                        only_non_branching=True,
                         include_branch_idx = True,
                         plot_skeleton = False,
-                       verbose = False,
                         **kwargs
                        ):
     return skeleton_upstream_downstream(limb_obj,
@@ -652,10 +456,8 @@ def skeleton_upstream(limb_obj,
                        only_non_branching=only_non_branching,
                         include_branch_idx = include_branch_idx,
                         plot_skeleton = plot_skeleton,
-                       verbose = verbose,
                         **kwargs
                        )
-
 
 def synapses_upstream_downstream(limb_obj,
                        branch_idx,
@@ -665,7 +467,6 @@ def synapses_upstream_downstream(limb_obj,
                         include_branch_in_dist = True,
                         include_branch_idx = True,
                         plot_synapses = False,
-                       verbose = False,
                         synapse_type="synapses",
                         return_nodes = False,
                         nodes_to_exclude = None,
@@ -691,14 +492,10 @@ def synapses_upstream_downstream(limb_obj,
     distance = distance,
     only_non_branching = only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
-    verbose = verbose,
     nodes_to_exclude=nodes_to_exclude,
     return_nodes = True,
      **kwargs)
     
-    if verbose:
-        print(f"# of syns = {len(syns)}")
-
     if return_nodes:
         return syns,nodes
     else:
@@ -711,7 +508,6 @@ def synapses_downstream(limb_obj,
                         include_branch_in_dist = True,
                         include_branch_idx = True,
                         plot_synapses = False,
-                       verbose = False,
                         synapse_type="synapses",
                         return_nodes = False,
                         nodes_to_exclude = None,
@@ -725,7 +521,6 @@ def synapses_downstream(limb_obj,
                         include_branch_in_dist = include_branch_in_dist,
                         include_branch_idx = include_branch_idx,
                         plot_synapses = plot_synapses,
-                       verbose = verbose,
                         synapse_type=synapse_type,
                         return_nodes = return_nodes,
                         nodes_to_exclude = nodes_to_exclude,
@@ -739,7 +534,6 @@ def synapses_upstream(limb_obj,
                         include_branch_in_dist = True,
                         include_branch_idx = True,
                         plot_synapses = False,
-                       verbose = False,
                         synapse_type="synapses",
                         return_nodes = False,
                         nodes_to_exclude = None,
@@ -753,20 +547,17 @@ def synapses_upstream(limb_obj,
                         include_branch_in_dist = include_branch_in_dist,
                         include_branch_idx = include_branch_idx,
                         plot_synapses = plot_synapses,
-                       verbose = verbose,
                         synapse_type=synapse_type,
                         return_nodes = return_nodes,
                         nodes_to_exclude = nodes_to_exclude,
                         **kwargs
                        )
     
-
 def weighted_attribute_upstream_downstream(limb_obj,
                                           branch_idx,
                                            direction,
                                           attribute_name,
                                            attribute_func = None,
-                                           verbose = False,
                                            filter_away_zero_sk_lengths=True,
                                           **kwargs):
     sk_lengths,nodes = cnu.attribute_upstream_downstream(limb_obj = limb_obj,
@@ -775,7 +566,6 @@ def weighted_attribute_upstream_downstream(limb_obj,
     attribute_name = "skeletal_length",
     concat_func = None,
      return_nodes=True,
-    verbose = verbose,
      **kwargs)
 
     attr_values,nodes = cnu.attribute_upstream_downstream(limb_obj = limb_obj,
@@ -790,21 +580,12 @@ def weighted_attribute_upstream_downstream(limb_obj,
     sk_lengths = np.array(sk_lengths)
     attr_values = np.array(attr_values)
 
-    if verbose:
-        print(f"sk_lengths = {sk_lengths}")
-        print(f"{attribute_name} (aka attribute value) = {attr_values}")
-
     # if filter_away_zero_widths:
     if filter_away_zero_sk_lengths:
         keep_mask = sk_lengths > 0
 
         attr_values = attr_values[keep_mask]
         sk_lengths = sk_lengths[keep_mask]
-
-        if verbose:
-            print(f"filter_away_zero_sk_lengths Set:")
-            print(f"sk_lengths = {sk_lengths}")
-            print(f"{attribute_name} (aka attribute value) = {attr_values}")
 
     if len(attr_values) != len(sk_lengths):
         raise Exception("")
@@ -821,7 +602,6 @@ def width_upstream_downstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     width_func = None,
     width_attribute = None,
     nodes_to_exclude = None,
@@ -832,7 +612,6 @@ def width_upstream_downstream(limb_obj,
                                           direction=direction,
                                           attribute_name=width_attribute,
                                         attribute_func = width_func,
-                                           verbose = verbose,
                                         include_branch_idx=include_branch_idx,
                                         distance = distance,
                                         only_non_branching = only_non_branching,
@@ -840,96 +619,12 @@ def width_upstream_downstream(limb_obj,
                                         nodes_to_exclude=nodes_to_exclude,
                                           **kwargs)
 
-'''
-def width_upstream_downstream(limb_obj,
-    branch_idx,
-    direction,
-    distance = np.inf,
-    only_non_branching=True,
-    include_branch_in_dist = True,
-    include_branch_idx = True,
-    verbose = False,
-    width_func = au.axon_width,
-    width_attribute = None,
-    return_nodes = False,
-    nodes_to_exclude = None,
-    filter_away_zero_sk_lengths = True,
-                              **kwargs):
-    """
-    Purpose: To find the up and downstream width
-
-    Pseudocode: 
-    1) Get all up/down sk lengths
-    2) Get all up/down widths
-    3) Filter away non-zeros widths if argument set
-    4) If arrays are non-empty, computed the weighted average
-
-    """
-
-    sk_lengths,nodes = cnu.attribute_upstream_downstream(limb_obj = limb_obj,
-    branch_idx = branch_idx,
-    direction=direction,
-    attribute_name = "skeletal_length",
-    concat_func = None,
-    include_branch_idx=include_branch_idx,
-    distance = distance,
-    only_non_branching = only_non_branching,
-    include_branch_in_dist = include_branch_in_dist,
-    verbose = verbose,
-    nodes_to_exclude=nodes_to_exclude,
-    return_nodes = True,
-     **kwargs)
-
-    widths,nodes = cnu.attribute_upstream_downstream(limb_obj = limb_obj,
-    branch_idx = branch_idx,
-    direction=direction,
-    attribute_name = width_attribute,
-    attribute_func = width_func,
-    concat_func = None,
-    include_branch_idx=include_branch_idx,
-    distance = distance,
-    only_non_branching = only_non_branching,
-    include_branch_in_dist = include_branch_in_dist,
-    verbose = verbose,
-    nodes_to_exclude=nodes_to_exclude,
-    return_nodes = True,
-     **kwargs)
-
-    sk_lengths = np.array(sk_lengths)
-    widths = np.array(widths)
-
-    if verbose:
-        print(f"sk_lengths = {sk_lengths}")
-        print(f"widths = {widths}")
-
-    # if filter_away_zero_widths:
-    if filter_away_zero_sk_lengths:
-        keep_mask = sk_lengths > 0
-
-        widths = widths[keep_mask]
-        sk_lengths = sk_lengths[keep_mask]
-
-        if verbose:
-            print(f"filter_away_zero_sk_lengths Set:")
-            print(f"sk_lengths = {sk_lengths}")
-            print(f"widths = {widths}")
-
-    if len(widths) != len(sk_lengths):
-        raise Exception("")
-
-    if len(widths) > 0:
-        return nu.weighted_average(widths,sk_lengths)
-    else:
-        return 0
-'''
-    
 def width_upstream(limb_obj,
     branch_idx,
     distance = np.inf,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     width_func = None,
     width_attribute = None,
     nodes_to_exclude = None,
@@ -955,7 +650,6 @@ def width_upstream(limb_obj,
     only_non_branching=only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
     include_branch_idx = include_branch_idx,
-    verbose = verbose,
     width_func = width_func,
     width_attribute = width_attribute,
     nodes_to_exclude = nodes_to_exclude,
@@ -967,7 +661,6 @@ def width_downstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     width_func = None,
     width_attribute = None,
     nodes_to_exclude = None,
@@ -980,7 +673,6 @@ def width_downstream(limb_obj,
     only_non_branching=only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
     include_branch_idx = include_branch_idx,
-    verbose = verbose,
     width_func = width_func,
     width_attribute = width_attribute,
     nodes_to_exclude = nodes_to_exclude,
@@ -993,7 +685,6 @@ def skeletal_length_upstream_downstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     return_nodes = False,
     nodes_to_exclude = None,
     **kwargs):
@@ -1017,20 +708,14 @@ def skeletal_length_upstream_downstream(limb_obj,
     distance = distance,
     only_non_branching = only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
-    verbose = verbose,
     nodes_to_exclude=nodes_to_exclude,
     return_nodes = True,
      **kwargs)
         
-        
-    if verbose:
-        print(f"sk_len = {sk_len} for {len(nodes)} branches ({nodes})")
-
     if return_nodes:
         return sk_len,nodes
     else:
         return sk_len
-    
     
 def skeletal_length_upstream(limb_obj,
     branch_idx,
@@ -1038,7 +723,6 @@ def skeletal_length_upstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     return_nodes = False,
     nodes_to_exclude = None,
     **kwargs):
@@ -1050,7 +734,6 @@ def skeletal_length_upstream(limb_obj,
     only_non_branching=only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
     include_branch_idx = include_branch_idx,
-    verbose = verbose,
     return_nodes = return_nodes,
     nodes_to_exclude = nodes_to_exclude,
     **kwargs)
@@ -1061,7 +744,6 @@ def skeletal_length_downstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     return_nodes = False,
     nodes_to_exclude = None,
     **kwargs):
@@ -1073,15 +755,11 @@ def skeletal_length_downstream(limb_obj,
     only_non_branching=only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
     include_branch_idx = include_branch_idx,
-    verbose = verbose,
     return_nodes = return_nodes,
     nodes_to_exclude = nodes_to_exclude,
     **kwargs)
 
-
 # ------------ synapse density ---------- #
-
-
 
 def synapse_density_upstream_downstream(limb_obj,
     branch_idx,
@@ -1090,7 +768,6 @@ def synapse_density_upstream_downstream(limb_obj,
     only_non_branching=True,
     include_branch_in_dist = True,
     include_branch_idx = True,
-    verbose = False,
     synapse_density_type = "synapse_density",
     nodes_to_exclude = None,
                               **kwargs):
@@ -1105,7 +782,6 @@ def synapse_density_upstream_downstream(limb_obj,
 
     """
 
-
     return cnu.weighted_attribute_upstream_downstream(limb_obj = limb_obj,
     branch_idx = branch_idx,
     direction=direction,
@@ -1114,11 +790,8 @@ def synapse_density_upstream_downstream(limb_obj,
     distance = distance,
     only_non_branching = only_non_branching,
     include_branch_in_dist = include_branch_in_dist,
-    verbose = verbose,
     nodes_to_exclude=nodes_to_exclude,
      **kwargs)
-
-
 
 def downstream_nodes(limb_obj,
                     branch_idx):
@@ -1134,22 +807,13 @@ def all_downtream_branches(limb_obj,
                           branch_idx):
     return xu.all_downstream_nodes(limb_obj.concept_network_directional,branch_idx)
 
-
 def all_upstream_branches(limb_obj,
                           branch_idx):
     return xu.all_upstream_nodes(limb_obj.concept_network_directional,branch_idx)
 
-
-
-
-
-
-
-
 def all_downstream_branches_from_branches(limb_obj,
                                          branches,
-                                         include_original_branches=False,
-                                         verbose = False):
+                                         include_original_branches=False):
     if not nu.is_array_like(branches):
         branches = [branches]
         
@@ -1162,15 +826,11 @@ def all_downstream_branches_from_branches(limb_obj,
         
     downstream_nodes = np.unique(all_downs)
     
-    if verbose:
-        print(f"downstream_nodes = {downstream_nodes}")
-        
     return downstream_nodes
 
 def all_upstream_branches_from_branches(limb_obj,
                                          branches,
-                                         include_original_branches=False,
-                                         verbose = False):
+                                         include_original_branches=False):
     if not nu.is_array_like(branches):
         branches = [branches]
         
@@ -1183,11 +843,7 @@ def all_upstream_branches_from_branches(limb_obj,
         
     upstream_nodes = np.unique(all_downs)
     
-    if verbose:
-        print(f"upstream_nodes = {upstream_nodes}")
-        
     return upstream_nodes
-
 
 # ---- helps with developing statistics over current/above/below branches
 def feature_over_branches(
@@ -1200,7 +856,6 @@ def feature_over_branches(
     feature_function=None,
     combining_function=None,
     return_skeletal_length = False,
-    verbose = False,
     **kwargs):
     """
     Purpose: To find the average value over a list of branches
@@ -1226,14 +881,9 @@ def feature_over_branches(
         branches = getattr(cnu,f"all_{direction}_branches_from_branches")(limb_obj,
                                                                          branches,
                                                                          include_original_branches=include_original_branches_in_direction)
-        if verbose:
-            print(f"New branches computed with direction ({direction}): {branches}")
 
     #2) Compute the skeletal length for all the branches
     sk_len = [limb_obj[k].skeletal_length for k in branches]
-
-    if verbose:
-        print(f"sk_len = {sk_len}")
 
     #3) compute statistics over branches
     branches_val = nru.feature_over_branches(limb_obj,
@@ -1242,15 +892,12 @@ def feature_over_branches(
                                             feature_function=feature_function,
                                             combining_function=combining_function,
                                             **kwargs)
-    if verbose:
-        print(f"branches_val = {branches_val}")
     
     if return_skeletal_length:
         return branches_val,sk_len
     else:
         return branches_val
     
-
 def sum_feature_over_branches(
     limb_obj,
     branches,
@@ -1261,7 +908,6 @@ def sum_feature_over_branches(
     feature_function=None,
     combining_function=None,
     default_value = 0,
-    verbose = False,
     **kwargs):
     """
     Purpose: To find the average value over a list of branches
@@ -1288,7 +934,6 @@ def sum_feature_over_branches(
     feature_function=feature_function,
     combining_function=combining_function,
     return_skeletal_length = True,
-    verbose = verbose,
     **kwargs)
     
     if len(sk_len) == 0:
@@ -1296,31 +941,8 @@ def sum_feature_over_branches(
     else:
         return_value = np.sum(branches_val)
 
-    if verbose:
-        print(f"Sum value = {return_value}")
-
     return return_value
     
 def all_downstream_nodes(limb_obj,branch_idx):
     return xu.all_downstream_nodes(limb_obj.concept_network_directional,
                                    branch_idx)
-
-
-
-#--- from neurd_packages ---
-# P3: `neuron_statistics as nst` is now a local import at its single real use site to
-# break the concept_network_utils<->neuron_statistics cycle.
-from . import neuron_utils as nru
-from . import width_utils as wu
-
-#--- from mesh_tools ---
-from mesh_tools import skeleton_utils as sk
-from mesh_tools import trimesh_utils as tu
-
-#--- from datasci_tools ---
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
-from datasci_tools import numpy_utils as nu
-
-import sys as _sys  # P2: self-import antipattern removed; rebind module to alias (call sites have local-name shadows, safe to keep alias form)
-cnu = _sys.modules[__name__]
