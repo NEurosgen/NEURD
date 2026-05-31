@@ -1,6 +1,6 @@
 import sys as _sys
 
-from datasci_tools import numpy_dep as np
+import numpy as np
 from datasci_tools import numpy_utils as nu
 
 from . import branch_utils as bu
