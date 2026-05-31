@@ -1028,7 +1028,8 @@ def calculate_spines_skeletal_length(neuron_obj):
 
 def n_spines(neuron_obj,skeletal_length_max=None):
     if skeletal_length_max is None:
-        skeletal_length_max = skeletal_length_max_n_spines_global
+        from neurd import parameters
+        skeletal_length_max = parameters.params.skeletal_length_max_n_spines
     if neuron_obj.spines is None:
         return 0
     else:
@@ -3439,30 +3440,6 @@ def calculate_decomposition_products(
 
             
                     
-# ------------- parameters for stats ---------------
-
-
-
-global_parameters_dict_default = dict(
-    skeletal_length_max_n_spines = 3000,
-)
-
-attributes_dict_default = dict()
-
-
-# ------- microns -----------
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-
-
-# --------- h01 -------------
-global_parameters_dict_h01 = dict(
-    skeletal_length_max_n_spines = 6_000
-)
-
-attributes_dict_h01 = dict()
-
-
 
 #--- from neurd_packages ---
 
