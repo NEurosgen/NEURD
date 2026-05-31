@@ -118,23 +118,19 @@ Neuron
 
 ---
 
-## 4. Forward: замена meshlabserver + перф
+## 4. Forward: оптимизация — см. [OPTIMIZATION.md](OPTIMIZATION.md)
 
-**Убрать `meshlabserver`+`xvfb` целиком** = заменить 4 meshlab-операции на in-process:
-| Операция | Сейчас | Замена | Сложность |
-|---|---|---|---|
-| Decimation | `meshlab.Decimator` | open3d/trimesh quadric | легко |
-| Poisson | `meshlab.Poisson` | open3d Screened Poisson | легко |
-| Hole filling | `meshlab.FillHoles` | `trimesh.fill_holes`/open3d | легко |
-| Interior removal | `meshlab.Interior` (Ambient Occlusion) | **нет прямого аналога** | сложно |
+Полный workstream оптимизации (профиль, отгруженные выигрыши, план, GPU) вынесен в
+[OPTIMIZATION.md](OPTIMIZATION.md). Кратко — что **замерено** (профиль 2026-05-30, не гипотезы):
 
-Делать только при зелёном характеризационном тесте; добавить характеризационный тест на шов
-операции перед заменой.
-
-**Перф-гипотезы (НЕ профилировано; наблюдалось ~8 ч + 32 ГБ на 0.5 ГБ меш):**
-1. MeshLab через диск+subprocess (ASCII-сериализация + спавн) — устранимо in-process.
-2. Eager deepcopy submesh на каждый `Branch` (`neuron.py`) — главный драйвер RAM; view вместо copy
-   (рискованно — трогает ядро).
-3. deepcopy целого Neuron на границах стадий (`return_copy=True`) — удваивает пик RAM.
-4. Скелетонизация (meshparty/CGAL) — легитимно дорогая, не убрать переписыванием.
+- **MeshLab сабпроцесс ~74% времени.** Из них **Poisson был сломанным no-op** (выход = вход) и
+  стоил ~536s — уже заменён in-process pass-through: пайплайн **688s → 151s (4.5×)**.
+- **SDF-лучи 0.46s, deepcopy ~2s** — НЕ драйверы времени (прежние «гипотезы» про них неверны;
+  deepcopy может быть драйвером RAM, но не скорости).
+- Остаток meshlab для замены in-process: **FillHoles** (тоже сломан → no-op), **Decimator**
+  (→ open3d, fidelity проверена), **Interior removal** (реальный, сложнее). Делать по одной,
+  валидируя per-op фикстурой + характеризационным тестом.
+- Реальный compute-пол: **скелетонизация** (meshparty/CGAL teasar) + **детект шипиков**.
+- RAM (наблюдалось ~32 ГБ): deepcopy submesh/Branch + deepcopy Neuron на границах — для памяти и
+  throughput (батч многих нейронов), не для latency одного.
 </content>

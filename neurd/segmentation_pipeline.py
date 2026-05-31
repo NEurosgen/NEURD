@@ -26,6 +26,7 @@ def segmentation_pipeline(
     mesh,
     segment_id=12345,
     verbose=False,
+    max_somas=None,
 ):
     """Decompose `mesh` into a Neuron of segmented pieces (mesh + skeleton).
 
@@ -33,6 +34,12 @@ def segmentation_pipeline(
         mesh: input neuron mesh (trimesh.Trimesh).
         segment_id: id to tag the neuron with (cosmetic; default 12345).
         verbose: print stage timings/info.
+        max_somas: if set (e.g. 1 for single-neuron files), stop the soma search
+            once this many somas are found. This is a CORRECTNESS guardrail for the
+            single-neuron use case — it prevents over-segmenting one neuron into
+            multiple somas. It is NOT a speed win on a genuine single-neuron mesh
+            (which yields one mesh piece, so there is nothing extra to skip); it only
+            saves work on meshes that split into several large pieces.
 
     Returns:
         neuron.Neuron — `.somas`, `.limbs[i].branches[j].mesh/.skeleton`.
@@ -40,7 +47,7 @@ def segmentation_pipeline(
     products = pipeline.PipelineProducts()
 
     # --- Soma identification ---
-    soma_products = sm.soma_indentification(mesh, verbose=verbose)
+    soma_products = sm.soma_indentification(mesh, verbose=verbose, max_somas=max_somas)
     products.set_stage_attrs(stage="soma_identification", attr_dict=soma_products)
 
     # --- Decomposition (skeletonization, branches, raw spine detection) ---

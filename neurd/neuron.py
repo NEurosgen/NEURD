@@ -63,28 +63,24 @@ def dc_check(current_object,attribute,default_value = None):
         return default_value
 
 def copy_concept_network(curr_network):
-    copy_network = dc(curr_network)
+    # Build a fresh graph of the same type WITHOUT deepcopying Branch/Soma objects first.
+    # The previous dc(curr_network) created N wasteful Branch copies (with full mesh arrays)
+    # that were immediately thrown away when class_constructor rebuilt them below.
+    # Now: one copy per node instead of two, halving peak RAM for the copy operation.
+    copy_network = curr_network.__class__()
+    copy_network.graph.update(dc(curr_network.graph))
 
-    for n in copy_network.nodes():
-        """ Old way that didn't account for dynamic updates
-        current_node_class = copy_network.nodes[n]["data"].__class__
-        #print(f"current_node_class = {current_node_class}")
-        copy_network.nodes[n]["data"] = current_node_class(copy_network.nodes[n]["data"])
-        
-        """
-        
-        """
-        New way:
-        1) get the name of the class
-        2) get a reference to the definition based on the current module definition 
-        3) Use that instantiation
-        
-        """
-        current_node_class_name = copy_network.nodes[n]["data"].__class__.__name__
-        class_constructor = getattr(current_module,current_node_class_name)
-        copy_network.nodes[n]["data"] = class_constructor(copy_network.nodes[n]["data"])
-        
-        
+    for n, attrs in curr_network.nodes(data=True):
+        copy_network.add_node(n, **{k: dc(v) for k, v in attrs.items() if k != "data"})
+
+    for u, v, edge_attrs in curr_network.edges(data=True):
+        copy_network.add_edge(u, v, **dc(edge_attrs))
+
+    for n in curr_network.nodes():
+        original = curr_network.nodes[n]["data"]
+        class_constructor = getattr(current_module, original.__class__.__name__)
+        copy_network.nodes[n]["data"] = class_constructor(original)
+
     return copy_network
 
 class Branch:
@@ -2319,9 +2315,10 @@ class Neuron:
                 
                 self.pipeline_products = pl.PipelineProducts(
                     getattr(mesh,"pipeline_products",None)
-                    )   
-                
-                return 
+                    )
+
+                self._clear_mesh_caches()
+                return
                 
                 
         
@@ -2614,7 +2611,12 @@ class Neuron:
                 #xu.set_node_data(self.concept_network,node_name=soma_name,curr_data=Soma_obj,curr_data_label="data")
 
             print(f"--- 4) Finshed generating Limb objects and adding them to concept graph: {time.time() - neuron_start_time}")
-            
+
+            # Drop large preprocessed_data keys that are now fully materialised into
+            # Limb/Soma objects inside concept_network. Kept: limb_correspondence and
+            # limb_network_stating_info (mutated by neuron_utils after construction).
+            for _stale_key in ("limb_meshes", "limb_concept_networks", "soma_meshes"):
+                preprocessed_data.pop(_stale_key, None)
 
             if decomposition_type == "meshparty" and meshparty_adaptive_correspondence_after_creation:
                 neuron_start_time =time.time()
@@ -2663,15 +2665,33 @@ class Neuron:
             bu.set_branches_endpoints_upstream_downstream_idx(self,)
         except:
             pass
-        
+
+        self._clear_mesh_caches()
+
         if not suppress_all_output:
             print(f"Total time for neuron instance creation = {time.time() - neuron_creation_time}")
             
+    def _clear_mesh_caches(self):
+        """Clear trimesh lazy-property caches on the full mesh and every Limb mesh.
+
+        trimesh populates expensive derived arrays (vertex_adjacency_graph ~27 MB,
+        triangles ~5 MB, vertex_faces ~4 MB, …) on first access.  After full
+        construction those cached arrays are no longer needed and can be recomputed
+        on demand if any code path asks for them again.  Branch meshes are left
+        alone — they are small and accessed frequently during downstream analysis.
+        """
+        if hasattr(self, "mesh") and hasattr(self.mesh, "_cache"):
+            self.mesh._cache.clear()
+        for limb_name in self.get_limb_node_names() if hasattr(self, "concept_network") else []:
+            limb = self.concept_network.nodes[limb_name].get("data")
+            if limb is not None and hasattr(limb, "mesh") and hasattr(limb.mesh, "_cache"):
+                limb.mesh._cache.clear()
+
     @property
     def limbs(self):
         return [k for k in self]
-    
-    
+
+
     def __getattr__(self,k):
         if k[:2] == "__":
             raise AttributeError(k)
