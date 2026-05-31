@@ -10,7 +10,6 @@ import time
 import trimesh
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
-from datasci_tools import data_struct_utils as dsu
 
 #importing at the bottom so don't get any conflicts
 
@@ -428,34 +427,34 @@ def attach_floating_pieces_to_limb_correspondence(
     **kwargs):
     
     if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = max_stitch_distance_CGAL_global
+        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
         
     if max_stitch_distance is None:
-        max_stitch_distance = max_stitch_distance_global
+        max_stitch_distance = parameters.params.max_stitch_distance
         
     if floating_piece_face_threshold is None:
-        floating_piece_face_threshold = floating_piece_face_threshold_global
+        floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
         
     if filter_end_node_length is None:
-        filter_end_node_length = filter_end_node_length_global
+        filter_end_node_length = parameters.params.filter_end_node_length
         
     if axon_width_preprocess_limb_max is None:
-        axon_width_preprocess_limb_max = axon_width_preprocess_limb_max_global
+        axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
         
     if limb_remove_mesh_interior_face_threshold is None:
-        limb_remove_mesh_interior_face_threshold = limb_remove_mesh_interior_face_threshold_global
+        limb_remove_mesh_interior_face_threshold = parameters.params.limb_remove_mesh_interior_face_threshold
         
     if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = max_stitch_distance_CGAL_global
+        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
         
     if size_threshold_MAP_stitch is None:
-        size_threshold_MAP_stitch = size_threshold_MAP_stitch_global
+        size_threshold_MAP_stitch = parameters.params.size_threshold_MAP_stitch
         
     if use_adaptive_invalidation_d is None:
-        use_adaptive_invalidation_d  = use_adaptive_invalidation_d_floating_global
+        use_adaptive_invalidation_d  = parameters.params.use_adaptive_invalidation_d_floating
         
     if mp_only_revised_invalidation_d is None:
-        mp_only_revised_invalidation_d = mp_only_revised_invalidation_d_global
+        mp_only_revised_invalidation_d = parameters.params.mp_only_revised_invalidation_d
     
     
     """
@@ -1117,33 +1116,33 @@ def preprocess_limb(mesh,
                     
                    ):
     if filter_end_node_length is None:
-        filter_end_node_length = filter_end_node_length_global
+        filter_end_node_length = parameters.params.filter_end_node_length
     if width_threshold_MAP is None:
-        width_threshold_MAP = width_threshold_MAP_global
+        width_threshold_MAP = parameters.params.width_threshold_MAP
     if size_threshold_MAP is None:
-        size_threshold_MAP = size_threshold_MAP_global
+        size_threshold_MAP = parameters.params.size_threshold_MAP
     if invalidation_d is None:
-        invalidation_d = invalidation_d_global
+        invalidation_d = parameters.params.invalidation_d
     if axon_width_preprocess_limb_max is None:
-        axon_width_preprocess_limb_max = axon_width_preprocess_limb_max_global
+        axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
     if remove_mesh_interior_face_threshold is None:
-        remove_mesh_interior_face_threshold = remove_mesh_interior_face_threshold_global
+        remove_mesh_interior_face_threshold = parameters.params.remove_mesh_interior_face_threshold
     if surface_reconstruction_size is None:
-        surface_reconstruction_size = surface_reconstruction_size_global
+        surface_reconstruction_size = parameters.params.surface_reconstruction_size
     if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = max_stitch_distance_CGAL_global
+        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
         
     if use_adaptive_invalidation_d is None:
-        use_adaptive_invalidation_d = use_adaptive_invalidation_d_global
+        use_adaptive_invalidation_d = parameters.params.use_adaptive_invalidation_d
         
     if mp_only_revised_invalidation_d is None:
-        mp_only_revised_invalidation_d=mp_only_revised_invalidation_d_global
+        mp_only_revised_invalidation_d= parameters.params.mp_only_revised_invalidation_d
     if mp_only_invalidation_d_axon_buffer is None:
-        mp_only_invalidation_d_axon_buffer=mp_only_invalidation_d_axon_buffer_global
+        mp_only_invalidation_d_axon_buffer= parameters.params.mp_only_invalidation_d_axon_buffer
     if mp_only_revised_invalidation_d_reference is None:
-        mp_only_revised_invalidation_d_reference=mp_only_revised_invalidation_d_reference_global
+        mp_only_revised_invalidation_d_reference= parameters.params.mp_only_revised_invalidation_d_reference
     if mp_only_revised_width_reference is None:
-        mp_only_revised_width_reference=mp_only_revised_width_reference_global
+        mp_only_revised_width_reference= parameters.params.mp_only_revised_width_reference
     
     
     print(f"invalidation_d = {invalidation_d}")
@@ -1243,13 +1242,13 @@ def preprocess_limb(mesh,
         if width_median <= axon_width_preprocess_limb_max:
             if verbose:
                 print(f"Using the axon parameters")
-            combine_close_skeleton_nodes_threshold_meshparty = combine_close_skeleton_nodes_threshold_meshparty_axon_global
-            filter_end_node_length_meshparty = filter_end_node_length_meshparty_axon_global
-            filter_end_node_length= filter_end_node_length_axon_global
-            invalidation_d= invalidation_d_axon_global
-            smooth_neighborhood = smooth_neighborhood_axon_global
+            combine_close_skeleton_nodes_threshold_meshparty = parameters.params.combine_close_skeleton_nodes_threshold_meshparty_axon
+            filter_end_node_length_meshparty = parameters.params.filter_end_node_length_meshparty_axon
+            filter_end_node_length= parameters.params.filter_end_node_length_axon
+            invalidation_d= parameters.params.invalidation_d_axon
+            smooth_neighborhood = parameters.params.smooth_neighborhood_axon
             continue
-        elif len(pieces_above_threshold) == 0 and mp_only_revised_invalidation_d and invalidation_d != invalidation_d_axon_global:
+        elif len(pieces_above_threshold) == 0 and mp_only_revised_invalidation_d and invalidation_d != parameters.params.invalidation_d_axon:
             print(f"Using MP only revised invalidation")
             """
             -- 4/17 change --
@@ -1270,7 +1269,7 @@ def preprocess_limb(mesh,
                 slope = (mp_only_inv_d_ref - (inv_d_axon + buffer)) / (mp_only_width_ref - ax_width)
                 new_inv_d = slope*(width - mp_only_width_ref) + mp_only_inv_d_ref
                 """
-                lowest_value = invalidation_d_axon_global + mp_only_invalidation_d_axon_buffer
+                lowest_value = parameters.params.invalidation_d_axon + mp_only_invalidation_d_axon_buffer
                 change_y = (mp_only_revised_invalidation_d_reference - lowest_value)
                 change_x = (mp_only_revised_width_reference - axon_width_preprocess_limb_max)
 
@@ -3513,26 +3512,26 @@ def preprocess_neuron(
     ):
     
     if width_threshold_MAP is None:
-        width_threshold_MAP = width_threshold_MAP_global
+        width_threshold_MAP = parameters.params.width_threshold_MAP
     if size_threshold_MAP is None:
-        size_threshold_MAP = size_threshold_MAP_global
+        size_threshold_MAP = parameters.params.size_threshold_MAP
     if apply_expansion is None:
-        apply_expansion = apply_expansion_global
+        apply_expansion = parameters.params.apply_expansion
     if max_stitch_distance is None:
-        max_stitch_distance = max_stitch_distance_global
+        max_stitch_distance = parameters.params.max_stitch_distance
     if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = max_stitch_distance_CGAL_global
+        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
     if filter_end_node_length is None:
-        filter_end_node_length = filter_end_node_length_global
+        filter_end_node_length = parameters.params.filter_end_node_length
     if axon_width_preprocess_limb_max is None:
-        axon_width_preprocess_limb_max = axon_width_preprocess_limb_max_global
+        axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
     if limb_remove_mesh_interior_face_threshold is None:
-        limb_remove_mesh_interior_face_threshold = limb_remove_mesh_interior_face_threshold_global
+        limb_remove_mesh_interior_face_threshold = parameters.params.limb_remove_mesh_interior_face_threshold
     if surface_reconstruction_size is None:
-        surface_reconstruction_size = surface_reconstruction_size_global
+        surface_reconstruction_size = parameters.params.surface_reconstruction_size
         
     if floating_piece_face_threshold is None:
-        floating_piece_face_threshold = floating_piece_face_threshold_global
+        floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
     
     
     
@@ -4709,124 +4708,12 @@ def limb_meshes_expansion(
         return new_non_sig_limbs
     
     
-# ------------- parameters for stats ---------------
-
-global_parameters_dict_default_decomp = dict(
-        width_threshold_MAP = 500,
-        size_threshold_MAP = 2000,
-        size_threshold_MAP_stitch = 2000,
-        apply_expansion = False,
-        max_stitch_distance = 8000,
-        max_stitch_distance_CGAL = 5000,
-        filter_end_node_length = 4000,
-        use_adaptive_invalidation_d = False,
-        use_adaptive_invalidation_d_floating = True,
-        axon_width_preprocess_limb_max = 200,
-        limb_remove_mesh_interior_face_threshold = 0,
-        surface_reconstruction_size = 1000,
-        floating_piece_face_threshold = 50,
-        invalidation_d = 12000,
-        remove_mesh_interior_face_threshold = 0,
-        
-        mp_only_revised_invalidation_d = False,
-        mp_only_invalidation_d_axon_buffer = None,
-        mp_only_revised_invalidation_d_reference = None,
-        mp_only_revised_width_reference = None,
-)
-
-global_parameters_dict_default_axon_decomp = dsu.DictType(
-    combine_close_skeleton_nodes_threshold_meshparty_axon = 1300,
-    filter_end_node_length_meshparty_axon = 1150,
-    filter_end_node_length_axon = 1150,
-    invalidation_d_axon = 1500,
-    smooth_neighborhood_axon = (0,"tinyint unisgned"),
-    meshparty_segment_size_axon = 100,
-    stitch_floating_axon_pieces = True,
-    max_stitch_distance_high_fid_axon = 5000,#2000,
-    floating_piece_face_threshold_high_fid_axon = 50,
-)
-
-global_parameters_dict_default = gu.merge_dicts([
-    global_parameters_dict_default_decomp,
-    global_parameters_dict_default_axon_decomp
-])
-
-attributes_dict_default = dict(
-)    
-
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-global_parameters_dict_microns_axon_decomp = {}
-
-
-attributes_dict_h01 = dict(
-)
-
-global_parameters_dict_h01_decomp = dict(
-    width_threshold_MAP = 1000,
-    size_threshold_MAP = 10_000,
-    size_threshold_MAP_stitch = 14_000,
-    apply_expansion = True,
-    max_stitch_distance = 13000,#5000,
-    max_stitch_distance_CGAL = 13000,
-    use_adaptive_invalidation_d = True,
-    use_adaptive_invalidation_d_floating = True,
-    axon_width_preprocess_limb_max = 350,
-    
-    limb_remove_mesh_interior_face_threshold = 150,
-    
-    floating_piece_face_threshold = 500,
-)
-
-global_parameters_dict_h01_axon_decomp = dict(
-    invalidation_d_axon = 2500,
-    stitch_floating_axon_pieces = False,
-    combine_close_skeleton_nodes_threshold_meshparty_axon = 1700,
-    max_stitch_distance_high_fid_axon = 8000,#5000,
-    floating_piece_face_threshold_high_fid_axon = 450,
-    
-)
-
-global_parameters_dict_h01 = gu.merge_dicts([
-    global_parameters_dict_h01_decomp,
-    global_parameters_dict_h01_axon_decomp
-])
-
-
-
-preprocessing_args = dict(
-#                     meshparty_segment_size = meshparty_segment_size_axon_global,
-                    combine_close_skeleton_nodes=True,
-                    #combine_close_skeleton_nodes_threshold=1200,
-#                     combine_close_skeleton_nodes_threshold_meshparty = combine_close_skeleton_nodes_threshold_meshparty_axon_global,
-#                     filter_end_node_length_meshparty = filter_end_node_length_meshparty_axon_global,
-#                     filter_end_node_length = filter_end_node_length_axon_global,
-
-                    use_meshafterparty=False,
-                    perform_cleaning_checks = True,
-
-
-                    #concept_network parameters
-                    run_concept_network_checks = True,
-
-                    return_concept_network_starting_info=False,
-
-                    #printing controls
-                    print_fusion_steps=True,
-
-                    check_correspondence_branches = True,
-                    filter_end_nodes_from_correspondence=True,
-
-#                     invalidation_d=invalidation_d_axon_global,
-#                     smooth_neighborhood=smooth_neighborhood_axon_global,
-                         )
-
-
 #--- from neurd_packages ---
 from . import neuron
 from . import neuron_utils as nru
 
 from . import soma_extraction_utils as sm
+from . import parameters
 
 
 #--- from mesh_tools ---
@@ -4836,7 +4723,6 @@ from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
-from datasci_tools import data_struct_utils as dsu
 from datasci_tools import general_utils as gu
 from datasci_tools import matplotlib_utils as mu
 from datasci_tools import networkx_utils as xu
