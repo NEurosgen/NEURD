@@ -54,7 +54,12 @@ def cgal_segmentation(filepath_no_ext, clusters=2, smoothness=0.2, *args, **kwar
     if n_clusters == 1 or len(np.unique(feats)) < n_clusters:
         labels = np.zeros(len(sdf), dtype=int)
     else:
-        labels = KMeans(n_clusters=n_clusters, n_init=10, random_state=0).fit_predict(feats)
+        # n_init=1: features are 1-D (log SDF), where k-means++ from a fixed seed
+        # reaches the same optimum as multi-restart — so 10 restarts were ~10x wasted
+        # work (the dominant self-time in the spine/soma segmentation profile). Cluster
+        # exactness is not load-bearing here (see module docstring); random_state keeps
+        # it deterministic.
+        labels = KMeans(n_clusters=n_clusters, n_init=1, random_state=0).fit_predict(feats)
 
     base = f"{filepath_no_ext}-cgal_{np.round(clusters, 2)}_{smoothness:.2f}"
     np.savetxt(base + ".csv", labels.astype(int), fmt="%d")

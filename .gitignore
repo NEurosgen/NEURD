@@ -173,3 +173,6 @@ tests/*.cgal
 tests/990_mesh*
 !tests/fixtures/**
 
+
+# captured mesh-op golden fixtures (regenerable via tests/tools/capture_mesh_op_fixtures.py; some large)
+tests/fixtures/mesh_ops/

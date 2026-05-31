@@ -88,7 +88,9 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         mesh = tu.load_mesh_no_processing(str(off_path))
         mesh_proc = mesh  # decimate отключён, как и в microns-версии
 
-        neuron_obj = neuron.Neuron(mesh=mesh_proc)
+        # Спайны отключены: детекция шипиков (CGAL/KMeans-стенд) выдаёт 0 спайнов и
+        # стоит ~100s+ на нейрон — отказываемся от неё. Сохраняем limb/branch, без спайнов.
+        neuron_obj = neuron.Neuron(mesh=mesh_proc, calculate_spines=False)
         save_segmentation(neuron_obj, neuron_base)
 
         del neuron_obj, mesh_proc, mesh
@@ -449,7 +451,6 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
           branch_000/
             branch_mesh.off
             branch_skeleton.npy
-            spines/spine_000.off
           ...
     """
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -493,19 +494,7 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
             if skeleton_branch is not None:
                 _safe_save_array(np.asarray(skeleton_branch), br_dir / "branch_skeleton.npy")
 
-            sp_dir = br_dir / "spines"
-            wrote_any = False
-            for sp_ind, spine_mesh in enumerate(_iter_spines(branch)):
-                if spine_mesh is None:
-                    continue
-                sp_dir.mkdir(parents=True, exist_ok=True)
-                _safe_export_mesh(spine_mesh, sp_dir / f"spine_{sp_ind:03d}{EXPORT_EXT}")
-                wrote_any = True
-            if not wrote_any and sp_dir.exists():
-                try:
-                    next(sp_dir.iterdir())
-                except StopIteration:
-                    sp_dir.rmdir()
+            # Спайны отключены — спайн-меши не сохраняем (только branch mesh + skeleton).
 
 
 # ---------------------- ОБРАБОТКА ОДНОГО МЕША (без подпроцесса) ----------------------
@@ -515,7 +504,7 @@ def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True) ->
     neuron_base = out_dir / basename
 
     mesh = tu.load_mesh_no_processing(str(off_path))
-    neuron_obj = neuron.Neuron(mesh=mesh)
+    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=False)  # спайны отключены
     save_segmentation(neuron_obj, neuron_base)
 
     del neuron_obj, mesh
@@ -642,5 +631,5 @@ if __name__ == "__main__":
         no_decimate=args.no_decimate,
     )
 
-# Пример запуска:
-# python process_all_neurons_with_manifest_h01.py H01 H01_Seg
+# Пример запуска: neuron_1830470325
+# python process_all_neurons.py /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01 /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01_Seg

@@ -537,6 +537,9 @@ def extract_soma_center(
     current_mesh_faces=None,
     mesh = None,
 
+    max_somas=None,  # if set (e.g. 1 for single-neuron files), stop the multi-piece
+                     # search once this many somas are found, skipping the per-piece
+                     # interior-removal/segmentation of the remaining mesh pieces.
     outer_decimation_ratio= None,
     large_mesh_threshold = None,#60000,
     large_mesh_threshold_inner = None, #was changed so dont filter away som somas
@@ -619,15 +622,29 @@ def extract_soma_center(
     # -------- Soma parameters -----------
     if outer_decimation_ratio is None:
         outer_decimation_ratio = outer_decimation_ratio_global
-        
+
     if large_mesh_threshold is None:
         large_mesh_threshold = large_mesh_threshold_global
-    
+
     if large_mesh_threshold_inner is None:
         large_mesh_threshold_inner = large_mesh_threshold_inner_global
-    
+
     if inner_decimation_ratio is None:
         inner_decimation_ratio = inner_decimation_ratio_global
+
+    # Experimental speed knobs (default = unchanged): the soma is a big smooth blob and
+    # its accuracy is not a target here, so decimating the soma-detection mesh harder
+    # cheapens the WHOLE soma stage at once (Poisson + SDF segmentation + meshlab
+    # Decimator/Interior). NEURD_SOMA_OUTER_DECIM / NEURD_SOMA_INNER_DECIM override the
+    # 0.25 ratios (smaller = fewer faces kept = faster, but risks falling below the
+    # soma_size_threshold -> "No Somas").
+    import os as _os
+    _eo = _os.environ.get("NEURD_SOMA_OUTER_DECIM")
+    if _eo:
+        outer_decimation_ratio = float(_eo)
+    _ei = _os.environ.get("NEURD_SOMA_INNER_DECIM")
+    if _ei:
+        inner_decimation_ratio = float(_ei)
         
         
     if max_fail_loops is None:
@@ -882,6 +899,11 @@ def extract_soma_center(
         #start iterating through where go through all pieces before the poisson reconstruction
         no_somas_found_in_big_loop = 0
         for i,largest_mesh in enumerate(list_of_largest_mesh):
+            # single-neuron short-circuit: once enough somas are found, skip the
+            # remaining pieces (each costs an interior-removal meshlab spawn + segmentation).
+            if max_somas is not None and len(total_soma_list) >= max_somas:
+                print(f"Reached max_somas={max_somas}; skipping {len(list_of_largest_mesh)-i} remaining piece(s)")
+                break
             print(f"----- working on large mesh #{i}: {largest_mesh}")
 
             if remove_inside_pieces:
