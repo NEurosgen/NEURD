@@ -15,6 +15,74 @@ measure-first: профиль → захват эталона → секундн
 
 ---
 
+## 0. ОБНОВЛЕНИЕ 2026-05-31: смена парадигмы + реальные H01-нейроны
+
+Сессия вышла за рамки «оптимизации» и вскрыла **две Docker-fidelity регрессии** форка
+(уход от Docker-тулчейна сломал реальные вещи). Проверено на настоящих H01-нейронах
+из `Diplom/notebooks/notebooks/H01/*.off` через новый бенчмарк.
+
+### Инструмент: [tests/tools/benchmark_neuron.py](tests/tools/benchmark_neuron.py)
+Переиспользуемый time+memory бенчмарк, **точно повторяет** `process_all_neurons` (h01,
+`load → Neuron → save_segmentation`). Даёт: per-stage wall-clock, RSS-таймлайн + пик
+(`ru_maxrss`), cProfile (cumulative/tottime/**junk по ncalls**), опц. tracemalloc. Пишет
+отчёт + `profile.prof`. Флаги: `--no-profile` (чистый wall), `--no-spines`, `--no-save`,
+`--tracemalloc`. **Пишет отчёт даже при краше пайплайна.** Запуск:
+`python tests/tools/benchmark_neuron.py --neuron <path.off> --out <dir>`.
+
+### Регрессия №1: Poisson (no-op → краш на сложных H01)
+Форк заменил MeshLab Poisson на **no-op** (вывод: «локальный meshlab 2020.09 его не умеет,
+значит Poisson не нужен»). Но это вывод из **сломанного локального meshlab + microns-фикстуры,
+которой Poisson не нужен**. В Docker Poisson **работал**: чинил EM-меши (щели/само-контакты) в
+связную поверхность. Без него у сложных нейронов лимб-submesh распадается → краш в
+`preprocess_neuron.py:229 correspondence_1_to_1` («not just one mesh»). Не регрессия именно
+`optimize_segmentation` — `main` упал бы так же. Пример: `neuron_1830470325.off` (3.27М граней)
+падал; Docker давал 4 лимба + 214 спайнов (`H01_Seg/neuron_1830470325/`).
+
+**Фикс (за флагом `NEURD_REAL_POISSON=1`, дефолт = no-op):** [_mesh_ops.py](neurd/_mesh_ops.py)
+`poisson_surface_reconstruction_meshlab` — настоящий MeshLab Screened Poisson через **pymeshlab**
+(in-process, без Docker), те же параметры (depth=11, fulldepth=6, pointweight=4, samplespernode=1.5,
+scale=1.1, iters=8), что форк удалил. Подключён в [__init__.py](neurd/__init__.py) под флагом.
+- ✅ **краш чинит** (нейрон проходит).
+- ⚠️ но **реконструкция ещё не пиксель-в-пиксель Docker**: 11 лимбов vs Docker 4 (open3d-версия
+  давала 18 — хуже: она сабсэмплит точки и рвёт тонкие отростки). Требует тюнинга depth/params.
+- стоит дорого: ~255s (5×51s depth=11) на малом H01 — но даёт и побочный выигрыш (см. §0 профиль).
+
+### Регрессия №2: CGAL→KMeans → СПАЙНЫ СЛОМАНЫ ВЕЗДЕ
+`_cgal_segmentation.py` (наш Python-стенд) заменил CGAL C++ SDF-segmentation на **KMeans по 1D-SDF**.
+Для **сомы** (грубый контраст толстое/тонкое) ок. Для **спайнов** нужна тонкая over-сегментация —
+KMeans её не даёт → **0 спайнов на ВСЕХ нейронах** (microns-fixture, малый и большой H01; Docker
+давал 214). Мои §2-оптимизации (KMeans n_init, lazy-shaft) **ускоряли стадию, выдающую ноль**.
+
+### РЕШЕНИЕ (пользователь): ОТКАЗ ОТ ШИПИКОВ
+`process_all_neurons.py`: `Neuron(..., calculate_spines=False)` в обоих местах + убрано сохранение
+спайн-мешей в `save_segmentation` (limb/branch меши+скелеты сохраняются как раньше). Эффект на
+малом H01: **215s → 123s (−40%)**, спайн-папок 0, limb/branch с widths на месте (протестировано).
+Стадия шипиков (сломана + дорога) выпилена целиком — §2/§4a про неё теперь моот.
+
+### Свежий профиль ОСНОВНОЙ ФАЗЫ без шипиков (малый H01, 123s) — где время РЕАЛЬНО
+| Операция | ~время | природа |
+|---|---|---|
+| **Объём сомы** (`mesh_volume`→`fill_mesh_holes_with_fan`→`stitch`, `group_rows` ×432К) | **~46s** | 1 вызов на большом соме-меше; `soma_volume_ratio` для sphere-validator |
+| **Meshlab-сабпроцессы** (`remove_interior` + децимация, 5 спавнов xvfb) | ~19s | §5 #3 |
+| networkx-граф (correspondence `bfs_edges` ×431К) | ~12s | граф-обвязка |
+| Скелетонизация (meshparty, в потоках) | скромно | НЕ доминанта |
+
+**Выводы по основной фазе:**
+- **GPU не поможет** — топ-расходы это mesh-починка/сабпроцессы/графы, не числодробление. SDF уже 0.46s.
+- **Kimimaro почти не поможет** — скелетонизация-ядро скромно (на потоках), доминанта — соме-объём.
+- **Главный рычаг — объём сомы (~46s):** `soma_volume_ratio` пытается watertight через Poisson, но
+  с no-op проваливается в медленный `fill_mesh_holes_with_fan`. С **реальным Poisson** (§0 регр.№1)
+  сома watertight сразу → `mesh.volume` мгновенно → **−~46s**. То есть реальный Poisson = краш-фикс
+  **И** −46s основной фазы. ⭐ Пользователь: точность сомы НЕ важна → объём сомы можно и просто
+  удешевить (convex_hull / пропуск), не дожидаясь идеального Poisson.
+- **#2 рычаг:** `remove_interior` → in-process через pymeshlab (−~19s сабпроцессов).
+
+### RAM на реальных H01
+Малый (507К граней): пик ~1.8 ГБ. Большой `1830470325` (3.27М граней): пик **~7.4–8.2 ГБ**.
+Децимация уже идёт внутри соме-экстракции (0.25×0.25) — НЕ упущенный рычаг.
+
+---
+
 ## 1. Baseline и результаты профайлера (2026-05-30, fixture-меш 323k граней)
 
 **Чистый wall-clock (без профайлера):** сома 283.5s + декомпозиция 398.5s = **682s**, limbs=7.
