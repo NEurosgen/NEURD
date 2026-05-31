@@ -1106,16 +1106,16 @@ def get_spine_meshes_unfiltered_from_mesh(
 
     """
     if connectivity_type_for_shaft is None:
-        connectivity_type_for_shaft = connectivity_type_for_shaft_global
+        connectivity_type_for_shaft = parameters.params.connectivity_type_for_shaft
     
     if clusters is None:
-        clusters = clusters_threshold_global
+        clusters = parameters.params.clusters_threshold
     
     if smoothness is None:
-        smoothness = smoothness_threshold_global
+        smoothness = parameters.params.smoothness_threshold
         
     if shaft_threshold is None:
-        shaft_threshold = shaft_threshold_global
+        shaft_threshold = parameters.params.shaft_threshold
     
     
     if segment_name is None:
@@ -1344,9 +1344,9 @@ def filter_spine_meshes(spine_meshes,
                        spine_sk_length_threshold=None,
                        verbose = False):
     if spine_n_face_threshold is None:
-        spine_n_face_threshold = spine_n_face_threshold_global
+        spine_n_face_threshold = parameters.params.spine_n_face_threshold
     if spine_sk_length_threshold is None:
-        spine_sk_length_threshold = spine_sk_length_threshold_global
+        spine_sk_length_threshold = parameters.params.spine_sk_length_threshold
         
     keep_idx = np.arange(len(spine_meshes))
     if spine_n_face_threshold is not None:
@@ -1372,10 +1372,10 @@ def filter_out_border_spines(mesh,spine_submeshes,
     Purpose: Filter away spines by their percentage overlap with parent border vertices 
     """
     if border_percentage_threshold is None:
-        border_percentage_threshold = border_percentage_threshold_global
+        border_percentage_threshold = parameters.params.border_percentage_threshold
         
     if check_spine_border_perc is None:
-        check_spine_border_perc = check_spine_border_perc_global
+        check_spine_border_perc = parameters.params.check_spine_border_perc
     return tu.filter_away_border_touching_submeshes_by_group(mesh,spine_submeshes,
                                                              border_percentage_threshold=border_percentage_threshold,
                                                              inverse_border_percentage_threshold=check_spine_border_perc,
@@ -1501,16 +1501,16 @@ def spine_head_neck(
     """
     
     if head_ray_trace_min is None:
-        head_ray_trace_min = head_ray_trace_min_global
+        head_ray_trace_min = parameters.params.head_ray_trace_min
         
     if smoothness is None:
-        smoothness = head_smoothness_global
+        smoothness = parameters.params.head_smoothness
         
     if head_face_min is None:
-        head_face_min = head_face_min_global
+        head_face_min = parameters.params.head_face_min
         
     if only_allow_one_connected_component_neck is None:
-        only_allow_one_connected_component_neck = only_allow_one_connected_component_neck_global
+        only_allow_one_connected_component_neck = parameters.params.only_allow_one_connected_component_neck
     
 
     neck_face_idx = None
@@ -1814,7 +1814,7 @@ def calculate_spines_on_branch(
     To prevent false positive spines from long axon fragment merges
     4) if requested (filter_out_border_spines), filter out meshes that have:
         a) higher than a certain percentage (border_percentage_threshold) of the submesh vertices overlapping with border vertices (certices adjacent to open spaces in the mesh) on the parent mesh  
-        b) higher than certain percentage (check_spine_border_perc_global) of the parent mesh’s border vertices overlapping with the submesh vertices
+        b) higher than certain percentage (check_spine_border_perc) of the parent mesh’s border vertices overlapping with the submesh vertices
 
     5) if requested (skeleton_endpoint_nullification), filter away spines that are within a certain distance (skeleton_endpoint_nullification_distance) from the branch skeleton endpoints in order to avoid a high false positive class.
     6) if requested (soma_vertex_nullification), filter out spines that have vertices overlapping with vertices of the soma
@@ -1842,12 +1842,12 @@ def calculate_spines_on_branch(
     border_percentage_threshold: float
         maximum percentage a submesh vertices can overlap with border vertices (certices adjacent to open spaces in the mesh) on the parent mesh and still be in consideration for spine label  
 
-    check_spine_border_perc_global: float
+    check_spine_border_perc: float
         maximum percentage that a the parent mesh’s border vertices can overlapping with the submesh vertices and that submesh still be in consideration for spine label  
     # -- skeleton filtering
     skeleton_endpoint_nullification: bool
 
-    skeleton_endpoint_nullification_distance_global: float
+    skeleton_endpoint_nullification_distance: float
         minimum distance
 
     # -- soma filtering
@@ -1884,63 +1884,63 @@ def calculate_spines_on_branch(
     """
     
     if clusters_threshold is None:
-        clusters_threshold = clusters_threshold_global
+        clusters_threshold = parameters.params.clusters_threshold
         
     if smoothness_threshold is None:
-        smoothness_threshold = smoothness_threshold_global
+        smoothness_threshold = parameters.params.smoothness_threshold
         
     if shaft_threshold is None:
-        shaft_threshold = shaft_threshold_global
+        shaft_threshold = parameters.params.shaft_threshold
         
     if calculate_spine_volume is None:
-        calculate_spine_volume = calculate_spine_volume_global
+        calculate_spine_volume = parameters.params.calculate_spine_volume
     
     if spine_n_face_threshold is None:
-        spine_n_face_threshold = spine_n_face_threshold_global
+        spine_n_face_threshold = parameters.params.spine_n_face_threshold
         
     if spine_sk_length_threshold is None:
-        spine_sk_length_threshold = spine_sk_length_threshold_global
+        spine_sk_length_threshold = parameters.params.spine_sk_length_threshold
         
     if filter_by_bounding_box_longest_side_length is None:
-        filter_by_bounding_box_longest_side_length = filter_by_bounding_box_longest_side_length_global
+        filter_by_bounding_box_longest_side_length = parameters.params.filter_by_bounding_box_longest_side_length
         
     if side_length_threshold is None:
-        side_length_threshold = side_length_threshold_global
+        side_length_threshold = parameters.params.side_length_threshold
         
     if filter_out_border_spines is None:
-        filter_out_border_spines = filter_out_border_spines_global
+        filter_out_border_spines = parameters.params.filter_out_border_spines
         
     if skeleton_endpoint_nullification is None:
-        skeleton_endpoint_nullification = skeleton_endpoint_nullification_global
+        skeleton_endpoint_nullification = parameters.params.skeleton_endpoint_nullification
         
     if skeleton_endpoint_nullification_distance is None:
-        skeleton_endpoint_nullification_distance = skeleton_endpoint_nullification_distance_global
+        skeleton_endpoint_nullification_distance = parameters.params.skeleton_endpoint_nullification_distance
         
     if soma_vertex_nullification is None:
-        soma_vertex_nullification = soma_vertex_nullification_global
+        soma_vertex_nullification = parameters.params.soma_vertex_nullification
         
     if border_percentage_threshold is None:
-        border_percentage_threshold = border_percentage_threshold_global
+        border_percentage_threshold = parameters.params.border_percentage_threshold
         
     if check_spine_border_perc is None:
-        check_spine_border_perc = check_spine_border_perc_global
+        check_spine_border_perc = parameters.params.check_spine_border_perc
         
     if filter_by_volume is None:
-        filter_by_volume = filter_by_volume_global
+        filter_by_volume = parameters.params.filter_by_volume
         
     if filter_by_volume_threshold is None:
-        filter_by_volume_threshold = filter_by_volume_threshold_global
+        filter_by_volume_threshold = parameters.params.filter_by_volume_threshold
         
     if filter_by_face_area_mean is None:
-        filter_by_face_area_mean = filter_by_face_area_mean_global
+        filter_by_face_area_mean = parameters.params.filter_by_face_area_mean
     if filter_by_face_area_mean_min is None:
-        filter_by_face_area_mean_min = filter_by_face_area_mean_min_global
+        filter_by_face_area_mean_min = parameters.params.filter_by_face_area_mean_min
         
     if filter_by_boundary_to_area_ratio is None:
-        filter_by_boundary_to_area_ratio = filter_by_boundary_to_area_ratio_global
+        filter_by_boundary_to_area_ratio = parameters.params.filter_by_boundary_to_area_ratio
     
     if filter_by_boundary_to_area_ratio_min is None:
-        filter_by_boundary_to_area_ratio_min = filter_by_boundary_to_area_ratio_min_global
+        filter_by_boundary_to_area_ratio_min = parameters.params.filter_by_boundary_to_area_ratio_min
     
     # cgal_folder lets a parallel driver isolate temp files per worker (the CGAL
     # segmentation writes "{randint}_mesh.off" into this folder; a shared folder
@@ -2127,17 +2127,17 @@ def calculate_spines_on_neuron(
     """
     
     if query is None:
-        query = query_global
+        query = parameters.params.query
     
     if calculate_spine_volume is None:
-        calculate_spine_volume = calculate_spine_volume_global
+        calculate_spine_volume = parameters.params.calculate_spine_volume
     
     if soma_vertex_nullification is None:
-        soma_vertex_nullification = soma_vertex_nullification_global
+        soma_vertex_nullification = parameters.params.soma_vertex_nullification
     
     
     if query is None:
-        query = query_global
+        query = parameters.params.query
     
     # --- Step 1: Applies query to see which branches to calculate spines over ---
     if limb_branch_dict is None:
@@ -2983,11 +2983,11 @@ def restrict_meshes_to_shaft_meshes_without_coordinates(
 
     """
     if close_hole_area_top_2_mean_max is None:
-        close_hole_area_top_2_mean_max = shaft_close_hole_area_top_2_mean_max_global
+        close_hole_area_top_2_mean_max = parameters.params.shaft_close_hole_area_top_2_mean_max
     if mesh_volume_max is None:
-        mesh_volume_max = shaft_mesh_volume_max_global
+        mesh_volume_max = parameters.params.shaft_mesh_volume_max
     if n_faces_min is None:
-        n_faces_min = shaft_mesh_n_faces_min_global
+        n_faces_min = parameters.params.shaft_mesh_n_faces_min
     
     query = [
         f"(close_hole_area_top_2_mean > {close_hole_area_top_2_mean_max}) or (mesh_volume > {mesh_volume_max})",
@@ -3125,13 +3125,13 @@ def split_mesh_into_spines_shaft(
         _description_
     """
     if clusters is None:
-        clusters = clusters_threshold_global
+        clusters = parameters.params.clusters_threshold
     
     if smoothness is None:
-        smoothness = smoothness_threshold_global
+        smoothness = parameters.params.smoothness_threshold
         
     if shaft_threshold is None:
-        shaft_threshold = shaft_threshold_global
+        shaft_threshold = parameters.params.shaft_threshold
     
     
 
@@ -3275,99 +3275,6 @@ spine_features_n_syn_head_neck = (
 
 
 
-# ----------------- Parameters ------------------------
-
-global_parameters_dict_default_spine_identification = dict(
-    query="median_mesh_center > 115 and n_faces_branch>100",#previous used median_mesh_center > 140
-    calculate_spine_volume=True,
-    connectivity_type_for_shaft="vertices",
-    clusters_threshold=5,#3,#2,
-    smoothness_threshold=0.08,#0.12,#0.08,
-    shaft_close_hole_area_top_2_mean_max = 110_000,
-    shaft_mesh_volume_max = 0.3e9,
-    shaft_mesh_n_faces_min = 10,
-    shaft_threshold=300,
-    
-    # --- the new bare minimum thresholds ----
-    spine_n_face_threshold_bare_min = 6,
-    spine_sk_length_threshold_bare_min = 306.6,
-    filter_by_volume_threshold_bare_min = 900496.186,
-    bbox_oriented_side_max_min_bare_min = 300,
-    spine_volume_to_spine_area_min_bare_min = 0.008,
-    sdf_mean_min_bare_min = 0,
-
-    spine_n_face_threshold=25,
-    spine_sk_length_threshold = 1_000,
-    filter_by_bounding_box_longest_side_length=True,
-    side_length_threshold = 5000,
-    filter_out_border_spines=False, #this seemed to cause a lot of misses
-    skeleton_endpoint_nullification=True,
-    skeleton_endpoint_nullification_distance = 2000,
-    soma_vertex_nullification = True,
-    border_percentage_threshold=0.3,
-    check_spine_border_perc=0.4,
-
-    #-------1/20 Addition --------
-    filter_by_volume = True,
-    filter_by_volume_threshold = 19_835_293, #calculated from experiments   
-    
-    # ----- 4/14/25 additions
-    filter_by_face_area_mean = False,
-    filter_by_face_area_mean_min = 0,
-
-    filter_by_boundary_to_area_ratio = False,
-    filter_by_boundary_to_area_ratio_min = 0,
-    
-)
-
-global_parameters_dict_default_head_neck_shaft = dict(
-    head_smoothness = 0.09,#0.15,
-    head_ray_trace_min = 240,
-    head_face_min = 10,
-    only_allow_one_connected_component_neck = False,
-    
-)
-
-global_parameters_dict_default = gu.merge_dicts([
-    global_parameters_dict_default_spine_identification,
-    global_parameters_dict_default_head_neck_shaft
-    
-])
-
-attributes_dict_default = dict(
-)    
-
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-
-global_parameters_dict_h01_spine_identification = dict(
-    spine_n_face_threshold=15,
-    spine_sk_length_threshold = 1_000,
-    filter_by_volume_threshold = 50_000_000,#19835293, #calculated from experiments   
-    
-    clusters_threshold=5,
-    smoothness_threshold=0.08,#0.12,#0.08,
-    shaft_close_hole_area_top_2_mean_max = 260_000,
-    shaft_mesh_volume_max = 0.6e9,
-    shaft_mesh_n_faces_min = 10,
-    
-    # bare minimum filters 
-    spine_volume_to_spine_area_min_bare_min = 0.01,
-    spine_n_face_threshold_bare_min = 10,
-    
-)
-global_parameters_dict_h01_head_neck_shaft = {}
-
-global_parameters_dict_h01 = gu.merge_dicts([
-    global_parameters_dict_h01_spine_identification,
-    global_parameters_dict_h01_head_neck_shaft
-    
-])
-
-
-attributes_dict_h01 = {}
-
-
 
 # --- inlined from branch_attr_utils (wave 5.5) ---
 
@@ -3394,7 +3301,7 @@ from . import branch_utils as bu
 from . import neuron_searching as ns
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
-
+from . import parameters
 from . import width_utils as wu
 
 #--- from mesh_tools ---

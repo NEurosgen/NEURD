@@ -80,6 +80,36 @@ _BASE = dict(
     filter_end_node_length_axon=1150,
     invalidation_d_axon=1500,
     smooth_neighborhood_axon=0,
+    # spine_utils
+    query="median_mesh_center > 115 and n_faces_branch>100",
+    calculate_spine_volume=True,
+    connectivity_type_for_shaft="vertices",
+    clusters_threshold=5,
+    smoothness_threshold=0.08,
+    shaft_close_hole_area_top_2_mean_max=110_000,
+    shaft_mesh_volume_max=0.3e9,
+    shaft_mesh_n_faces_min=10,
+    shaft_threshold=300,
+    spine_n_face_threshold=25,
+    spine_sk_length_threshold=1_000,
+    filter_by_bounding_box_longest_side_length=True,
+    side_length_threshold=5000,
+    filter_out_border_spines=False,
+    skeleton_endpoint_nullification=True,
+    skeleton_endpoint_nullification_distance=2000,
+    soma_vertex_nullification=True,
+    border_percentage_threshold=0.3,
+    check_spine_border_perc=0.4,
+    filter_by_volume=True,
+    filter_by_volume_threshold=19_835_293,
+    filter_by_face_area_mean=False,
+    filter_by_face_area_mean_min=0,
+    filter_by_boundary_to_area_ratio=False,
+    filter_by_boundary_to_area_ratio_min=0,
+    head_smoothness=0.09,
+    head_ray_trace_min=240,
+    head_face_min=10,
+    only_allow_one_connected_component_neck=False,
 )
 
 # h01-only deltas, applied on top of _BASE when mode == "h01".
@@ -109,6 +139,11 @@ _H01 = dict(
     use_adaptive_invalidation_d=True,
     combine_close_skeleton_nodes_threshold_meshparty_axon=1700,
     invalidation_d_axon=2500,
+    # spine_utils
+    filter_by_volume_threshold=50_000_000,
+    shaft_close_hole_area_top_2_mean_max=260_000,
+    shaft_mesh_volume_max=0.6e9,
+    spine_n_face_threshold=15,
 )
 
 
