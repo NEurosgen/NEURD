@@ -266,7 +266,6 @@ def calculate_new_width_for_neuron_obj(
                     no_spines=no_spines,
                     summary_measure=summary_measure,
                     return_average=True,
-                    print_flag=False,
                     **kwargs,
                 )
                 curr_branch_obj.width_new[width_name] = current_width
