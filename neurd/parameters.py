@@ -22,11 +22,14 @@ _BASE = dict(
     comparison_distance_skeleton_vector=3000,
     extra_offset_skeleton_vector=6000,
     offset_width_endpoint=0,
+    # neuron_utils
+    skeletal_length_max_n_spines=3000,
 )
 
 # h01-only deltas, applied on top of _BASE when mode == "h01".
 _H01 = dict(
-    # branch_utils: no h01 overrides
+    # neuron_utils
+    skeletal_length_max_n_spines=6_000,
 )
 
 

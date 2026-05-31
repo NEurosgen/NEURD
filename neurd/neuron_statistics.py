@@ -1941,23 +1941,6 @@ def neuron_stats(
 
 
 
-# ----------------- Parameters ------------------------
-
-
-global_parameters_dict_default = dict(
-)
-
-attributes_dict_default = dict()
-
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-
-global_parameters_dict_h01 = {}
-
-attributes_dict_h01 = dict()
-
-
-
 #--- from neurd_packages ---
 # P3: dropped dead imports `branch_utils as bu` and `neuron_searching as ns` (0 uses) —
 # breaks the neuron_statistics<->branch_utils and neuron_statistics<->neuron_searching cycles.
