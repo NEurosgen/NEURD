@@ -9,6 +9,7 @@ except Exception:  # pragma: no cover
     sk = None
 
 from . import neuron_utils as nru
+from . import parameters
 from . import width_utils as wu
 
 
@@ -66,9 +67,9 @@ def skeleton_vector_endpoint(
 ):
     """Return the unit direction vector at an endpoint (upstream or downstream)."""
     if offset is None:
-        offset = offset_skeleton_vector_global
+        offset = parameters.params.offset_skeleton_vector
     if comparison_distance is None:
-        comparison_distance = comparison_distance_skeleton_vector_global
+        comparison_distance = parameters.params.comparison_distance_skeleton_vector
 
     if endpoint_coordinate is None:
         endpoint_coordinate = getattr(branch_obj, f"endpoint_{endpoint_type}")
@@ -132,13 +133,13 @@ def skeleton_vector_downstream(
 
 def skeleton_vector_upstream_extra_offset(branch_obj, offset=None, skeleton_attribute="skeleton", **kwargs):
     if offset is None:
-        offset = extra_offset_skeleton_vector_global
+        offset = parameters.params.extra_offset_skeleton_vector
     return skeleton_vector_upstream(branch_obj, offset=offset, skeleton_attribute=skeleton_attribute, **kwargs)
 
 
 def skeleton_vector_downstream_extra_offset(branch_obj, offset=None, skeleton_attribute="skeleton", **kwargs):
     if offset is None:
-        offset = extra_offset_skeleton_vector_global
+        offset = parameters.params.extra_offset_skeleton_vector
     return skeleton_vector_downstream(branch_obj, offset=offset, skeleton_attribute=skeleton_attribute, **kwargs)
 
 
@@ -154,7 +155,7 @@ def width_endpoint(
 ):
     """Compute mean branch width in a window around an endpoint."""
     if offset is None:
-        offset = offset_width_endpoint_global
+        offset = parameters.params.offset_width_endpoint
 
     _, base_final_widths, _ = nru.align_and_restrict_branch(
         branch_obj,
@@ -177,13 +178,13 @@ def width_downstream(branch_obj, **kwargs):
 
 def width_upstream_extra_offset(branch_obj, offset=None, **kwargs):
     if offset is None:
-        offset = extra_offset_skeleton_vector_global
+        offset = parameters.params.extra_offset_skeleton_vector
     return width_upstream(branch_obj, offset=offset, **kwargs)
 
 
 def width_downstream_extra_offset(branch_obj, offset=None, **kwargs):
     if offset is None:
-        offset = extra_offset_skeleton_vector_global
+        offset = parameters.params.extra_offset_skeleton_vector
     return width_downstream(branch_obj, offset=offset, **kwargs)
 
 
@@ -373,20 +374,3 @@ def endpoint_upstream_with_offset(branch_obj, offset=1000, plot=False, verbose=F
 
 def endpoint_downstream_with_offset(branch_obj, offset=1000, plot=False, verbose=False):
     return endpoint_type_with_offset(branch_obj, endpoint_type="downstream", offset=offset, plot=plot, verbose=verbose)
-
-
-# --------------- parameter system --------------
-
-global_parameters_dict_default = dict(
-    offset_skeleton_vector=500,
-    comparison_distance_skeleton_vector=3000,
-    extra_offset_skeleton_vector=6000,
-    offset_width_endpoint=0,
-)
-attributes_dict_default = dict()
-
-global_parameters_dict_microns = {}
-attributes_dict_microns = {}
-
-global_parameters_dict_h01 = dict()
-attributes_dict_h01 = dict()
