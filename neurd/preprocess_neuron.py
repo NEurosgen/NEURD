@@ -4265,7 +4265,13 @@ def preprocess_neuron(
     soma_meshes = current_mesh_data[0]["soma_meshes"]
     preprocessed_data= dict(
         soma_meshes = soma_meshes,
-        soma_volumes = [tu.mesh_volume(k) for k in soma_meshes],
+        # Soma volume is metadata only (Soma.volume -> total-volume stat + Soma.__eq__);
+        # it does not feed the limb/branch decomposition. The default fan-fill
+        # watertight-ification (fill_mesh_holes_with_fan) costs ~46s on a large H01 soma
+        # and falls back to convex_hull anyway when the fan can't close the mesh, so we
+        # take the convex_hull volume directly — instant, and an acceptable approximation
+        # here (soma accuracy is not a target for this pipeline).
+        soma_volumes = [tu.mesh_volume(k, watertight_method="convex_hull") for k in soma_meshes],
         soma_to_piece_connectivity = current_mesh_data[0]["soma_to_piece_connectivity"],
         soma_sdfs = total_soma_list_sdf,
         insignificant_limbs=insignificant_limbs,
