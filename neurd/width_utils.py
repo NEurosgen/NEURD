@@ -1,5 +1,5 @@
 from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
+import numpy as np
 from datasci_tools import numpy_utils as nu
 from mesh_tools import compartment_utils as cu
 from mesh_tools import skeleton_utils as sk
