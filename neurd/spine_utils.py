@@ -1730,15 +1730,6 @@ def spine_volume_density(obj,um = True):
 
     
                 
-def spine_str_label(spine_label):
-    """
-    spu.spine_str_label(-2)
-    """
-    if spine_label is None:
-        return "no_label"
-    if type(spine_label) != str:
-        spine_label =  head_neck_shaft_dict_inverted[spine_label]
-    return spine_label
 
 
 
