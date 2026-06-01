@@ -1312,6 +1312,92 @@ def _resolve_mesh_connectivity(
     raise Exception("Something went wrong in the connectivity")
 
 
+def _decompose_map_piece(
+    mesh,
+    mesh_idx,
+    sublimb_idx,
+    soma_touching_vertices_dict,
+    filter_end_node_length,
+    perform_cleaning_checks,
+    combine_close_skeleton_nodes,
+    combine_close_skeleton_nodes_threshold,
+    use_surface_after_CGAL,
+    surface_reconstruction_size,
+    remove_mesh_interior_face_threshold,
+    error_on_bad_cgal_return,
+    max_stitch_distance_CGAL,
+    distance_by_mesh_center,
+):
+    """Part 9 (один MAP-кусок): CGAL-скелетонизация + mesh correspondence.
+
+    Возвращает (local_correspondence_revised, curr_limb_endpoints_must_keep,
+                curr_soma_to_piece_touching_vertices). Списки must_keep/touching
+        обновляет вызывающий цикл (чтобы helper был без побочных эффектов).
+    """
+    print(f"--- Working on MAP piece {sublimb_idx}---")
+    mesh_start_time = time.time()
+    curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
+        mesh=mesh,
+        curr_piece_to_soma_touching_vertices=soma_touching_vertices_dict,
+    )
+
+    # ---- 0) Generating the Clean skeletons  -------------------------------------------#
+    if not curr_soma_to_piece_touching_vertices is None:
+        curr_total_border_vertices = dict([(k, np.vstack(v)) for k, v in curr_soma_to_piece_touching_vertices.items()])
+    else:
+        curr_total_border_vertices = None
+
+    cleaned_branch, curr_limb_endpoints_must_keep = sk.skeletonize_and_clean_connected_branch_CGAL(
+        mesh=mesh,
+        curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
+        total_border_vertices=curr_total_border_vertices,
+        filter_end_node_length=filter_end_node_length,
+        perform_cleaning_checks=perform_cleaning_checks,
+        combine_close_skeleton_nodes=combine_close_skeleton_nodes,
+        combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
+        use_surface_after_CGAL=use_surface_after_CGAL,
+        surface_reconstruction_size=surface_reconstruction_size,
+        remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
+        error_on_bad_cgal_return=error_on_bad_cgal_return,
+        max_stitch_distance=max_stitch_distance_CGAL,
+    )
+
+    if curr_limb_endpoints_must_keep is None:
+        print("Inside MAP decomposition and curr_limb_endpoints_must_keep was None")
+
+    if len(cleaned_branch) == 0:
+        raise Exception(f"Found a zero length skeleton for MAP piece {sublimb_idx}")
+
+    # ---- 1) Generating Initial Mesh Correspondence -------------------------------------------#
+    print(f"Working on limb correspondence for #{sublimb_idx} MAP piece")
+    local_correspondence = mesh_correspondence_first_pass(
+        mesh=mesh,
+        skeleton=cleaned_branch,
+        distance_by_mesh_center=distance_by_mesh_center,
+        connectivity="edges",
+        remove_inside_pieces_threshold=100,
+    )
+
+    #------------- 2) Doing Some checks on the initial corespondence -------- #
+    if perform_cleaning_checks:
+        check_skeletonization_and_decomp(skeleton=cleaned_branch, local_correspondence=local_correspondence)
+
+    # -------3) Finishing off the face correspondence so get 1-to-1 correspondence of mesh face to skeletal piece
+    local_correspondence_revised = correspondence_1_to_1(
+        mesh=mesh,
+        local_correspondence=local_correspondence,
+        curr_limb_endpoints_must_keep=curr_limb_endpoints_must_keep,
+        curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
+    )
+
+    # -------3b) Fixing the mesh indices to correspond to the larger mesh as a whole
+    for k, v in local_correspondence_revised.items():
+        local_correspondence_revised[k]["branch_face_idx"] = mesh_idx[local_correspondence_revised[k]["branch_face_idx"]]
+
+    print(f"Total time for MAP sublimb #{sublimb_idx} mesh processing = {time.time() - mesh_start_time}")
+    return local_correspondence_revised, curr_limb_endpoints_must_keep, curr_soma_to_piece_touching_vertices
+
+
 def _merge_map_mp_correspondence(limb_correspondence_MAP, limb_correspondence_MP):
     """Part 17: схлопывает MAP- и MP-correspondence в один плоский dict
     {branch_idx -> branch_dict}, последовательно перенумеровывая ветви."""
@@ -1702,85 +1788,30 @@ def preprocess_limb(
     limb_correspondence_MAP = dict()
 
     for sublimb_idx,(mesh,mesh_idx) in enumerate(zip(mesh_pieces_for_MAP,mesh_pieces_for_MAP_face_idx)):
-        print(f"--- Working on MAP piece {sublimb_idx}---")
-        mesh_start_time = time.time()
-        curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
-        mesh = mesh,
-        curr_piece_to_soma_touching_vertices = soma_touching_vertices_dict
-        )
-
-        if print_fusion_steps:
-            print(f"MAP Filtering Soma Pieces: {time.time() - fusion_time }")
-            fusion_time = time.time()
-
-        # ---- 0) Generating the Clean skeletons  -------------------------------------------#
-        if not curr_soma_to_piece_touching_vertices is None:
-            curr_total_border_vertices = dict([(k,np.vstack(v)) for k,v in curr_soma_to_piece_touching_vertices.items()])
-        else:
-            curr_total_border_vertices = None
-
-
-        cleaned_branch,curr_limb_endpoints_must_keep = sk.skeletonize_and_clean_connected_branch_CGAL(
+        (
+            local_correspondence_revised,
+            curr_limb_endpoints_must_keep,
+            curr_soma_to_piece_touching_vertices,
+        ) = _decompose_map_piece(
             mesh=mesh,
-            curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
-            total_border_vertices=curr_total_border_vertices,
+            mesh_idx=mesh_idx,
+            sublimb_idx=sublimb_idx,
+            soma_touching_vertices_dict=soma_touching_vertices_dict,
             filter_end_node_length=filter_end_node_length,
             perform_cleaning_checks=perform_cleaning_checks,
-            combine_close_skeleton_nodes = combine_close_skeleton_nodes,
+            combine_close_skeleton_nodes=combine_close_skeleton_nodes,
             combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
-        use_surface_after_CGAL=use_surface_after_CGAL,
-        surface_reconstruction_size=surface_reconstruction_size,
-        remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
-        error_on_bad_cgal_return=error_on_bad_cgal_return,
-        max_stitch_distance = max_stitch_distance_CGAL)
+            use_surface_after_CGAL=use_surface_after_CGAL,
+            surface_reconstruction_size=surface_reconstruction_size,
+            remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
+            error_on_bad_cgal_return=error_on_bad_cgal_return,
+            max_stitch_distance_CGAL=max_stitch_distance_CGAL,
+            distance_by_mesh_center=distance_by_mesh_center,
+        )
 
-        if not curr_limb_endpoints_must_keep is None:
+        if curr_limb_endpoints_must_keep is not None:
             limb_to_endpoints_must_keep_list.append(curr_limb_endpoints_must_keep)
             limb_to_soma_touching_vertices_list.append(curr_soma_to_piece_touching_vertices)
-        else:
-            print("Inside MAP decomposition and curr_limb_endpoints_must_keep was None")
-
-        if len(cleaned_branch) == 0:
-            raise Exception(f"Found a zero length skeleton for MAP piece {sublimb_idx}")
-
-        if print_fusion_steps:
-            print(f"skeletonize_and_clean_connected_branch_CGAL: {time.time() - fusion_time }")
-            fusion_time = time.time()
-
-        # ---- 1) Generating Initial Mesh Correspondence -------------------------------------------#
-        start_time = time.time()
-
-        print(f"Working on limb correspondence for #{sublimb_idx} MAP piece")
-        local_correspondence = mesh_correspondence_first_pass(mesh=mesh,
-                                                             skeleton=cleaned_branch,
-                                                             distance_by_mesh_center=distance_by_mesh_center,
-                                                             connectivity="edges",
-                                                             remove_inside_pieces_threshold=100)
-
-
-        print(f"Total time for decomposition = {time.time() - start_time}")
-
-
-        #------------- 2) Doing Some checks on the initial corespondence -------- #
-
-
-        if perform_cleaning_checks:
-            check_skeletonization_and_decomp(skeleton=cleaned_branch,
-                                            local_correspondence=local_correspondence)
-
-        # -------3) Finishing off the face correspondence so get 1-to-1 correspondence of mesh face to skeletal piece
-        local_correspondence_revised = correspondence_1_to_1(mesh=mesh,
-                                        local_correspondence=local_correspondence,
-                                        curr_limb_endpoints_must_keep=curr_limb_endpoints_must_keep,
-                                        curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices)
-
-        # -------3b) Fixing the mesh indices to correspond to the larger mesh as a whole
-        for k,v in local_correspondence_revised.items():
-            local_correspondence_revised[k]["branch_face_idx"] = mesh_idx[local_correspondence_revised[k]["branch_face_idx"]]
-
-        print(f"Total time for MAP sublimb #{sublimb_idx} mesh processing = {time.time() - mesh_start_time}")
-
-        
 
         limb_correspondence_MAP[sublimb_idx] = local_correspondence_revised
 
