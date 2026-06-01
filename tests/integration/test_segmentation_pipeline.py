@@ -35,7 +35,12 @@ from neurd import parameters
 from neurd.segmentation_pipeline import segmentation_pipeline
 from mesh_tools import trimesh_utils as tu
 
-_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "864691135510518224.off"
+# h01 single-neuron fixture: preprocess_neuron forces params.use('h01'), so the
+# segmentation path is now specialised for one soma with no glia/nuclei.
+_FIXTURE = (
+    Path(__file__).resolve().parents[2]
+    / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
+)
 
 _MESH_TOOLS = all(shutil.which(b) for b in ("xvfb-run", "meshlabserver"))
 _requires_mesh_tools = pytest.mark.skipif(
@@ -58,7 +63,9 @@ def decomposed_neuron(tmp_path_factory):
     prev_cwd = os.getcwd()
     os.chdir(work_dir)
     try:
-        parameters.params.use("microns")
+        # h01 fixture -> select the h01 dataset config before decomposing.
+        # preprocess_neuron now respects whatever the caller selected here.
+        parameters.params.use("h01")
         mesh = tu.load_mesh_no_processing(str(_FIXTURE))
         assert len(mesh.faces) > 0, "fixture mesh has no faces"
         return segmentation_pipeline(mesh, verbose=False)
