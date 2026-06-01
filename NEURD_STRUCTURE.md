@@ -1,4 +1,4 @@
-# NEURD — структура и состояние форка (актуально 2026-05-30)
+# NEURD — структура и состояние форка (актуально 2026-06-02)
 
 Навигационная карта slim-форка. Источник истины — код; этот файл собирает то, что
 нужно знать на старте сессии. Связанные доки: [PIPELINE.md](PIPELINE.md) (как работает
@@ -20,7 +20,7 @@ connectome/motif/proximity, GNN, визуализация, cloud/dataset-ада�
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd   # Python 3.12, numpy 2
 python -m pytest tests/unit/                  # fast-gate: 59 passed, 1 skipped (~4 c)
-python -m pytest tests/integration/test_segmentation_pipeline.py   # характеризационный: 4 passed (~11 мин на main; ~2.5 мин на optimize_segmentation после Poisson-no-op)
+python -m pytest tests/integration/test_segmentation_pipeline.py -s  # характеризационный: 4 passed (~2 мин на h01-нейроне; -s печатает путь сохранённой сегментации)
 ```
 
 - **Fast-gate** (`tests/unit/`): import-smoke всех core-модулей + `parameter_utils` (36) +
@@ -28,9 +28,12 @@ python -m pytest tests/integration/test_segmentation_pipeline.py   # харак�
   активирует numpy/ipyvolume-шимы из [neurd/__init__.py](neurd/__init__.py). 1 skip:
   `test_ipyvolume_submodule_resolves_via_stub` (реальный ipyvolume тянется через meshparty).
 - **Характеризационный тест** — единственный backstop для правок ядра: реальная декомпозиция
-  fixture-меша (`tests/fixtures/864691135510518224.off`, data_type="microns") через
-  `segmentation_pipeline`, пинит контракт `mesh → Neuron(somas + limbs/branches[.mesh+.skeleton])`.
-  Шеллит `xvfb-run meshlabserver` (нужны оба бинаря: `apt install meshlab xvfb`); chdir в tmp.
+  h01-нейрона (`Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off`, одно-сомный,
+  fixture ставит `params.use("h01")`) через `segmentation_pipeline`, пинит контракт
+  `mesh → Neuron(somas + limbs/branches[.mesh+.skeleton])`. После проверок сохраняет результат
+  (`save_segmentation` из `process_all_neurons.py`) в `tests/integration/_seg_output/<stem>/`
+  для визуального осмотра — best-effort, путь настраивается `SEG_OUTPUT_DIR=` (gitignored, ~30МБ
+  .off). Шеллит `xvfb-run meshlabserver` (нужны оба бинаря: `apt install meshlab xvfb`); chdir в tmp.
 - **CGAL-оракул** `tests/integration/test_cgal_segmentation_oracle.py` — пинит питон-stub CGAL
   против эталона `tests/990_mesh*` (SDF-корреляция ≥0.85; stub даёт ~0.95). Скип без провайдера.
 
@@ -40,7 +43,7 @@ python -m pytest tests/integration/test_segmentation_pipeline.py   # харак�
 
 | Модуль | LOC | Назначение |
 |---|---|---|
-| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 4842 | Декомпозиция меша → лимбы/ветви (скелетонизация) |
+| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3175 | Декомпозиция меша → лимбы/ветви; `preprocess_neuron`/`preprocess_limb` декомпозированы на именованные фазы (см. PIPELINE.md §2) |
 | [neuron_utils.py](neurd/neuron_utils.py) | 3485 | Утилиты нейрона. Самый импортируемый (9 модулей); теперь intra-package **sink** |
 | [neuron.py](neurd/neuron.py) | 3403 | Классы `Neuron`, `Limb`, `Branch`, `Soma` |
 | [spine_utils.py](neurd/spine_utils.py) | 3380 | Обнаружение шипиков |
@@ -54,7 +57,7 @@ python -m pytest tests/integration/test_segmentation_pipeline.py   # харак�
 | [__init__.py](neurd/__init__.py) | 233 | Compat-патчи + шимы (numpy2/trimesh4/meshlab) — см. PIPELINE.md |
 | [limb_utils.py](neurd/limb_utils.py) | 124 | Утилиты лимбов |
 | [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 61 | Python-stub для CGAL-сегментации |
-| [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 59 | Slim-оркестратор (2 стадии) |
+| [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 63 | Slim-оркестратор (2 стадии) |
 | version.py | 0 | — |
 
 **Точки входа (никто из core не импортирует):** `segmentation_pipeline.py`,

@@ -81,12 +81,37 @@ Neuron
 **обязан** нормализовать (stub делает, перцентили [2,98]). Узкое место замены — шаги 3–4 (MeshLab).
 
 ### Стадия 2 — Decomposition (`neuron.Neuron(...)` → `preprocess_neuron.preprocess_neuron`)
-1. Soma detection (переиспользует стадию 1, если не передана).
-2. **Вырезать сому** → остаток распадается на **лимбы** (связные компоненты).
-3. **Скелетонизация** каждого лимба (meshafterparty/MAP) → центрлайны.
-4. **Разбить скелет на ветки** в точках ветвления → `limb_correspondence` (branch_mesh,
-   branch_skeleton, width_from_skeleton на ветку).
-5. **Ширины** веток из SDF вдоль скелета. 6. **Concept network** на лимб.
+
+`preprocess_neuron` переписан под **строго одну сому без глии/ядер** и декомпозирован в
+тонкий оркестратор поверх именованных фаз (каждая — отдельная функция в
+[neurd/preprocess_neuron.py](neurd/preprocess_neuron.py)):
+
+1. `_extract_single_soma(mesh, segment_id)` — ищет ровно одну сому (Фаза 1/2; raise если нет).
+2. `_segment_limbs_from_soma(mesh, soma, params)` — вырезает сому → остаток распадается на
+   **лимбы** (связные компоненты, касающиеся сомы) + floating-куски. Возвращает
+   `soma_to_piece_connectivity` с **позиционными** индексами лимбов `0..N-1` (это важно: limb-
+   узлы concept network именуются `L{j}` по этому порядку — рассинхрон → `KeyError: 'data'`).
+3. `_decompose_limbs(branch_meshes, touching, params)` — на каждый лимб зовёт `preprocess_limb`:
+   скелетонизация (meshafterparty/MAP) → ветки → `limb_correspondence` (branch_mesh,
+   branch_skeleton, width_from_skeleton).
+4. `_stitch_floating_pieces(...)` — пришивает значимые floating-куски к скелету.
+5. `_build_concept_networks(...)` — concept network на каждый (лимб, сома).
+
+**`preprocess_limb` — контракт параметров.** Сигнатура
+`preprocess_limb(mesh, neuron_params, limb_params, soma_touching_vertices_dict=None, ...)`:
+- `neuron_params` — общие для нейрона (width/size_threshold_MAP, axon_width_*, adaptive-invalidation,
+  mp_only_*). Их читают helper'ы `_decide_next_limb_cfg`/`_cycle_for_something`.
+- `limb_params` — параметры одного прохода скелетонизации (invalidation_d, smooth_neighborhood,
+  combine/filter meshparty, use_meshafterparty).
+- Прочие скаляры — из `parameters.params` (config-driven) либо литералы (бывшие хардкод-дефолты).
+
+Тело `preprocess_limb` декомпозировано по фазам: `_cycle_for_something` (MP-скелетонизация +
+adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_mp_soma_extension`
+(достройка soma-extending веток), Part 17–18 (`_merge_map_mp_correspondence`,
+`_rearrange/_clean_network_starting_info`). ⚠️ **MAP/stitching-путь (Part 11–16) не исполняется
+на одно-сомных h01-нейронах без толстых веток** — он покрыт только статически (см.
+[memory/preprocess_limb_decomposition.md]). Конфиг датасета функция **не перебивает** —
+вызыватель обязан выставить `parameters.params.use("microns"|"h01")` заранее.
 
 ⚠️ Сердце core clump. `Branch.__init__` делает deepcopy submesh/skeleton — дорого по RAM
 (перф ниже), но менять рискованно. Скелетонизация (meshparty) — отдельная зависимость, НЕ meshlab.

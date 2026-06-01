@@ -83,8 +83,9 @@ Backstop: `python -m pytest tests/unit/` (fast-gate, ~4s) после каждо�
 
 ### ⑤ Крупные файлы (отдельная сессия)
 
-`neuron_utils.py` (3462), `neuron.py` (3423), `preprocess_neuron.py` (4734), `spine_utils.py` (3323) —
-только после того, как выработан ритм на малых. Риск выше: критический путь пайплайна.
+`neuron_utils.py` (3462), `neuron.py` (3423), `preprocess_neuron.py` (3175 — `preprocess_neuron`/
+`preprocess_limb` уже декомпозированы на именованные фазы, см. PIPELINE.md §2), `spine_utils.py`
+(3323) — только после того, как выработан ритм на малых. Риск выше: критический путь пайплайна.
 
 **AST-метод для verbose-чистки (выработан на concept_network/neuron_statistics):**
 1. `tokenize` → множество строк внутри multi-line строк (docstring/`'''`-блоки) — не трогать.
