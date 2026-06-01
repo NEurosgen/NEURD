@@ -1,5 +1,20 @@
 # Dead-code: deep reachability analysis — guide for future work
 
+> **UPDATE 2026-06-01 (commit 456cea1): mark-and-sweep §2 was executed to a fixpoint.**
+> Removed **45 module-level functions** (−1569 LOC) unreachable from the segmentation roots —
+> the mutually-referencing dead clusters zero-ref missed (fork-divergence, ref-vector/skeleton
+> up-down stats, parent/sibling-angle + double-back helpers, branch-neighbor/boutons/mesh-
+> connectivity analysis, a few query fns). Wave 2 re-run = 0 candidates (fixpoint). Fast-gate +
+> integration green. **Critical fix to the §2 method:** also seed names referenced in
+> **module-level (top-level) statements** of every neurd file as roots — module-level aliases
+> like `query_spine_objs = filter_spine_objs_from_restrictions` and default-arg refs are
+> import-time-live and were NOT caught by func-body/class-method edges alone (deleting such a
+> target → `NameError` at import). Also scan `neurd/parameter_configs/*.py` for root strings.
+> Delete the **whole closed candidate set in one batch** (dead funcs' default args reference
+> each other; partial deletion → import NameError). The remaining candidate analysis is now
+> exhausted at this root set; further dead code needs new roots removed (e.g. deleting the
+> `calculate_decomposition_products` stats chain) or class-method sweep (§5, high FP risk).
+
 Status 2026-05-30 (`neurd/` ~24.4k LOC): **zero-reference dead code is exhausted** in all 16
 core modules (re-swept after the import-graph refactor; `pytest tests/unit/` 59 passed;
 characterization test 4 passed). This doc explains what was done, why more dead code probably
