@@ -1,8 +1,14 @@
-
 import copy
 
-from datasci_tools import numpy_dep as np
+import numpy as np
+
+from mesh_tools import skeleton_utils as sk
+from mesh_tools import trimesh_utils as tu
 from datasci_tools import general_utils as gu
+from datasci_tools import networkx_utils as xu
+from datasci_tools import numpy_utils as nu
+from . import concept_network_utils as cnu
+from . import neuron_utils as nru
 
 top_of_layer_vector = np.array([0,-1,0])
 
@@ -16,7 +22,6 @@ def soma_starting_vector(limb_obj=None,
     Will find the angle between the vector pointing to the
     top of the volume and the angle from the soma center to the starting skeleton
     coordinate
-    
     
     """
     if limb_obj is None:
@@ -34,7 +39,6 @@ def soma_starting_vector(limb_obj=None,
     if soma_center is None:
         curr_soma = neuron_obj[f"S{soma_idx}"].mesh
         soma_center = tu.mesh_center_vertex_average(curr_soma)
-    
     
     #1) Get starting angle of branch
     st_vector = st_coordinates - soma_center
@@ -64,8 +68,7 @@ def fork_divergence_from_skeletons(upstream_skeleton,
                     comparison_distance = 500,
                     skeletal_segment_size = 50,
                     plot_restrictions = False,
-                    combining_function = np.sum,
-                                  verbose=False):
+                    combining_function = np.sum):
     """
     Purpose: To compute the number for the fork splitting
 
@@ -78,7 +81,6 @@ def fork_divergence_from_skeletons(upstream_skeleton,
     5) Have one way of aggregating the distances (median, mean)
 
     Application: If below a certain value then can indicate incorrect branching
-
 
     Ex:
     from neurd import neuron_statistics as nst
@@ -99,18 +101,10 @@ def fork_divergence_from_skeletons(upstream_skeleton,
     else:
         joining_endpoint_1 = downstream_starting_endpoint
         
-    if verbose:
-        print(f"joining_endpoint_1 = {joining_endpoint_1}")
-
     # resize the skeletons
     d_skeletons_resized = [sk.resize_skeleton_branch(k,segment_width=skeletal_segment_size)
                           for k in downstream_skeletons]
     
-    if verbose:
-#         print(f"After resizing:\n{[sk.calculate_skeleton_segment_distances(k) for k in d_skeletons_resized]}")
-        pass
-        
-
     d_skeletons_restricted = [sk.restrict_skeleton_to_distance_from_coordinate(k,
                                              coordinate = joining_endpoint_1,
                                              distance_threshold = comparison_distance+1,)
@@ -118,37 +112,17 @@ def fork_divergence_from_skeletons(upstream_skeleton,
     d_skeletons_resized = [sk.resize_skeleton_branch(k,segment_width=skeletal_segment_size)
                            for k in d_skeletons_restricted]
                            
-    if verbose:
-        #print(f"After restricting:\n{[sk.calculate_skeleton_distance(k) for k in d_skeletons_restricted]}")
-        pass
-        
-    if verbose:
-        print(f"Segment sizes after restriction")
-        for d in d_skeletons_resized:
-            print(sk.calculate_skeleton_segment_distances(d))
-
     #align the skeletons
-
 
     d_ordered_paths = [sk.skeleton_coordinate_path_from_start(k,start_endpoint_coordinate=joining_endpoint_1) for k in d_skeletons_restricted]
     
-    
-    if verbose:
-        #print(f"Before skeleton path from start: {d_skeletons_restricted}")
-        #print(f"After skeleton path from start: {d_ordered_paths}")
-        for d in d_ordered_paths:
-            print(sk.calculate_skeleton_segment_distances(sk.skelton_coordinate_path_to_skeleton(d)))
-        
     min_length = np.min([len(k) for k in d_ordered_paths])
-    if verbose:
-        print(f"min_length = {min_length}")
         
     path_distances = np.linalg.norm(d_ordered_paths[0][:min_length]-d_ordered_paths[1][:min_length],axis=1)
 
     return_value = combining_function(path_distances)
     
     return return_value
-
 
 def fork_divergence_from_branch(limb_obj,
                                 branch_idx,
@@ -180,7 +154,6 @@ def fork_divergence_from_branch(limb_obj,
 
     Note: should only be done on 2 forks
     
-
     """
 
     return_value = None
@@ -195,13 +168,8 @@ def fork_divergence_from_branch(limb_obj,
     if error_not_2_downstream and len(downstream_nodes) != 2:
         raise Exception(f"Not exactly 2 downstream nodes: {downstream_nodes}")
 
-
     upstream_sk = limb_obj[upstream_node].skeleton
     downstream_sk = [limb_obj[d].skeleton for d in downstream_nodes]
-
-    if verbose:
-        print(f"Upstream Node = {upstream_node}, downstream nodes = {downstream_nodes}")
-
 
     if (total_downstream_skeleton_length_threshold is not None and
         individual_branch_length_threshold is not None):
@@ -213,33 +181,21 @@ def fork_divergence_from_branch(limb_obj,
         below_threshold = np.where((d_skeletal_len<total_downstream_skeleton_length_threshold) | 
                                    (d_len < individual_branch_length_threshold))[0]
         if len(below_threshold) > 0:
-            if verbose:
-                print(f"Skipping this intersection because some of downstream skeletal lengths too short (min {total_downstream_skeleton_length_threshold}):")
-                print(f" or the individual branch length was too short (min {individual_branch_length_threshold})")
-                for j,(d,d_len) in enumerate(zip(downstream_nodes,d_skeletal_len)):
-                    if j in below_threshold:
-                        print(f"Brnach {d}: length {d_l} {d_len}")
 
             return_value = skip_value
-
 
     if return_value is None:
         #3) Measure the sibling angles
         sibling_angle = list(nru.find_sibling_child_skeleton_angle(curr_limb_obj=limb_obj,
                                              child_node=branch_idx).values())
-        if verbose:
-            print(f"sibling_angle = {sibling_angle}")
 
         #4) Collect together the skeletons in a list
-
 
         if downstream_sk_colors is None:
             from datasci_tools import matplotlib_utils as mu
             downstream_sk_colors = mu.generate_color_list(n_colors = len(downstream_nodes),
                                   colors_to_omit = [upstream_sk_color])
 
-
-        
         return_value = nst.fork_divergence_from_skeletons(upstream_skeleton = upstream_sk,
                             downstream_skeletons = downstream_sk,
                             comparison_distance = comparison_distance,
@@ -248,18 +204,10 @@ def fork_divergence_from_branch(limb_obj,
                             combining_function = combining_function,
                                                          verbose=verbose)
 
-
-    if verbose:
-        print(f"Final Fork Divergence = {return_value}")
-        
     return return_value
-
-
-
 
 def angle_from_top(vector,
     vector_pointing_to_top = np.array([0,-1,0]),
-                   verbose=True
     ):
     """
     Purpose: Will find the angle between
@@ -273,10 +221,9 @@ def angle_from_top(vector,
     angle_from_top = np.round(nu.angle_between_vectors(vector_pointing_to_top,st_vector_norm),2)
     return angle_from_top
 
-
 def children_skeletal_lengths(limb_obj,
                                         branch_idx,
-                                        verbose = False,
+                                        
                                         return_dict = True):
     """
     Purpose: To generate the downstream skeletal lengths of all children
@@ -291,27 +238,21 @@ def children_skeletal_lengths(limb_obj,
                                              branch_idx = k,
                                              include_branch_skeletal_length=True))
                   for k in xu.downstream_nodes(limb_obj.concept_network_directional,branch_idx)])
-    if verbose:
-        print(f"downstream values = {vals}")
     if return_dict:
         return vals
     else:
         return list(vals.values())
 
 def children_skeletal_lengths_min(limb_obj,
-                                        branch_idx,
-                                        verbose = False):
+                                        branch_idx):
     return_sk_len = nst.children_skeletal_lengths(limb_obj,
                                         branch_idx,
-                                        verbose = verbose,
                                         return_dict = False)
     if len(return_sk_len) == 0:
         return 0
     else:
         return np.min(return_sk_len)
 
-    
-    
 def upstream_skeletal_length(limb_obj,
                        branch_idx,
                         default = np.inf,
@@ -329,7 +270,6 @@ def upstream_skeletal_length(limb_obj,
     else:
         return limb_obj[up_node].skeletal_length
     
-    
 def skeletal_length_along_path(limb_obj,
                               branch_path):
     return np.sum([limb_obj[k].skeletal_length for k in branch_path])
@@ -342,7 +282,6 @@ def total_upstream_skeletal_length(limb_obj,
     starting branch
     
     """
-    #print(f"include_branch = {include_branch}")
     
     branch_path = nru.branch_path_to_start_node(limb_obj,
                              branch_idx,
@@ -359,9 +298,6 @@ def width_new(branch,width_new_name="no_spine_mean_mesh_center",
         return branch.width_new[width_new_name]
     except:
         return branch.width_new[width_new_name_backup]
-
-
-
 
 def parent_child_sk_angle(limb_obj,
                                 branch_1_idx,
@@ -425,8 +361,6 @@ def sibling_sk_angle(limb_obj,
 #     n_syn_branch_2 = len(getattr(limb_obj[branch_2_idx],attr_name))
     
 #     if verbose:
-#         print(f"Using {attr_name}")
-#         print(f"n_syn_branch_1 = {n_syn_branch_1}, n_syn_branch_2 = {n_syn_branch_2}")
     
 #     return np.abs(n_syn_branch_1 - n_syn_branch_2)
 
@@ -438,13 +372,12 @@ def n_synapses_diff(limb_obj,
                     branch_2_direction = "downstream",
                     comparison_distance = 10000,
                     nodes_to_exclude=None,
-                  verbose = False,
+                  
                    **kwargs):
     """
     Purpose: Will return the different in number of synapses
     
     """
-    #print(f"synapse_type inside nst = {synapse_type}")
     n_syn_branch_1 = cnu.synapses_upstream_downstream(limb_obj,
                                                             branch_1_idx,
                                                              synapse_type=synapse_type,
@@ -460,10 +393,6 @@ def n_synapses_diff(limb_obj,
         
     n_syn_branch_1 = len(n_syn_branch_1)
     n_syn_branch_2 = len(n_syn_branch_2)
-    
-    if verbose:
-        print(f"Using {synapse_type}")
-        print(f"n_syn_branch_1 = {n_syn_branch_1}, n_syn_branch_2 = {n_syn_branch_2}")
     
     return np.abs(n_syn_branch_1 - n_syn_branch_2)
 
@@ -484,8 +413,6 @@ def n_synapses_diff(limb_obj,
 #     n_syn_branch_2 = getattr(limb_obj[branch_2_idx],attr_name)
     
 #     if verbose:
-#         print(f"Using {attr_name}")
-#         print(f"n_syn_branch_1 = {n_syn_branch_1}, n_syn_branch_2 = {n_syn_branch_2}")
     
 #     return np.abs(n_syn_branch_1 - n_syn_branch_2)
 
@@ -497,7 +424,7 @@ def synapse_density_diff(limb_obj,
                     branch_2_direction = "downstream",
                     comparison_distance = 10000,
                     nodes_to_exclude=None,
-                  verbose = False,
+                  
                         **kwargs):
     """
     Purpose: Will return the different in number of synapses
@@ -517,19 +444,14 @@ def synapse_density_diff(limb_obj,
                                                             distance=comparison_distance,
                                                             nodes_to_exclude=nodes_to_exclude)
     
-    if verbose:
-        print(f"Using {synapse_type}")
-        print(f"syn_density_branch_1 = {n_syn_branch_1}, syn_density_branch_2 = {n_syn_branch_2}")
-    
     return np.abs(n_syn_branch_1 - n_syn_branch_2)
-
 
 def compute_edge_attributes_locally(G,
                                           limb_obj,
                                          nodes_to_compute,
                                          edge_functions,
                                          arguments_for_all_edge_functions = None,
-                                         verbose=False,
+                                         
                                          directional = False,
                                          set_default_at_end = True,
                                          default_value_at_end = None,
@@ -570,13 +492,9 @@ def compute_edge_attributes_locally(G,
     for n in nodes_to_compute:
         func_value_dict[n] = dict()
         down_nodes = neighbors_func(G,n)
-        if verbose:
-            print(f"Working on node {n}")
 
         for d in down_nodes:
             func_value_dict[n][d] = dict()
-            if verbose:
-                print(f"   Neighbor {d}")
             for func_name,func_info in edge_functions.items():
                 if not callable(func_info):
                     func = func_info["function"]
@@ -597,8 +515,6 @@ def compute_edge_attributes_locally(G,
                 
                 func_value = func(limb_obj,n,d,**func_args)
             
-                if verbose:
-                    print(f"      {func_name}: {func_value}")
                 func_value_dict[n][d][func_name] = func_value
     
     xu.apply_edge_attribute_dict_to_graph(G,func_value_dict)
@@ -626,7 +542,6 @@ def compute_edge_attributes_locally_upstream_downstream(
             synapse_density_diff_type = "synapse_density_pre",
             n_synapses_diff_type = "synapses_pre",
             
-    
     ):
     """
     To compute a graph storing the values for the
@@ -695,22 +610,14 @@ def compute_edge_attributes_locally_upstream_downstream(
                                              directional = False)
     return G_e_2
                 
-                
 # --------- For the global deleteion functions ------------
-
-            
-
-
-
-
-
 
 def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
                                                          branch_1_idx,
                                                          branch_2_idx,
                                                          branch_1_type = "upstream",
                                                          branch_2_type = "downstream",
-                                                        verbose = False,
+                                                        
                                                         offset=1500,
                                                         min_comparison_distance = 1000,
                                                         comparison_distance = 2000,
@@ -732,7 +639,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
     branch_2_idx = 224,
         plot_extracted_skeletons = True
     )
-    
     
     Ex: 
     branch_idx = 140
@@ -767,7 +673,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
                                                                 offset=offset,
                                                                 comparison_distance=comparison_distance,
                                                                 min_comparison_distance=min_comparison_distance,
-                                                                verbose=verbose,
                                                                 start_coordinate=b_endpt,
                                                                 skeleton_resolution = skeleton_resolution,
                                                                 nodes_to_exclude = nodes_to_exclude)
@@ -778,7 +683,6 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
                                                                 offset=offset,
                                                                 comparison_distance=comparison_distance,
                                                                 min_comparison_distance=min_comparison_distance,
-                                                                verbose=verbose,
                                                                 start_coordinate=b_endpt,
                                                                 skeleton_resolution = skeleton_resolution,
                                                                 nodes_to_exclude=nodes_to_exclude)
@@ -787,16 +691,12 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
                                                    offset=offset,
                                                 comparison_distance=comparison_distance,
                                                     min_comparison_distance=min_comparison_distance,
-                                                verbose=verbose,
                                                  start_coordinate=b_endpt,
                                                                   skeleton_resolution = skeleton_resolution
                                                    )
         output_sk.append(curr_sk)
         endpoints.append(b_endpt)
         
-        if verbose:
-            print(f"{b_type} {b_idx} endpoint: {b_endpt}")
-
     up_sk = output_sk[0]
     d_sk = output_sk[1]
     
@@ -817,18 +717,11 @@ def find_parent_child_skeleton_angle_upstream_downstream(limb_obj,
 #                                                    )
 
     curr_angle = sk.parent_child_skeletal_angle(up_sk,d_sk)
-    if verbose:
-        print(f"curr_angle = {curr_angle}")
         
-
     return curr_angle
 
-    
 def ray_trace_perc(branch_obj,percentile=85):
     return tu.mesh_size(branch_obj.mesh,'ray_trace_percentile',percentile)
-
-
-
 
 # ---------------- Getting Attributes Using the concept network walking ----------- #
 
@@ -849,7 +742,6 @@ def skeleton_downstream(limb_obj,
                             branch_idx,
                             nodes_to_exclude=nodes_to_exclude,
                                          **kwargs)
-
 
 def skeletal_length_upstream(limb_obj,
                             branch_idx,
@@ -968,14 +860,13 @@ def n_synapses_downstream_total(limb_obj,
                             branch_idx,
                                        **kwargs))
 
-
 def synapses_downstream_within_dist(limb_obj,
                             branch_idx,
                             synapse_type="synapses",
                             distance = 5000,
                                     
                             plot_synapses = False,
-                            verbose = False,
+                            
                             **kwargs,):
     """
     purpose: to find thenumber of downstream
@@ -992,8 +883,6 @@ def synapses_downstream_within_dist(limb_obj,
                             synapse_type=synapse_type,
                                         **kwargs
                            )
-    if verbose:
-        print(f"# of postsyns = {len(post_syns)}")
 
     return post_syns
 
@@ -1001,34 +890,27 @@ def synapses_post_downstream_within_dist(limb_obj,
                             branch_idx,
                             distance = 5000,
                             plot_synapses = False,
-                            verbose = False,
+                            
                             **kwargs,):
     return synapses_downstream_within_dist(limb_obj,
                             branch_idx,
                             synapse_type="synapses_post",
                             distance = distance,
                             plot_synapses = plot_synapses,
-                            verbose = verbose,
                             **kwargs,)
 
 def synapses_pre_downstream_within_dist(limb_obj,
                             branch_idx,
                             distance = 5000,
                             plot_synapses = False,
-                            verbose = False,
+                            
                             **kwargs,):
     return synapses_downstream_within_dist(limb_obj,
                             branch_idx,
                             synapse_type="synapses_pre",
                             distance = distance,
                             plot_synapses = plot_synapses,
-                            verbose = verbose,
                             **kwargs,)
-
-
-
-
-
 
 def fork_divergence(limb_obj,
     branch_idx,
@@ -1067,7 +949,6 @@ def fork_divergence(limb_obj,
 
     """
 
-
     upstream_node = branch_idx
 
     if downstream_idxs is None:
@@ -1075,16 +956,11 @@ def fork_divergence(limb_obj,
     else:
         downstream_nodes = downstream_idxs
 
-    if verbose:
-        print(f"downstream_nodes = {downstream_nodes}")
-
     upstream_sk = limb_obj[upstream_node].skeleton
     downstream_sk = [cnu.skeleton_downstream(limb_obj,d,distance=skeleton_distance)
                      for d in downstream_nodes]
 
-
     return_value = None
-
 
     if error_not_2_downstream and len(downstream_nodes) != 2:
         raise Exception(f"Not exactly 2 downstream nodes: {downstream_nodes}")
@@ -1096,23 +972,12 @@ def fork_divergence(limb_obj,
         d_skeletal_len = np.array([nru.skeletal_length_over_downstream_branches(limb_obj,
                                                 d,
                                                 verbose=False) for d in downstream_nodes])
-        if verbose:
-            print(f"skeletal length = {d_len}")
-            print(f"downstream skeletal length = {d_skeletal_len}")
 
         below_threshold = np.where((d_skeletal_len<total_downstream_skeleton_length_threshold) | 
                                    (d_len < individual_branch_length_threshold))[0]
         if len(below_threshold) > 0:
-            if verbose:
-                print(f"Skipping this intersection because some of downstream skeletal lengths too short (min {total_downstream_skeleton_length_threshold}):")
-                print(f" or the individual branch length was too short (min {individual_branch_length_threshold})")
-                for j,(d,d_len) in enumerate(zip(downstream_nodes,d_skeletal_len)):
-                    if j in below_threshold:
-                        print(f"Brnach {d}: length {d_len}")
 
             return_value = skip_value
-
-
 
     if return_value is None:
         return_value = nst.fork_divergence_from_skeletons(upstream_skeleton = upstream_sk,
@@ -1123,15 +988,11 @@ def fork_divergence(limb_obj,
                                 combining_function = combining_function,
                                                              verbose=verbose)
 
-    if verbose:
-        print(f"return_value = {return_value}")
-        
     return return_value
 
 def compute_node_attributes(G,
                             limb_obj,
-                            node_functions,
-                           verbose = False):
+                            node_functions):
     """
     Purpose: To Compute node attributes given:
     - function
@@ -1140,7 +1001,6 @@ def compute_node_attributes(G,
 
     Each of this will be stored in a list of dictionaries
     """
-
 
     G_nodes = list(G.nodes())
     att_dict = dict([(k,dict()) for k in G_nodes])
@@ -1155,9 +1015,6 @@ def compute_node_attributes(G,
         args = f_info.get("arguments",dict())
         default = f_info.get("default",None)
         
-        if verbose:
-            print(f"Working on {f_name} with args = {args}")
-
         nodes_not_compute = np.setdiff1d(G_nodes,nodes_to_compute)
 
         for n in nodes_to_compute:
@@ -1171,7 +1028,6 @@ def compute_node_attributes(G,
 
     xu.set_node_attributes_dict(G,att_dict)
     return G
-
 
 def node_functions_default(upstream_branch,
                    downstream_branches,
@@ -1244,27 +1100,14 @@ def compute_node_attributes_upstream_downstream(G,
                             node_functions=node_functions,
                            verbose = verbose)
     
-    if verbose:
-        print(xu.node_df(G))
-        
     return G
 
-
-
-
-    
-
-
-
 # ------------ New Filter: 7/8 ----------
-
-
-
 
 def distance_from_soma(limb_obj,
                       branch_idx,
                       include_node_skeleton_dist = False,
-                      verbose = False,
+                      
                       **kwargs):
     """
     Purpose: To find the distance away from the soma
@@ -1287,20 +1130,10 @@ def distance_from_soma(limb_obj,
     return_value = [nru.sum_feature_over_branches(limb_obj,k,
                                                  feature_name = "skeletal_length") for k in branch_paths]
     
-    if verbose:
-        print(f"branch_paths = {branch_paths}")
-        print(f"Path lengths = {return_value}")
-        
-        
     if singular_flag:
         return_value = return_value[0]
         
     return return_value
-
-
-
-
-                            
 
 # ------------- 7/28: for apical -----------------
 
@@ -1311,7 +1144,7 @@ def skeleton_perc_dist_match_ref_vector(limb_obj,
     reference_vector = np.array([0,-1,0]),
     skeleton_resize_distance = 8000,
     plot_branch = False,
-    verbose = False,
+    
     **kwargs):
     """
     Purpose: 
@@ -1328,7 +1161,6 @@ def skeleton_perc_dist_match_ref_vector(limb_obj,
 
     """
 
-
     branch_obj = limb_obj[branch_idx]
 
     #branch_obj
@@ -1341,11 +1173,7 @@ def skeleton_perc_dist_match_ref_vector(limb_obj,
                                               start_endpoint_coordinate=nru.upstream_endpoint(limb_obj,branch_idx),
                                             segment_width=skeleton_resize_distance,
                                              plot_skeleton=False,
-                                              verbose=verbose,
                                               return_match_length = True)
-    if verbose:
-        print(f"perc_match = {perc_match}")
-        print(f"dist_match = {dist_match}")
         
     return perc_match,dist_match
 
@@ -1418,11 +1246,7 @@ def get_stat(obj,stat,**kwargs):
     else:
         return stat(obj,**kwargs)
     
-    
 # --------- Statisitcs for canddidates --------------
-
-
-
 
 # ------- help with searching for labels -------------- #
 def upstream_node_is_apical_shaft(limb_obj,branch_idx,verbose,**kwargs):
@@ -1452,8 +1276,6 @@ def is_label_in_downstream_branches(limb_obj,
                          verbose = verbose)
     
     common_labels = np.intersect1d(downstream_labels,label)
-    if verbose:
-        print(f"common_labels= {common_labels}")
         
     if len(common_labels) > 0:
         return True
@@ -1463,7 +1285,7 @@ def is_label_in_downstream_branches(limb_obj,
 def is_apical_shaft_in_downstream_branches(limb_obj,
                                     branch_idx,
                                     all_downstream_nodes = False,
-                                     verbose = False,
+                                     
                                    **kwargs):
     """
     Ex: 
@@ -1473,13 +1295,12 @@ def is_apical_shaft_in_downstream_branches(limb_obj,
                                     branch_idx,
                                     label="apical_shaft",
                                     all_downstream_nodes = all_downstream_nodes,
-                                     verbose = verbose,
                                    )
 
 def is_axon_in_downstream_branches(limb_obj,
                                     branch_idx,
                                     all_downstream_nodes = False,
-                                     verbose = False,
+                                     
                                    **kwargs):
     """
     Ex: 
@@ -1489,14 +1310,9 @@ def is_axon_in_downstream_branches(limb_obj,
                                     branch_idx,
                                     label="axon",
                                     all_downstream_nodes = all_downstream_nodes,
-                                     verbose = verbose,
                                    )
 
-
 # ---------- Functions over upstream and downstream branches ----------- #
-
-
-
 
 def stats_dict_over_limb_branch(
     neuron_obj,
@@ -1524,7 +1340,6 @@ def stats_dict_over_limb_branch(
     s_dict = {k:nru.sum_feature_over_limb_branch_dict(neuron_obj,
                                                    limb_branch_dict,
                                                    feature=k) for k in stats_to_compute}
-
 
     return s_dict
 
@@ -1557,8 +1372,6 @@ def features_from_neuron_skeleton_and_soma_center(
         skeleton_aligned = None 
         soma_center = neuron_obj["S0"].mesh_center
     
-        
-    
     return features_from_skeleton_and_soma_center(
     skeleton,
     soma_center = soma_center,#neuron_obj["S0"].mesh_center,
@@ -1572,7 +1385,7 @@ def features_from_skeleton_and_soma_center(
     short_threshold = 6000,
     long_threshold = 100000,
     volume_divisor = 1_000_000_000_000_000,#(10**14),
-    verbose = False,
+    
     name_prefix = None,
     features_to_exclude = None,
     skeleton_aligned = None,
@@ -1624,10 +1437,6 @@ def features_from_skeleton_and_soma_center(
         n_medium_branches = np.sum((sk_branches_dist<=long_threshold) & 
                                   (sk_branches_dist>=short_threshold))
 
-        if verbose:
-            print(f"Total Number of Branches = {(n_branches)}")
-            print(f"n_short_branches = {n_short_branches}, n_medium_branches = {n_medium_branches}, n_long_branches = {n_long_branches}")
-
         # calculating the skeletal lengths
         if in_um:
             divisor = 1000
@@ -1638,28 +1447,13 @@ def features_from_skeleton_and_soma_center(
         axon_branch_length_median = np.median(sk_branches_dist)/divisor
         axon_branch_length_mean = np.mean(sk_branches_dist)/divisor
 
-        if verbose:
-            print(f"axon_length = {axon_length}, axon_branch_length_median = {axon_branch_length_median}, axon_branch_length_mean = {axon_branch_length_mean}")
-
         bbox_volume = sk.bbox_volume(skeleton)/volume_divisor
         bbox_corners = sk.bounding_box_corners(skeleton)
         bbox_corners_soma_relative = bbox_corners - soma_center
         if skeleton_aligned is not None:
-            if verbose:
-                print(f"Using skeleton aligned")
-                print(f"Previous bbox_corners_soma_relative = {bbox_corners_soma_relative}")
             bbox_corners_aligned = sk.bounding_box_corners(skeleton_aligned)
             bbox_corners_soma_relative = bbox_corners_aligned - soma_center
-            if verbose:
-                print(f"NEW ALIGNED bbox_corners_soma_relative = {bbox_corners_soma_relative}")
             
-
-        if verbose:
-            print(f"bbox_volume = {bbox_volume}")
-            print(f"bbox_corners = {bbox_corners}")
-            print(f"bbox_corners_soma_relative = {bbox_corners_soma_relative}")
-
-
         axon_dict = dict(
 
                         length = axon_length,
@@ -1693,22 +1487,9 @@ def features_from_skeleton_and_soma_center(
     if name_prefix is not None:
         axon_dict = {f"{name_prefix}_{k}":v for k,v in axon_dict.items()}
         
-    
-    
     return axon_dict
 
-
-
-
-
-
-    
-    
-    
 #-------------- 12/9 Developed for work with cell typing -----------------
-            
-            
-    
             
 def centroid_stats_from_neuron_obj(neuron_obj,
                                   voxel_adjustment_vector=None,
@@ -1739,11 +1520,10 @@ def centroid_stats_from_neuron_obj(neuron_obj,
         
     return return_dict
     
-
 def skeleton_stats_from_neuron_obj(neuron_obj,
                                   include_centroids = True,
                                   voxel_adjustment_vector=None,
-                                  verbose= False,
+                                  
                                    limb_branch_dict = None,
                                    neuron_obj_aligned=None,
                                   ):
@@ -1760,7 +1540,6 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
 
     sk_dict_2 = features_from_neuron_skeleton_and_soma_center(
         neuron_obj,
-        verbose = verbose,
         limb_branch_dict=limb_branch_dict,
         features_to_exclude=("length","n_branches"),
         neuron_obj_aligned=neuron_obj_aligned,
@@ -1775,14 +1554,10 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
     
     return sk_dict
 
-        
-
-
-
 # --------------s / 9 ---------------
 def farthest_distance_from_skeleton_to_mesh(
     obj,
-    verbose = False,
+    
     plot = False,
     **kwargs
     ):
@@ -1802,7 +1577,6 @@ def farthest_distance_from_skeleton_to_mesh(
         obj.mesh,
         obj.skeleton,
         return_distance = True,
-        verbose = verbose,
         plot = plot,
     )
 
@@ -1818,9 +1592,6 @@ def limb_branch_from_stats_df(
     limb_to_branch = dict([(k,np.sort(limb_branch_pairings[:,1][np.where(limb_branch_pairings[:,0]==k)[0]]).astype("int")) 
                            for k in np.unique(limb_branch_pairings[:,0])])
     return limb_to_branch
-
-
-
 
 def neuron_stats(
     neuron_obj,
@@ -1848,7 +1619,6 @@ def neuron_stats(
         include_skeletal_stats = False
         include_centroids= True
 
-
     stats_dict = dict(
                     n_vertices = neuron_obj.n_vertices,
                     n_faces = neuron_obj.n_faces,
@@ -1859,7 +1629,6 @@ def neuron_stats(
                     max_soma_volume = neuron_obj.max_soma_volume,
                     max_soma_n_faces = neuron_obj.max_soma_n_faces,
                     max_soma_area = neuron_obj.max_soma_area,
-
 
                     n_not_processed_soma_containing_meshes = len(neuron_obj.not_processed_soma_containing_meshes),
                     n_error_limbs=neuron_obj.n_error_limbs,
@@ -1896,8 +1665,6 @@ def neuron_stats(
                     spine_volume_density_eligible=neuron_obj.spine_volume_density_eligible, #total_spine_volume/skeletal_length_eligible
                     spine_volume_per_branch_eligible=neuron_obj.spine_volume_per_branch_eligible, #total_spine_volume/n_spine_eligible_branche
 
-
-
     )
 
     if stats_to_ignore is not None:
@@ -1911,50 +1678,11 @@ def neuron_stats(
                                              )
         stats_dict.update(sk_dict)
 
-
     if include_centroids:
         cent_stats = centroid_stats_from_neuron_obj(neuron_obj,
                                                        voxel_adjustment_vector=voxel_adjustment_vector)
         stats_dict.update(cent_stats)
 
-
     return stats_dict
 
-
-
-
-    
-
-
 # -- 5/9 Addition for computing more statistics
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-#--- from neurd_packages ---
-# P3: dropped dead imports `branch_utils as bu` and `neuron_searching as ns` (0 uses) —
-# breaks the neuron_statistics<->branch_utils and neuron_statistics<->neuron_searching cycles.
-from . import concept_network_utils as cnu
-from . import neuron_utils as nru
-
-
-#--- from mesh_tools ---
-from mesh_tools import skeleton_utils as sk
-from mesh_tools import trimesh_utils as tu
-
-#--- from datasci_tools ---
-from datasci_tools import general_utils as gu
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
-from datasci_tools import numpy_utils as nu
-
