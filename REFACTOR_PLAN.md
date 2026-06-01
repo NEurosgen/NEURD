@@ -75,10 +75,26 @@ Backstop: `python -m pytest tests/unit/` (fast-gate, ~4s) после каждо�
 
 ---
 
+### ④·5 `neuron_statistics.py` — 1951 → 1679 LOC ✅ DONE (commit 42798c2)
+
+Импорты в шапку (dedup gu/np, numpy_dep→numpy; `nst` остаётся локальным cycle-breaker).
+Убраны 33 чистых print-`if verbose:` блока + пробросы; `verbose`-параметр снят у 19 функций,
+сохранён у 7 (реально используют). Метод — **AST-трансформер** (см. ниже), безопаснее регекспов.
+
 ### ⑤ Крупные файлы (отдельная сессия)
 
-`neuron_utils.py` (3485), `neuron.py` (3403), `preprocess_neuron.py` (4842), `spine_utils.py` (3380) —
+`neuron_utils.py` (3462), `neuron.py` (3423), `preprocess_neuron.py` (4734), `spine_utils.py` (3323) —
 только после того, как выработан ритм на малых. Риск выше: критический путь пайплайна.
+
+**AST-метод для verbose-чистки (выработан на concept_network/neuron_statistics):**
+1. `tokenize` → множество строк внутри multi-line строк (docstring/`'''`-блоки) — не трогать.
+2. `ast`: удалять `if verbose:`-блоки, только если тело «чистый print» (рекурсивно: лишь
+   Expr-print/Constant/Pass и циклы из них; никаких Assign/Return/Raise/With/Try).
+3. `verbose`-параметр снимать у функции, ТОЛЬКО если в её теле не осталось ни одного
+   `verbose` (Load) после удаления блоков и пробросов. Иначе оставить.
+4. Финальная AST-проверка: каждый оставшийся `verbose`(Load) имеет параметр в своей функции
+   (ловит NameError до тестов). Затем unit + integration.
+Backstop-комбо: `py_compile` + AST scope-check + `pytest tests/unit` + integration (~95s).
 
 ---
 
