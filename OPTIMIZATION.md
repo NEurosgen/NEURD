@@ -34,7 +34,7 @@ measure-first: профиль → захват эталона → секундн
 значит Poisson не нужен»). Но это вывод из **сломанного локального meshlab + microns-фикстуры,
 которой Poisson не нужен**. В Docker Poisson **работал**: чинил EM-меши (щели/само-контакты) в
 связную поверхность. Без него у сложных нейронов лимб-submesh распадается → краш в
-`preprocess_neuron.py:229 correspondence_1_to_1` («not just one mesh»). Не регрессия именно
+`preprocess_neuron.py:209 correspondence_1_to_1` («not just one mesh»). Не регрессия именно
 `optimize_segmentation` — `main` упал бы так же. Пример: `neuron_1830470325.off` (3.27М граней)
 падал; Docker давал 4 лимба + 214 спайнов (`H01_Seg/neuron_1830470325/`).
 
@@ -48,7 +48,7 @@ scale=1.1, iters=8), что форк удалил. Подключён в [__init
   параметры уже = Docker (см. ниже), а за Docker-точностью разбиения мы **решили не гнаться**
   (пользователь: «такое разбиение пойдёт», 11 лимбов ок). 4 лимба Docker = 2 крупных дерева
   (82+85 веток) + 2 огрызка; наши 11 = те же 2 дерева, распавшиеся на ~9 кусков. Лимбы режутся из
-  **исходного** меша минус грани сомы ([preprocess_neuron.py:3194](neurd/preprocess_neuron.py#L3194)),
+  **исходного** меша минус грани сомы (`_segment_limbs_from_soma`, [preprocess_neuron.py:2736](neurd/preprocess_neuron.py#L2736)),
   Poisson влияет на их число лишь косвенно (через какие грани = сома).
 - 🔴 **РЕГРЕССИЯ ВРЕМЕНИ 55→77 мин — это и есть «замена Poisson».** Большой `1830470325`:
   open3d-Poisson (лёгкий) → **53 мин / 18 лимбов**; pymeshlab MeshLab-Poisson depth=11 (тяжёлый,
@@ -79,7 +79,7 @@ KMeans её не даёт → **0 спайнов на ВСЕХ нейронах*
 | Скелетонизация (meshparty, в потоках) | скромно | НЕ доминанта |
 
 ✅ **СДЕЛАНО — объём сомы (`7918ffc`, −35s wall на малом H01: 146.8→112.2s, вывод побайтово
-тот же 5 лимбов/28 веток):** `soma_volumes` ([preprocess_neuron.py:4268](neurd/preprocess_neuron.py#L4268))
+тот же 5 лимбов/28 веток):** `soma_volumes` ([preprocess_neuron.py:2916](neurd/preprocess_neuron.py#L2916))
 питает только `Soma.volume` (стат суммарного объёма + `Soma.__eq__`), НЕ декомпозицию. Дефолтный
 `mesh_volume` watertight-ит через `fill_mesh_holes_with_fan` (~46s на большой соме) и **сам падает
 на convex_hull**, если fan не сомкнул — поэтому берём `mesh_volume(..., watertight_method="convex_hull")`
@@ -315,7 +315,7 @@ self-time: **`networkx.add_edges_from` 9.7s self (2775 вызовов)** вну�
 | 1 | ~~fill_holes → no-op~~ | `__init__.py` | — | ✅ **СДЕЛАНО** (`5aca8c0`) |
 | 2 | **Decimator → open3d/pymeshlab** | патч `__init__.py` | низко (fidelity ✓) | **держим** — output-changing: меняет сому (median 0.533→0.479), −12s на малом / **−146s на большом**. Прототип был, откатан. Судить против baseline |
 | 3 | **remove_interior** (meshlab `Interior`) | соме-стадия | высоко | реальная операция (не no-op!) — in-process через pymeshlab/рейкастинг (open3d RaycastingScene). **−100s на большом** |
-| 4 | ~~**Объём сомы (fill_mesh_holes_with_fan)**~~ | `preprocess_neuron.py:4268` | — | ✅ **СДЕЛАНО** (`7918ffc`) — convex_hull, −35s малый |
+| 4 | ~~**Объём сомы (fill_mesh_holes_with_fan)**~~ | `preprocess_neuron.py:2916` | — | ✅ **СДЕЛАНО** (`7918ffc`) — convex_hull, −35s малый |
 | 5 | ~~**Шипики — параллелизация**~~ | — | — | ⛔ **ЗАБРОШЕНО:** шипики выпилены целиком (`calculate_spines=False`, см. §0). Стенки про fork/deadlock ниже — историческая справка |
 | 6 | ~~**RAM** (deepcopy/кэши)~~ | `neuron.py` | — | ✅ **СДЕЛАНО** (`fedde35`, `2a86407`, `3643d3e`) — live-size 458 МБ → 78 МБ |
 
