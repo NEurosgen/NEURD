@@ -46,22 +46,6 @@ def parent_skeletal_angle(
     )
 
 
-def parent_skeletal_angle_extra_offset(
-    limb_obj,
-    branch_idx,
-    verbose=False,
-    default_value=None,
-    skeletal_angle_attr="skeleton_vector_[dir]",
-    **kwargs,
-):
-    return parent_skeletal_angle(
-        limb_obj,
-        branch_idx,
-        verbose=verbose,
-        default_value=default_value,
-        skeletal_angle_attr="skeleton_vector_[dir]_extra_offset",
-        **kwargs,
-    )
 
 
 # set_limb_functions_for_search needs the module object — reference via sys.modules.

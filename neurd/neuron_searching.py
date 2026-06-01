@@ -15,7 +15,6 @@ branch idx to a
 '''
 import copy
 from copy import deepcopy
-import networkx as nx
 import pandas as pd
 import re
 import sys
@@ -125,10 +124,6 @@ def n_boutons(branch,limb_name=None,branch_name=None,**kwargs):
     return nru.n_boutons(branch)
 
 
-@run_options(run_type="Branch")
-def n_boutons_above_thresholds(branch,limb_name=None,branch_name=None,**kwargs):
-    return len(nru.boutons_above_thresholds(branch,
-                                          return_idx=True,**kwargs))
     
 
 # ---------- new possible widths ----------------- #
@@ -178,13 +173,7 @@ def labels(branch,limb_name=None,branch_name=None,**kwargs):
 
 
 
-@run_options(run_type="Branch")
-def is_axon_like(branch,limb_name=None,branch_name=None,**kwargs):
-    return "axon-like" in branch.labels
 
-@run_options(run_type="Branch")
-def is_axon_like(branch,limb_name=None,branch_name=None,**kwargs):
-    return "axon-like" in branch.labels
 
 
 
@@ -876,23 +865,6 @@ def axon_segment_clean_false_positives(curr_limb,
     
 # --------- 1/15: Additions to help find axon -----------------#
 
-@run_options(run_type="Limb")
-def soma_starting_angle(curr_limb,limb_name=None,**kwargs):
-    """
-    will compute the angle in degrees from the vector pointing
-    straight to the volume and the vector pointing from 
-    the middle of the soma to the starting coordinate of the limb
-    
-    """
-    print_flag = kwargs.get("verbose",False)
-    curr_soma_angle = nst.soma_starting_angle(limb_obj=curr_limb,
-                        soma_center = kwargs["soma_center"],
-                        )
-    
-    if print_flag:
-        print(f"Limb {limb_name} soma angle: {curr_soma_angle} ")
-        
-    return curr_soma_angle
     
 
 
@@ -1366,16 +1338,6 @@ def query_neuron(
         
         
 
-@run_options(run_type="Limb")
-def n_downstream_nodes(curr_limb,limb_name=None,nodes_to_exclude=None,**kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        curr_downstream_nodes = xu.downstream_nodes(curr_limb.concept_network_directional,b)
-        if nodes_to_exclude is not None:
-            curr_downstream_nodes = np.setdiff1d(curr_downstream_nodes,nodes_to_exclude)
-        output_dict[b] = len(curr_downstream_nodes)
-        
-    return output_dict
 
 
 
@@ -1393,70 +1355,7 @@ def n_downstream_nodes(curr_limb,limb_name=None,nodes_to_exclude=None,**kwargs):
 
 #raise Exception("Need to fix all of the relational skeletal angles")
 
-@run_options(run_type="Limb")
-def parent_angle(
-    curr_limb,
-    limb_name=None,
-    comparison_distance = comparison_distance_global,
-    angle_func_type = "parent_skeletal_angle",
-    skeleton_attribute = "skeleton",
-    **kwargs):
-    """
-    Will return the angle between the current node and the parent
-    """
-    from neurd import limb_utils as lu
-    output_dict = dict()
-    
-    
-    for b in curr_limb.get_branch_names():
-        #print(f"b = {b}")
-        try:
-#             parent_angle = nru.find_parent_child_skeleton_angle(curr_limb,
-#                                             b,comparison_distance=comparison_distance,
-#                                                                **kwargs)
-            if angle_func_type == "parent_skeletal_angle":
-                parent_angle = lu.parent_skeletal_angle(curr_limb,b,default_value=0,skeleton_attribute=skeleton_attribute)
-            elif angle_func_type == "parent_angle_extra_offset":
-                parent_angle = lu.parent_skeletal_angle_extra_offset(curr_limb,b,default_value=0,skeleton_attribute=skeleton_attribute)
-            elif angle_func_type == "parent_angle_extra_offset_min":
-                p_angle = lu.parent_skeletal_angle(curr_limb,b,default_value=0,skeleton_attribute=skeleton_attribute)
-                p_angle_offset = lu.parent_skeletal_angle_extra_offset(curr_limb,b,default_value=0,skeleton_attribute=skeleton_attribute)
-                #print(f"    p_angle = {p_angle},p_angle_offset={p_angle_offset}")
-                parent_angle = min(p_angle,p_angle_offset)
-                #print(f"    parent_angle = {parent_angle}")
-            else:
-                raise Exception(f"unknown angle_func_type = {angle_func_type}")
-        except:
-            parent_angle = 0
-            
-        output_dict[b] = parent_angle
-            
-    return output_dict
 
-@run_options(run_type="Limb")
-def parent_angle_extra_offset(
-    curr_limb,
-    limb_name=None,
-    comparison_distance = comparison_distance_global,
-    **kwargs):
-    """
-    Will return the angle between the current node and the parent
-    """
-    from neurd import limb_utils as lu
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        try:
-#             parent_angle = nru.find_parent_child_skeleton_angle(curr_limb,
-#                                             b,comparison_distance=comparison_distance,
-#                                                                **kwargs)
-            parent_angle = lu.parent_skeletal_angle_extra_offset(curr_limb,b,default_value=0)
-        except:
-            parent_angle = 0
-            
-        
-        output_dict[b] = parent_angle
-            
-    return output_dict
 
 
 
@@ -1471,15 +1370,6 @@ def parent_angle_extra_offset(
 #     return output_dict
 
 
-@run_options(run_type="Limb")
-def children_skeletal_lengths_min(curr_limb,limb_name=None,
-                    width_maximum=75,
-               **kwargs):
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        output_dict[b] = nst.children_skeletal_lengths_min(curr_limb,b)
-        
-    return output_dict
 
 
 
@@ -1497,28 +1387,6 @@ def skeletal_length_downstream(curr_limb,limb_name=None,
 
 
 
-@run_options(run_type="Limb")
-def fork_divergence(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    """
-    The winning threshold appears to be 165
-    
-    """
-    output_dict = dict()
-    for b in curr_limb.get_branch_names():
-        if limb_branch_dict_restriction is not None:
-            if b not in limb_branch_dict_restriction[limb_name]:
-                output_dict[b] = None
-                continue
-        #print(f"b = {b}")
-        div = nst.fork_divergence_from_branch(branch_idx = b,
-                limb_obj = curr_limb,
-                verbose = False,
-                plot_fork_skeleton = False,
-                **kwargs)
-        output_dict[b] = div
-    return output_dict
 
 
 
@@ -1571,117 +1439,23 @@ def total_upstream_skeletal_length(curr_limb,limb_name=None,
 
 
 # ----------- 6/21: v6 statistics -----------
-@run_options(run_type="Limb")
-def downstream_nodes_mesh_connected(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(cnu.downstream_nodes_mesh_connected,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
 # --------- 7/19: Helping with the new E/I classification --------
 
-@run_options(run_type="Limb")
-def distance_from_soma(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.distance_from_soma,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
 
 # ------- functions for apical classification ---------#
-@run_options(run_type="Limb")
-def skeleton_dist_match_ref_vector(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.skeleton_dist_match_ref_vector,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def skeleton_perc_match_ref_vector(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.skeleton_perc_match_ref_vector,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
-
-@run_options(run_type="Limb")
-def upstream_node_has_label(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nru.upstream_node_has_label,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
 
-@run_options(run_type="Limb")
-def upstream_node_is_apical_shaft(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.upstream_node_is_apical_shaft,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
-@run_options(run_type="Limb")
-def is_apical_shaft_in_downstream_branches(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.is_apical_shaft_in_downstream_branches,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
-@run_options(run_type="Limb")
-def is_axon_in_downstream_branches(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.is_axon_in_downstream_branches,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
+
+
 
 
 
 # ------------------ 2/9 autoproofredaing of human ---------
-@run_options(run_type="Branch")
-def farthest_distance_from_skeleton_to_mesh(curr_branch,name=None,branch_name=None,**kwargs):
-    return nst.farthest_distance_from_skeleton_to_mesh(curr_branch,
-                                                            **kwargs)
 
-@run_options(run_type="Limb")
-def is_branch_mesh_connected_to_neighborhood(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nru.is_branch_mesh_connected_to_neighborhood,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 @run_options(run_type="Branch")
 def closest_mesh_skeleton_dist(curr_branch,name=None,branch_name=None,**kwargs):
     return bu.closest_mesh_skeleton_dist(curr_branch)
@@ -1691,16 +1465,6 @@ def area(curr_branch,name=None,branch_name=None,**kwargs):
     return curr_branch.area
 
 # ------------- skeletal angles -------------
-@run_options(run_type="Limb")
-def is_branch_mesh_connected_to_neighborhood(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nru.is_branch_mesh_connected_to_neighborhood,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
 
 def set_limb_functions_for_search(
@@ -1758,7 +1522,6 @@ def set_limb_functions_for_search(
 
 #--- from neurd_packages ---
 from . import branch_utils as bu
-from . import concept_network_utils as cnu
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
 
@@ -1766,7 +1529,6 @@ from . import width_utils as wu
 
 #--- from mesh_tools ---
 from mesh_tools import skeleton_utils as sk
-from mesh_tools import trimesh_utils as tu
 
 #--- from datasci_tools ---
 from datasci_tools import networkx_utils as xu

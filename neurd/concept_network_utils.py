@@ -3,8 +3,6 @@ import sys as _sys
 import networkx as nx
 import numpy as np
 
-from mesh_tools import skeleton_utils as sk
-from mesh_tools import trimesh_utils as tu
 from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_utils as nu
 from . import neuron_utils as nru
@@ -107,8 +105,6 @@ def branches_within_distance_downstream(limb_obj,
 
 #find all end nodes within a downstream threshold
 
-def branches_with_parent_branching(limb_obj):
-    return xu.nodes_with_parent_branching(limb_obj.concept_network_directional)
 
 def subgraph_around_branch(limb_obj,
                            branch_idx,
@@ -358,106 +354,9 @@ def attribute_upstream_downstream(limb_obj,
     else:
         return down_attr_concat
 
-def downstream_nodes_mesh_connected(limb_obj,branch_idx,
-                                   n_points_of_contact = None,
-                                    downstream_branches=None):
-    """
-    Purpose: will determine if at least N number of points of
-    contact between the upstream and downstream meshes
-    
-    Ex: 
-    nst.downstream_nodes_mesh_connected(limb_obj,147,
-                               verbose=True)
-    """
-    upstream_node = branch_idx
-    if downstream_branches is None:
-        downstream_nodes = cnu.downstream_nodes(limb_obj,upstream_node)
-    else:
-        downstream_nodes = downstream_branches
-    
-    if n_points_of_contact is None:
-        n_points_of_contact = len(downstream_nodes)
-    conn_array = tu.mesh_list_connectivity(meshes=[limb_obj[k].mesh for k in [upstream_node] + list(downstream_nodes) ],
-                             main_mesh = limb_obj.mesh)
-    #intersect_array = nu.intersect2d(conn_array,np.array([[0,1],[0,2]]))
-    
-    if len(conn_array) >= n_points_of_contact:
-        return True
-    else:
-        return False
 
-def skeleton_upstream_downstream(limb_obj,
-                       branch_idx,
-                                 direction,
-                       distance = np.inf,
-                       only_non_branching=True,
-                        include_branch_idx = True,
-                        include_branch_in_dist=True,
-                        plot_skeleton = False,
-                        **kwargs
-                       ):
-    """
-    Purpose: To get the downstream skeleton of a branch
-    
-    Ex: 
-    skel = downstream_skeleton(limb_obj,
-                    96,
-                           only_non_branching_downstream = False,
-                           downstream_distance = 30000
-                   )
 
-    """
-    
-    skel = cnu.attribute_upstream_downstream(limb_obj = limb_obj,
-    branch_idx = branch_idx,
-    attribute_name = "skeleton",
-    direction = direction,
-    concat_func = sk.stack_skeletons,
-    include_branch_idx=include_branch_idx,
-    include_branch_in_dist = include_branch_in_dist,
-    distance = distance,
-    only_non_branching = only_non_branching,
-     **kwargs)
 
-    return skel
-
-def skeleton_downstream(limb_obj,
-                       branch_idx,
-                       distance = np.inf,
-                       only_non_branching=True,
-                        include_branch_idx = True,
-                        include_branch_in_dist = True,
-                        plot_skeleton = False,
-                        **kwargs
-                       ):
-    return skeleton_upstream_downstream(limb_obj,
-                       branch_idx,
-                        direction="downstream",
-                       distance = distance,
-                       only_non_branching=only_non_branching,
-                        include_branch_idx = include_branch_idx,
-                        include_branch_in_dist = include_branch_in_dist,
-                        plot_skeleton = plot_skeleton,
-                        **kwargs
-                       )
-
-def skeleton_upstream(limb_obj,
-                       branch_idx,
-                       distance = np.inf,
-                       only_non_branching=True,
-                        include_branch_idx = True,
-                        plot_skeleton = False,
-                        **kwargs
-                       ):
-    return skeleton_upstream_downstream(limb_obj,
-                       branch_idx,
-                        direction="upstream",
-                       distance = distance,
-                       only_non_branching=only_non_branching,
-                        include_branch_idx = include_branch_idx,
-                        plot_skeleton = plot_skeleton,
-                        **kwargs
-                       )
 
 def synapses_upstream_downstream(limb_obj,
                        branch_idx,
