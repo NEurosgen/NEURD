@@ -1,6 +1,5 @@
-from datasci_tools import networkx_utils as xu
+
 import numpy as np
-from datasci_tools import numpy_utils as nu
 from mesh_tools import compartment_utils as cu
 from mesh_tools import skeleton_utils as sk
 
@@ -93,96 +92,6 @@ def calculate_new_width(
     return total_distances
 
 
-def find_mesh_width_array_border(
-    curr_limb,
-    node_1,
-    node_2,
-    width_name="no_spine_median_mesh_center",
-    segment_start=1,
-    segment_end=4,
-    skeleton_segment_size=None,
-    width_segment_size=None,
-    recalculate_width_array=False,
-    default_segment_size=1000,
-    no_spines=True,
-    summary_measure="mean",
-    **kwargs,
-):
-    """Return the width sub-arrays at the boundary between two connected branches."""
-    if node_2 not in xu.get_neighbors(curr_limb.concept_network, node_1):
-        raise Exception(
-            f"Node_1 ({node_1}) and Node_2 ({node_2}) are not connected in the concept network"
-        )
-
-    branch_obj_1 = curr_limb.concept_network.nodes[node_1]["data"]
-    branch_obj_2 = curr_limb.concept_network.nodes[node_2]["data"]
-
-    branch_obj_1.order_skeleton_by_smallest_endpoint()
-    branch_obj_2.order_skeleton_by_smallest_endpoint()
-
-    if skeleton_segment_size is not None or recalculate_width_array:
-        if "mesh_center" in width_name:
-            distance_by_mesh_center = True
-        else:
-            distance_by_mesh_center = False
-
-        if ("no_spine" in width_name) or no_spines:
-            no_spines = True
-
-        if skeleton_segment_size is None:
-            skeleton_segment_size = default_segment_size
-
-        if not nu.is_array_like(skeleton_segment_size):
-            skeleton_segment_size = [skeleton_segment_size]
-
-        if width_segment_size is None:
-            width_segment_size = skeleton_segment_size
-
-        if not nu.is_array_like(width_segment_size):
-            width_segment_size = [width_segment_size]
-
-        current_width_array_1, _ = calculate_new_width(
-            branch_obj_1,
-            skeleton_segment_size=skeleton_segment_size[0],
-            width_segment_size=width_segment_size[0],
-            distance_by_mesh_center=distance_by_mesh_center,
-            return_average=True,
-            print_flag=False,
-            no_spines=no_spines,
-            summary_measure=summary_measure,
-        )
-        current_width_array_2, _ = calculate_new_width(
-            branch_obj_2,
-            skeleton_segment_size=skeleton_segment_size[-1],
-            width_segment_size=width_segment_size[-1],
-            distance_by_mesh_center=distance_by_mesh_center,
-            no_spines=no_spines,
-            return_average=True,
-            print_flag=False,
-            summary_measure=summary_measure,
-        )
-    else:
-        current_width_array_1 = branch_obj_1.width_array[width_name]
-        current_width_array_2 = branch_obj_2.width_array[width_name]
-
-    end_1 = sk.find_branch_endpoints(branch_obj_1.skeleton)
-    end_2 = sk.find_branch_endpoints(branch_obj_2.skeleton)
-
-    node_connectivity = xu.endpoint_connectivity(end_1, end_2)
-
-    return_arrays = []
-    for j, current_width_array in enumerate([current_width_array_1, current_width_array_2]):
-        if len(current_width_array) < segment_end:
-            return_arrays.append(current_width_array)
-        else:
-            if node_connectivity[j] == 0:
-                return_arrays.append(current_width_array[segment_start:segment_end])
-            elif node_connectivity[j] == 1:
-                return_arrays.append(current_width_array[-segment_end:-segment_start])
-            else:
-                raise Exception("Node connectivity was not 0 or 1")
-
-    return return_arrays
 
 
 def calculate_new_width_for_neuron_obj(

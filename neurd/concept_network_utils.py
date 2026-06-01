@@ -11,6 +11,10 @@ cnu = _sys.modules[__name__]
 
 non_branching_upstream = False
 
+def skeletal_length_along_path(limb_obj,
+                              branch_path):
+    return np.sum([limb_obj[k].skeletal_length for k in branch_path])
+
 def distance_between_nodes_di(limb_obj,
                       start_idx,
                       destination_idx,
@@ -30,8 +34,7 @@ def distance_between_nodes_di(limb_obj,
     if branch_path is None:
         return np.inf
 
-    from neurd import neuron_statistics as nst  # P3: local import breaks concept_network_utils<->neuron_statistics cycle
-    return nst.skeletal_length_along_path(limb_obj,branch_path)
+    return skeletal_length_along_path(limb_obj,branch_path)
 
 def distance_between_nodes_di_upstream(limb_obj,
                       start_idx,

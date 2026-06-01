@@ -44,11 +44,11 @@ def segmentation_pipeline(
     Returns:
         neuron.Neuron — `.somas`, `.limbs[i].branches[j].mesh/.skeleton`.
     """
-    products = pipeline.PipelineProducts()
+    #products = pipeline.PipelineProducts()
 
     # --- Soma identification ---
-    soma_products = sm.soma_indentification(mesh, verbose=verbose, max_somas=max_somas)
-    products.set_stage_attrs(stage="soma_identification", attr_dict=soma_products)
+    #soma_products = sm.soma_indentification(mesh, verbose=verbose, max_somas=max_somas)
+    #products.set_stage_attrs(stage="soma_identification", attr_dict=soma_products)
 
     # --- Decomposition (skeletonization, branches, raw spine detection) ---
     # Mirrors process_all_neurons: build the Neuron straight from the mesh.
@@ -58,9 +58,9 @@ def segmentation_pipeline(
     neuron_obj = neuron.Neuron(
         mesh=mesh,
         segment_id=segment_id,
-        pipeline_products=products,
-        suppress_preprocessing_print=not verbose,
-        suppress_output=not verbose,
+       # pipeline_products=products,
+        #suppress_preprocessing_print=not verbose,
+        #suppress_output=not verbose,
     )
 
     return neuron_obj

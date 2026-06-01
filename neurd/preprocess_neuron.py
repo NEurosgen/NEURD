@@ -2912,1384 +2912,214 @@ def preprocess_limb(mesh,
     return limb_correspondence_individual,limb_to_soma_concept_networks
 
 
-'''
-
-
-
-def preprocess_neuron(
-                mesh=None,
-                mesh_file=None,
-                segment_id=None,
-                 description=None,
-                sig_th_initial_split=100, #for significant splitting meshes in the intial mesh split
-                limb_threshold = 2000, #the mesh faces threshold for a mesh to be qualified as a limb (otherwise too small)
     
-                filter_end_node_length=4000, #used in cleaning the skeleton during skeletonizations
-                return_no_somas = False, #whether to error or to return an empty list for somas
     
-                decomposition_type="meshafterparty",
-                distance_by_mesh_center=True,
-                meshparty_segment_size =100,
     
-                meshparty_n_surface_downsampling = 2,
-
-                somas=None, #the precomputed somas
-                combine_close_skeleton_nodes = True,
-                combine_close_skeleton_nodes_threshold=700,
-
-                use_meshafterparty=True):
-    pre_branch_connectivity = "edges"
-    print(f"use_meshafterparty = {use_meshafterparty}")
-    
-    whole_processing_tiempo = time.time()
 
 
+
+def _extract_single_soma(mesh, segment_id):
+    """Заменяет оригинальную Фазу 1 и 2. Ищет строго одну сому."""
+    (soma_mesh_list, _, total_soma_list_sdf, _, _) = sm.extract_soma_center(
+        segment_id, mesh.vertices, mesh.faces
+    )
+
+    if not soma_mesh_list:
+        raise ValueError(f"No soma found for segment {segment_id}")
+
+    main_soma = soma_mesh_list[0]
+    soma_sdf = total_soma_list_sdf[0]
+
+    return main_soma, soma_sdf
+
+def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     """
-    Purpose: To process the mesh into a format that can be loaded into the neuron class
-    and used for higher order processing (how to visualize is included)
-    
-    This method includes the fusion
+    Заменяет Фазу 3 (поиск кусков, касающихся сомы).
+    Вычитает сому из общего меша и находит точки соединения веток.
 
+    Returns:
+        branch_meshes: list of limb meshes touching the soma
+        floating_meshes: list of disconnected pieces
+        soma_touching_vertices: list, one entry per branch_mesh;
+            each entry is {soma_idx: [touching_vertex_array]} for preprocess_limb
     """
-    if description is None:
-        description = "no_description"
-    if segment_id is None:
-        #pick a random segment id
-        segment_id = np.random.randint(100000000)
-        print(f"picking a random 7 digit segment id: {segment_id}")
-        description += "_random_id"
+    soma_faces_idx = tu.original_mesh_faces_map(
+        original_mesh=main_mesh, submesh=soma_mesh, exact_match=False, matching=True
+    )
+    non_soma_mesh = main_mesh.submesh(
+        [np.delete(np.arange(len(main_mesh.faces)), soma_faces_idx)],
+        append=True, repair=False
+    )
 
+    sig_pieces, insignificant_limbs = tu.split_significant_pieces(
+        non_soma_mesh,
+        significance_threshold=params.size_threshold_MAP,
+        return_insignificant_pieces=True
+    )
 
-    if mesh is None:
-        if mesh_file is None:
-            raise Exception("No mesh or mesh_file file were given")
-        else:
-            current_neuron = tu.load_mesh_no_processing(mesh_file)
-    else:
-        current_neuron = mesh
-        
-        
-        
-        
-        
-        
-    # -------- Phase 1: Doing Soma Detection (if Not already done) ---------- #
-    if somas is None:
-        soma_mesh_list,run_time,total_soma_list_sdf = sm.extract_soma_center(segment_id,
-                                                 current_neuron.vertices,
-                                                 current_neuron.faces)
-    else:
-        soma_mesh_list,run_time,total_soma_list_sdf = somas
-        print(f"Using pre-computed somas: soma_mesh_list = {soma_mesh_list}")
-
-    # geting the soma centers
-    if len(soma_mesh_list) <= 0:
-        print(f"**** No Somas Found for Mesh {segment_id} so just one mesh")
-        soma_mesh_list_centers = []
-        if return_no_somas:
-            return_value= soma_mesh_list_centers
-        raise Exception("Processing of No Somas is not yet implemented yet")
-    else:
-        #compute the soma centers
-        print(f"Soma List = {soma_mesh_list}")
-
-        soma_mesh_list_centers = sm.find_soma_centroids(soma_mesh_list)
-        print(f"soma_mesh_list_centers = {soma_mesh_list_centers}")
-        
-        
-        
-        
-        
     
-    #--- Phase 2: getting the soma submeshes that are connected to each soma and identifiying those that aren't 
-    # ------------------ (and eliminating any mesh pieces inside the soma) ------------------------
+    connected_pieces, connected_vertices = tu.mesh_pieces_connectivity(
+        main_mesh=main_mesh, central_piece=soma_mesh, periphery_pieces=sig_pieces,
+        return_vertices=True
+    )
 
-    # -------- 11/13 Addition: Will remove the inside nucleus --------- #
-    interior_time = time.time()
-    main_mesh_total,inside_nucleus_pieces = tu.remove_mesh_interior(current_neuron,return_removed_pieces=True,
-                                                                   try_hole_close=False)
-    print(f"Total time for removing interior = {time.time() - interior_time}")
+    branch_meshes = [sig_pieces[i] for i in connected_pieces]
+    floating_meshes = [p for i, p in enumerate(sig_pieces) if i not in connected_pieces]
+    floating_meshes.extend(insignificant_limbs)
 
+    # Build per-limb soma_touching_vertices_dict: {0: [border_verts_array]}
+    soma_touching_vertices = [
+        {0: [connected_vertices[j]]} for j in range(len(connected_pieces))
+    ]
+    soma_to_piece_connectivity = {0: connected_pieces}
+    return branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity
 
-    #finding the mesh pieces that contain the soma
-    #splitting the current neuron into distinct pieces
-    split_time = time.time()
-    split_meshes = tu.split_significant_pieces(
-                                main_mesh_total,
-                                significance_threshold=sig_th_initial_split,
-                                print_flag=False,
-                                connectivity=pre_branch_connectivity)
-    print(f"Total time for splitting mesh = {time.time() - split_time}")
+def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
+    """Заменяет Фазу 4A (Скелетизация).
 
-    print(f"# total split meshes = {len(split_meshes)}")
-
-    #returns the index of the split_meshes index that contains each soma    
-    containing_mesh_indices = sm.find_soma_centroid_containing_meshes(soma_mesh_list,
-                                            split_meshes)
-
-    # filtering away any of the inside floating pieces: 
-    non_soma_touching_meshes = [m for i,m in enumerate(split_meshes)
-                     if i not in list(containing_mesh_indices.values())]
-
-    #Adding the step that will filter away any pieces that are inside the soma
-    if len(non_soma_touching_meshes) > 0 and len(soma_mesh_list) > 0:
-        """
-        *** want to save these pieces that are inside of the soma***
-        """
-
-        non_soma_touching_meshes,inside_pieces = sm.filter_away_inside_soma_pieces(soma_mesh_list,non_soma_touching_meshes,
-                                        significance_threshold=sig_th_initial_split,
-                                        return_inside_pieces = True)
-    
-    else:
-        non_soma_touching_meshes = []
-        inside_pieces=[]
-    
-    #adding in the nuclei center to the inside pieces
-    inside_pieces += inside_nucleus_pieces
-
-
-    split_meshes # the meshes of the original mesh
-    containing_mesh_indices #the mapping of each soma centroid to the correct split mesh
-    soma_containing_meshes = sm.grouping_containing_mesh_indices(containing_mesh_indices)
-
-    soma_touching_meshes = [split_meshes[k] for k in soma_containing_meshes.keys()]
-
-
-    #     print(f"# of non soma touching seperate meshes = {len(non_soma_touching_meshes)}")
-    #     print(f"# of inside pieces = {len(inside_pieces)}")
-    print(f"\n-----Before filtering away multiple disconneted soma pieces-----")
-    print(f"# of soma containing seperate meshes = {len(soma_touching_meshes)}")
-    print(f"meshes with somas = {soma_containing_meshes}")
-    
-    # ------ 11/15 Addition: Part 2.b 
-
+    Args:
+        soma_touching_vertices: list parallel to branch_meshes;
+            each element is soma_touching_vertices_dict for preprocess_limb
     """
-    Pseudocode: 
-    1) Get the largest of the meshes with a soma (largest in soma_touching_meshes)
-    2) Save all other meshes not the largest in 
-    3) Overwrite the following variables:
-        soma_mesh_list
-        soma_containing_meshes
-        soma_touching_meshes
-        total_soma_list_sdf
-
-
-    """
-    #1) Get the largest of the meshes with a soma (largest in soma_touching_meshes)
-    soma_containing_meshes_keys = np.array(list(soma_containing_meshes.keys()))
-    soma_touching_meshes = np.array([split_meshes[k] for k in soma_containing_meshes_keys])
-    largest_soma_touching_mesh_idx = soma_containing_meshes_keys[np.argmax([len(kk.faces) for kk in soma_touching_meshes])]
-
-    #2) Save all other meshes not the largest in 
-    not_processed_soma_containing_meshes_idx = np.setdiff1d(soma_containing_meshes_keys,[largest_soma_touching_mesh_idx])
-    not_processed_soma_containing_meshes = [split_meshes[k] for k in not_processed_soma_containing_meshes_idx]
-    print(f"Number of not_processed_soma_containing_meshes = {len(not_processed_soma_containing_meshes)}")
-
-    """
-    3) Overwrite the following variables:
-        soma_mesh_list
-        soma_containing_meshes
-        soma_touching_meshes
-        total_soma_list_sdf
-
-    """
-
-    somas_idx_to_process = soma_containing_meshes[largest_soma_touching_mesh_idx]
-    soma_mesh_list = [soma_mesh_list[k] for k in somas_idx_to_process]
-
-    soma_containing_meshes = {largest_soma_touching_mesh_idx:list(np.arange(0,len(soma_mesh_list)))}
-
-    soma_touching_meshes = [split_meshes[largest_soma_touching_mesh_idx]]
-
-    total_soma_list_sdf = total_soma_list_sdf[somas_idx_to_process]
-
-    print(f"\n-----After filtering away multiple disconneted soma pieces-----")
-    print(f"# of soma containing seperate meshes = {len(soma_touching_meshes)}")
-    print(f"meshes with somas = {soma_containing_meshes}")
-    
-    
-    
-    
-    
-    #--- Phase 3:  Soma Extraction was great (but it wasn't the original soma faces), so now need to get the original soma faces and the original non-soma faces of original pieces
-
-    """
-    for each soma touching mesh get the following:
-    1) original soma meshes
-    2) significant mesh pieces touching these somas
-    3) The soma connectivity to each of the significant mesh pieces
-    -- later will just translate the 
-
-
-    Process: 
-
-    1) Final all soma faces (through soma extraction and then soma original faces function)
-    2) Subtact all soma faces from original mesh
-    3) Find all significant mesh pieces
-    4) Backtrack significant mesh pieces to orignal mesh and find connectivity of each to all
-       the available somas
-    Conclusion: Will have connectivity map
-
-
-    """
-
-    soma_touching_mesh_data = dict()
-
-    for z,(mesh_idx, soma_idxes) in enumerate(soma_containing_meshes.items()):
-        soma_touching_mesh_data[z] = dict()
-        print(f"\n\n----Working on soma-containing mesh piece {z}----")
-
-        #1) Final all soma faces (through soma extraction and then soma original faces function)
-        current_mesh = split_meshes[mesh_idx]
-
-        current_soma_mesh_list = [soma_mesh_list[k] for k in soma_idxes]
-
-        current_time = time.time()
-        mesh_pieces_without_soma = sm.subtract_soma(current_soma_mesh_list,current_mesh,
-                                                    significance_threshold=250,
-                                                   connectivity=pre_branch_connectivity)
-        print(f"Total time for Subtract Soam = {time.time() - current_time}")
-        current_time = time.time()
-
-        mesh_pieces_without_soma_stacked = tu.combine_meshes(mesh_pieces_without_soma)
-
-        # find the original soma faces of mesh
-        soma_faces = tu.original_mesh_faces_map(current_mesh,mesh_pieces_without_soma_stacked,matching=False)
-        print(f"Total time for Original_mesh_faces_map for mesh_pieces without soma= {time.time() - current_time}")
-        current_time = time.time()
-        soma_meshes = current_mesh.submesh([soma_faces],append=True,repair=False)
-
-        # finding the non-soma original faces
-        non_soma_faces = tu.original_mesh_faces_map(current_mesh,soma_meshes,matching=False)
-        non_soma_stacked_mesh = current_mesh.submesh([non_soma_faces],append=True,repair=False)
-
-        print(f"Total time for Original_mesh_faces_map for somas= {time.time() - current_time}")
-        current_time = time.time()
-
-        #4) Backtrack significant mesh pieces to orignal mesh and find connectivity of each to all the available somas
-        # get all the seperate mesh faces
-
-        #How to seperate the mesh faces
-        seperate_soma_meshes,soma_face_components = tu.split(soma_meshes,only_watertight=False,
-                                                            connectivity=pre_branch_connectivity)
-        #take the top largest ones depending how many were originally in the soma list
-        seperate_soma_meshes = seperate_soma_meshes[:len(soma_mesh_list)]
-        soma_face_components = soma_face_components[:len(soma_mesh_list)]
-
-        soma_touching_mesh_data[z]["soma_meshes"] = seperate_soma_meshes
-        
-        
-        
-        
-        # 3) Find all significant mesh pieces
-        """
-        Pseudocode: 
-        a) Iterate through all of the somas and get the pieces that are connected
-        b) Concatenate all the results into one list and order
-        c) Filter away the mesh pieces that aren't touching and add to the floating pieces
-        
-        """
-        sig_non_soma_pieces,insignificant_limbs = tu.split_significant_pieces(non_soma_stacked_mesh,significance_threshold=limb_threshold,
-                                                         return_insignificant_pieces=True,
-                                                                             connectivity=pre_branch_connectivity)
-        
-        # a) Filter these down to only those touching the somas
-        all_conneted_non_soma_pieces = []
-        for i,curr_soma in enumerate(seperate_soma_meshes):
-            (connected_mesh_pieces,
-             connected_mesh_pieces_vertices,
-             connected_mesh_pieces_vertices_idx) = tu.mesh_pieces_connectivity(
-                            main_mesh=current_mesh,
-                            central_piece=curr_soma,
-                            periphery_pieces = sig_non_soma_pieces,
-                            return_vertices = True,
-                            return_vertices_idx=True)
-            all_conneted_non_soma_pieces.append(connected_mesh_pieces)
-        
-        #b) Iterate through all of the somas and get the pieces that are connected
-        t_non_soma_pieces = np.concatenate(all_conneted_non_soma_pieces)
-        
-        #c) Filter away the mesh pieces that aren't touching and add to the floating pieces
-        sig_non_soma_pieces = [s_t for hh,s_t in enumerate(sig_non_soma_pieces) if hh in t_non_soma_pieces]
-        new_floating_pieces = [s_t for hh,s_t in enumerate(sig_non_soma_pieces) if hh not in t_non_soma_pieces]
-        
-        print(f"new_floating_pieces = {new_floating_pieces}")
-        
-        non_soma_touching_meshes += new_floating_pieces
-        
-        
-
-        print(f"Total time for sig_non_soma_pieces= {time.time() - current_time}")
-        current_time = time.time()
-
-        soma_touching_mesh_data[z]["branch_meshes"] = sig_non_soma_pieces
-        
-        
-        
-        
-        
-
-        print(f"Total time for split= {time.time() - current_time}")
-        current_time = time.time()
-
-
-
-        soma_to_piece_connectivity = dict()
-        soma_to_piece_touching_vertices = dict()
-        soma_to_piece_touching_vertices_idx = dict()
-        limb_root_nodes = dict()
-
-        m_vert_graph = tu.mesh_vertex_graph(current_mesh)
-
-        for i,curr_soma in enumerate(seperate_soma_meshes):
-            (connected_mesh_pieces,
-             connected_mesh_pieces_vertices,
-             connected_mesh_pieces_vertices_idx) = tu.mesh_pieces_connectivity(
-                            main_mesh=current_mesh,
-                            central_piece=curr_soma,
-                            periphery_pieces = sig_non_soma_pieces,
-                            return_vertices = True,
-                            return_vertices_idx=True)
-            #print(f"soma {i}: connected_mesh_pieces = {connected_mesh_pieces}")
-            soma_to_piece_connectivity[i] = connected_mesh_pieces
-
-            soma_to_piece_touching_vertices[i] = dict()
-            for piece_index,piece_idx in enumerate(connected_mesh_pieces):
-                limb_root_nodes[piece_idx] = connected_mesh_pieces_vertices[piece_index][0]
-
-                """ Old way of finding vertex connected components on a mesh without trimesh function
-                #find the number of touching groups and save those 
-                soma_touching_graph = m_vert_graph.subgraph(connected_mesh_pieces_vertices_idx[piece_index])
-                soma_con_comp = [current_mesh.vertices[np.array(list(k)).astype("int")] for k in list(nx.connected_components(soma_touching_graph))]
-                soma_to_piece_touching_vertices[i][piece_idx] = soma_con_comp
-                """
-
-                soma_to_piece_touching_vertices[i][piece_idx] = tu.split_vertex_list_into_connected_components(
-                                                    vertex_indices_list=connected_mesh_pieces_vertices_idx[piece_index],
-                                                    mesh=current_mesh, 
-                                                    vertex_graph=m_vert_graph, 
-                                                    return_coordinates=True
-                                                   )
-
-
-
-
-
-    #         border_debug = False
-    #         if border_debug:
-    #             print(f"soma_to_piece_connectivity = {soma_to_piece_connectivity}")
-    #             print(f"soma_to_piece_touching_vertices = {soma_to_piece_touching_vertices}")
-
-
-        print(f"Total time for mesh_pieces_connectivity= {time.time() - current_time}")
-
-        soma_touching_mesh_data[z]["soma_to_piece_connectivity"] = soma_to_piece_connectivity
-
-    print(f"# of insignificant_limbs = {len(insignificant_limbs)} with trimesh : {insignificant_limbs}")
-    print(f"# of not_processed_soma_containing_meshes = {len(not_processed_soma_containing_meshes)} with trimesh : {not_processed_soma_containing_meshes}")
-    
-
-
-
-    # Lets have an alert if there was more than one soma disconnected meshes
-    if len(soma_touching_mesh_data.keys()) > 1:
-        raise Exception("More than 1 disconnected meshes that contain somas")
-
-    current_mesh_data = soma_touching_mesh_data
-    soma_containing_idx = 0
-
-    #doing inversion of the connectivity and touching vertices
-    piece_to_soma_touching_vertices = gu.flip_key_orders_for_dict(soma_to_piece_touching_vertices)
-    
-    
-    
-    
-    
-    
-    # Phase 4: Skeletonization, Mesh Correspondence,  
-
-    proper_time = time.time()
-
-    #The containers that will hold the final data for the preprocessed neuron
-    limb_correspondence=dict()
-    limb_network_stating_info = dict()
-
-    # ---------- Part A: skeletonization and mesh decomposition --------- #
-    skeleton_time = time.time()
-
-    for curr_limb_idx,limb_mesh_mparty in enumerate(current_mesh_data[0]["branch_meshes"]):
-
-        #Arguments to pass to the specific function (when working with a limb)
-        soma_touching_vertices_dict = piece_to_soma_touching_vertices[curr_limb_idx]
-
-    #     if curr_limb_idx != 10:
-    #         continue
-
-        curr_limb_time = time.time()
-        print(f"\n\n----- Working on Proper Limb # {curr_limb_idx} ---------")
-
-        print(f"meshparty_segment_size = {meshparty_segment_size}")
-        limb_correspondence_individual,network_starting_info = preprocess_limb(mesh=limb_mesh_mparty,
-                       soma_touching_vertices_dict = soma_touching_vertices_dict,
-                       return_concept_network = False, 
-                       return_concept_network_starting_info=True,
-                       width_threshold_MAP=500,
-                       size_threshold_MAP=2000,
-                       surface_reconstruction_size=1000,  
-
-                       #arguments added from the big preprocessing step                                                            
-                       distance_by_mesh_center=distance_by_mesh_center,
-                       meshparty_segment_size=meshparty_segment_size,
-                       meshparty_n_surface_downsampling = meshparty_n_surface_downsampling,
-                                                                               
-                        use_meshafterparty=use_meshafterparty,
-                        error_on_no_starting_coordinates=True
-
-                       )
-        #Storing all of the data to be sent to 
-
-        limb_correspondence[curr_limb_idx] = limb_correspondence_individual
-        limb_network_stating_info[curr_limb_idx] = network_starting_info
-        
-    print(f"Total time for Skeletonization and Mesh Correspondence = {time.time() - skeleton_time}")
-        
-        
-        
-    # ---------- Part B: Stitching on floating pieces --------- #
-    print("\n\n ----- Working on Stitching ----------")
-    
-#     # --- Get the soma connecting points that don't want to stitch to ---- #
-#     excluded_node_coordinates = []
-#     for limb_idx,limb_start_v in limb_network_stating_info.items():
-#         for soma_idx,soma_v in limb_start_v.items():
-#             for soma_group_idx,group_v in soma_v.items():
-#                 excluded_node_coordinates.append(group_v["endpoint"])
-
-    excluded_node_coordinates = nru.all_soma_connnecting_endpionts_from_starting_info(limb_network_stating_info)
-    
-    
-
-    floating_stitching_time = time.time()
-    
-    if len(limb_correspondence) > 0:
-        non_soma_touching_meshes_to_stitch = tu.check_meshes_outside_multiple_mesh_bbox(seperate_soma_meshes,non_soma_touching_meshes,
-                                 return_indices=False)
-        
-        limb_correspondence_with_floating_pieces = attach_floating_pieces_to_limb_correspondence(
-                limb_correspondence,
-                floating_meshes=non_soma_touching_meshes_to_stitch,
-                floating_piece_face_threshold = 600,
-                max_stitch_distance=8000,
-                distance_to_move_point_threshold = 4000,
-                verbose = False,
-                excluded_node_coordinates = excluded_node_coordinates)
-    else:
-        limb_correspondence_with_floating_pieces = limb_correspondence
-        
-
-
-
-    print(f"Total time for stitching floating pieces = {time.time() - floating_stitching_time}")
-
-
-
-
-
-    # ---------- Part C: Computing Concept Networks --------- #
-    concept_network_time = time.time()
-
-    limb_concept_networks=dict()
-    limb_labels=dict()
-
-    for curr_limb_idx,limb_mesh_mparty in enumerate(current_mesh_data[0]["branch_meshes"]):
-        limb_to_soma_concept_networks = calculate_limb_concept_networks(limb_correspondence_with_floating_pieces[curr_limb_idx],
-                                                                        limb_network_stating_info[curr_limb_idx],
-                                                                        run_concept_network_checks=True,
-                                                                           )   
-
-
-
-        limb_concept_networks[curr_limb_idx] = limb_to_soma_concept_networks
-        limb_labels[curr_limb_idx]= "Unlabeled"
-
-    print(f"Total time for Concept Networks = {time.time() - concept_network_time}")
-
-
-
-    #------ 1/11/ getting the glia faces --------------
-    if glia_meshes is not None and len(glia_meshes)>0:
-            glia_faces = tu.original_mesh_faces_map(current_neuron,tu.combine_meshes(glia_pieces))
-    else:
-        glia_faces = np.array([])
-
-    preprocessed_data= dict(
-        soma_meshes = current_mesh_data[0]["soma_meshes"],
-        soma_to_piece_connectivity = current_mesh_data[0]["soma_to_piece_connectivity"],
-        soma_sdfs = total_soma_list_sdf,
-        insignificant_limbs=insignificant_limbs,
-        not_processed_soma_containing_meshes=not_processed_soma_containing_meshes,
-        glia_faces = glia_faces,
-        non_soma_touching_meshes=non_soma_touching_meshes,
-        inside_pieces=inside_pieces,
-        limb_correspondence=limb_correspondence_with_floating_pieces,
-        limb_concept_networks=limb_concept_networks,
-        limb_network_stating_info=limb_network_stating_info,
-        limb_labels=limb_labels,
-        limb_meshes=current_mesh_data[0]["branch_meshes"],
-        )
-
-
-
-    print(f"Total time for all mesh and skeletonization decomp = {time.time() - proper_time}")
-    
-    return preprocessed_data'''
-    
-    
-    
-
-
-
-
-def preprocess_neuron(
-    mesh=None,
-    mesh_file=None,
-    segment_id=None,
-     description=None,
-    
-    
-    # ---------------- all the parameters that control preprocessing -------------
-    sig_th_initial_split=100, #for significant splitting meshes in the intial mesh split
-    limb_threshold = 2000, #the mesh faces threshold for a mesh to be qualified as a limb (otherwise too small)
-    
-    
-    # ------- 12/29 for the limb expansion --------------
-    apply_expansion = None,
-    floating_piece_face_threshold_expansion = 500,
-    max_distance_threshold_expansion = 2000,
-    min_n_faces_on_path_expansion = 5_000,
-
-    filter_end_node_length=None, #used in cleaning the skeleton during skeletonizations
-    
-
-    decomposition_type="meshafterparty",
-    distance_by_mesh_center=True,
-    meshparty_segment_size =100,
-    meshparty_n_surface_downsampling = 2,
-
-    
-    combine_close_skeleton_nodes = True,
-    combine_close_skeleton_nodes_threshold=700,
-    
-    #parameters for prprocess limb
-    width_threshold_MAP=None,
-    size_threshold_MAP=None,
-    surface_reconstruction_size=None,#1000,
-    
-    floating_piece_face_threshold = None,#600,
-    max_stitch_distance=None,#8000,
-    distance_to_move_point_threshold = 4000,
-    
-    
-
-    
-    # --------- non-parameter flags -------------------------
-    glia_faces=None,
-    nuclei_faces=None, 
-    somas=None, #the precomputed somas
-    return_no_somas = False, #whether to error or to return an empty list for somas
-    verbose = True,
-    
-    use_adaptive_invalidation_d = None,
-    use_adaptive_invalidation_d_floating = None,
-    axon_width_preprocess_limb_max = None,
-    limb_remove_mesh_interior_face_threshold = None,
-    
-    
-    error_on_bad_cgal_return=False,
-    max_stitch_distance_CGAL = None
-
+    limb_correspondence = {}
+    limb_network_starts = {}
+
+    for idx, (limb_mesh, touching_verts_dict) in enumerate(
+        zip(branch_meshes, soma_touching_vertices)
     ):
-    
-    if width_threshold_MAP is None:
-        width_threshold_MAP = parameters.params.width_threshold_MAP
-    if size_threshold_MAP is None:
-        size_threshold_MAP = parameters.params.size_threshold_MAP
-    if apply_expansion is None:
-        apply_expansion = parameters.params.apply_expansion
-    if max_stitch_distance is None:
-        max_stitch_distance = parameters.params.max_stitch_distance
-    if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
-    if filter_end_node_length is None:
-        filter_end_node_length = parameters.params.filter_end_node_length
-    if axon_width_preprocess_limb_max is None:
-        axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
-    if limb_remove_mesh_interior_face_threshold is None:
-        limb_remove_mesh_interior_face_threshold = parameters.params.limb_remove_mesh_interior_face_threshold
-    if surface_reconstruction_size is None:
-        surface_reconstruction_size = parameters.params.surface_reconstruction_size
-        
-    if floating_piece_face_threshold is None:
-        floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
-    
-    
-    
+        corr, net_start = preprocess_limb(
+            mesh=limb_mesh,
+            soma_touching_vertices_dict=touching_verts_dict,
+            return_concept_network = False, 
+            return_concept_network_starting_info=True,
+            width_threshold_MAP=params.width_threshold_MAP,
+            size_threshold_MAP=params.size_threshold_MAP,
+            surface_reconstruction_size=params.surface_reconstruction_size,  
+
+            #arguments added from the big preprocessing step                                                            
+            distance_by_mesh_center=True,
+            meshparty_segment_size=100,
+            meshparty_n_surface_downsampling = 2,
+
+            use_meshafterparty=True,
+            error_on_no_starting_coordinates=True,
+                                                                    
+            use_adaptive_invalidation_d = None,
+            axon_width_preprocess_limb_max = params.axon_width_preprocess_limb_max,
+            remove_mesh_interior_face_threshold=params.limb_remove_mesh_interior_face_threshold,
+                                                                    
+            error_on_bad_cgal_return=False,
+            max_stitch_distance_CGAL = params.max_stitch_distance_CGAL
+        )
+        limb_correspondence[idx] = corr
+        limb_network_starts[idx] = net_start
+
+    return limb_correspondence, limb_network_starts
+
+def _stitch_floating_pieces(
+    limb_correspondence,
+    floating_meshes,
+    limb_network_starts,
+    soma_mesh,
+    params
+):
     """
-    Purpose: to return preprocess dict of a neuron
-    
+    Пришивает отсоединенные (плавающие) участки меша обратно к основному скелету.
     """
-    
-    
-    
-    print(f"limb_remove_mesh_interior_face_threshold = {limb_remove_mesh_interior_face_threshold}")
-    
-    pre_branch_connectivity = "edges"
-    
-    if "meshafterparty" in decomposition_type.lower():
-        use_meshafterparty = True
-    else:
-        use_meshafterparty = False
-    
-    
-    print(f"use_meshafterparty = {use_meshafterparty}")
-    
-    whole_processing_tiempo = time.time()
+    if not limb_correspondence or not floating_meshes:
+        return limb_correspondence
 
+    # limb_network_starts is {limb_idx: per_limb_starting_info};
+    # all_soma_connnecting_endpionts_from_starting_info handles this nested form
+    excluded_node_coordinates = nru.all_soma_connnecting_endpionts_from_starting_info(
+        limb_network_starts
+    )
 
+    outside_perc_threshold = 80
+    meshes_to_stitch = [
+        m for m in floating_meshes
+        if tu.n_vertices_outside_mesh_bbox(m, [soma_mesh], return_percentage=True) > outside_perc_threshold
+    ]
+
+    stitched_correspondence = attach_floating_pieces_to_limb_correspondence(
+        limb_correspondence,
+        floating_meshes=meshes_to_stitch,
+        excluded_node_coordinates=excluded_node_coordinates,
+        verbose=False,
+    )
+
+    return stitched_correspondence
+
+def _build_concept_networks(limb_correspondence_stitched, limb_network_starts):
     """
-    Purpose: To process the mesh into a format that can be loaded into the neuron class
-    and used for higher order processing (how to visualize is included)
-    
-    This method includes the fusion
-
+    Формирует графы концептов (Concept Networks) для каждой ветви.
     """
-    if description is None:
-        description = "no_description"
-    if segment_id is None:
-        #pick a random segment id
-        segment_id = np.random.randint(100000000)
-        print(f"picking a random 7 digit segment id: {segment_id}")
-        description += "_random_id"
+    limb_concept_networks = {}
 
+    for limb_idx, correspondence in limb_correspondence_stitched.items():
+        net_start = limb_network_starts[limb_idx]
+        limb_to_soma_concept_network = calculate_limb_concept_networks(
+            correspondence,
+            net_start,
+            run_concept_network_checks=True
+        )
+        limb_concept_networks[limb_idx] = limb_to_soma_concept_network
 
-    if mesh is None:
-        if mesh_file is None:
-            raise Exception("No mesh or mesh_file file were given")
-        else:
-            current_neuron = tu.load_mesh_no_processing(mesh_file)
-    else:
-        current_neuron = mesh
-        
-        
-        
-        
-        
-        
-    # -------- Phase 1: Doing Soma Detection (if Not already done) ---------- #
-    if somas is None:
-        (soma_mesh_list, 
-         run_time, 
-         total_soma_list_sdf,
-         glia_pieces,
-         nuclei_pieces) = sm.extract_soma_center(segment_id,
-                                                 current_neuron.vertices,
-                                                 current_neuron.faces)
-        
-        if len(glia_pieces)>0:
-            glia_faces = tu.original_mesh_faces_map(current_neuron,tu.combine_meshes(glia_pieces))
-            n_glia_faces = len(glia_faces)
-        else:
-            glia_faces = []
-            n_glia_faces = 0
-            
-        if len(nuclei_pieces)>0:
-            nuclei_faces = tu.original_mesh_faces_map(current_neuron,tu.combine_meshes(nuclei_pieces))
-            n_nuclei_faces = len(nuclei_faces)
-        else:
-            nuclei_faces = []
-            n_nuclei_faces = 0
-    else:
-        soma_mesh_list,run_time,total_soma_list_sdf = somas
-        print(f"Using pre-computed somas: soma_mesh_list = {soma_mesh_list}")
-
-    # geting the soma centers
-    if len(soma_mesh_list) <= 0:
-        print(f"**** No Somas Found for Mesh {segment_id} so just one mesh")
-        soma_mesh_list_centers = []
-        if return_no_somas:
-            return_value= soma_mesh_list_centers
-        raise Exception("Processing of No Somas is not yet implemented yet")
-    else:
-        #compute the soma centers
-        print(f"Soma List = {soma_mesh_list}")
-
-        soma_mesh_list_centers = sm.find_soma_centroids(soma_mesh_list)
-        print(f"soma_mesh_list_centers = {soma_mesh_list_centers}")
-        
-        
-        
-        
-        
-    
-    print_optimize = True
-    #--- Phase 2: getting the soma submeshes that are connected to each soma and identifiying those that aren't 
-    # ------------------ (and eliminating any mesh pieces inside the soma) ------------------------
-
-    # -------- 11/13 Addition: Will remove the inside nucleus --------- #
-
-    optimize_time = time.time()
-
-    glia_faces,nuclei_faces
-
-    if glia_faces is None or nuclei_faces is None:
-        main_mesh_total,glia_meshes,nuclei_meshes = sm.remove_nuclei_and_glia_meshes(current_neuron,
-                                                                       verbose=True)
-        print("Using pre-computed glia and nuclei pieces")
-        if len(glia_meshes) > 0 or len(nuclei_meshes) > 0:
-            main_mesh_total = tu.subtract_mesh(current_neuron,glia_meshes + nuclei_meshes)
-        else:
-            main_mesh_total = current_neuron
-    else:
-        if len(nuclei_faces) > 0:
-            nuclei_meshes = current_neuron.submesh([nuclei_faces],append=True,repair=False)
-            nuclei_meshes = [nuclei_meshes]
-        else:
-            nuclei_meshes = []
-
-        total_eliminated_faces = list(glia_faces) + list(nuclei_faces)
-        if len(total_eliminated_faces)>0:
-            faces_to_keep = np.delete(np.arange(len(current_neuron.faces)),total_eliminated_faces)
-            main_mesh_total = current_neuron.submesh([faces_to_keep],append=True,repair=False)
-        else:
-            main_mesh_total = current_neuron
-
-
-    if print_optimize:
-        print(f"Getting Glia and Nuclei Pieces Subtracted Away {time.time()-optimize_time}")
-    optimize_time = time.time()
-
-
-    #finding the mesh pieces that contain the soma
-    #splitting the current neuron into distinct pieces
-
-
-
-    optimize_time = time.time()
-
-
-    split_meshes,split_meshes_face_idx = tu.split_significant_pieces(
-                                main_mesh_total,
-                                significance_threshold=sig_th_initial_split,
-                                print_flag=False,
-                                return_face_indices=True,
-                                connectivity=pre_branch_connectivity)
-
-
-    if print_optimize:
-        print(f" Splitting mesh after soma cancellation {time.time()-optimize_time}")
-    optimize_time = time.time()
-
-    print(f"# of split_meshes = {len(split_meshes)}")
-
-    """  Newer slower way of doing it    
-
-    tu.two_mesh_list_connectivity(soma_mesh_list,split_meshes_face_idx,main_mesh_total)
+    return limb_concept_networks
+from .parameters import params
+def preprocess_neuron(
+    mesh,
+    segment_id,
+    params = params,
+    verbose=True
+):
     """
-    #returns the index of the split_meshes index that contains each soma    
-    containing_mesh_indices = sm.find_soma_centroid_containing_meshes(soma_mesh_list,
-                                            split_meshes)
-
-    if print_optimize:
-        print(f" Containing Mesh Indices {time.time()-optimize_time}")
-        print(f"containing_mesh_indices = {containing_mesh_indices}")
-    optimize_time = time.time()
+    Главный пайплайн предобработки одиночного нейрона.
+    Ожидает строго одну клетку без глии.
+    """
+    params.use('h01')
+    start_time = time.time()
     
 
-    # filtering away any of the inside floating pieces: 
-    non_soma_touching_meshes = [m for i,m in enumerate(split_meshes)
-                     if i not in set(list(containing_mesh_indices.values()))]
+    soma_mesh, soma_sdf = _extract_single_soma(mesh, segment_id)
 
-    if print_optimize:
-        print(f" non_soma_touching_meshes {time.time()-optimize_time}")
-    optimize_time = time.time()
+    branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity = _segment_limbs_from_soma(
+        mesh, soma_mesh, params
+    )
 
-    #Adding the step that will filter away any pieces that are inside the soma
-    if len(non_soma_touching_meshes) > 0 and len(soma_mesh_list) > 0:
-        """
-        *** want to save these pieces that are inside of the soma***
-        """
-
-        non_soma_touching_meshes,inside_pieces = sm.filter_away_inside_soma_pieces(soma_mesh_list,non_soma_touching_meshes,
-                                        significance_threshold=sig_th_initial_split,
-                                        return_inside_pieces = True)
-
-    else:
-        non_soma_touching_meshes = []
-        inside_pieces=[]
-
-    if print_optimize:
-        print(f" Finding inside pieces and non_soma_touching meshes {time.time()-optimize_time}")
-    optimize_time = time.time()
-
-    # --------------------- 1/10 Change ---------------- #
-
-    #adding in the nuclei center to the inside pieces
-    inside_pieces += nuclei_meshes
+    limb_correspondence, limb_network_starts = _decompose_limbs(
+        branch_meshes, soma_touching_vertices, params
+    )
 
 
-    split_meshes # the meshes of the original mesh
-    containing_mesh_indices #the mapping of each soma centroid to the correct split mesh
-    soma_containing_meshes = sm.grouping_containing_mesh_indices(containing_mesh_indices)
+    limb_correspondence_stitched = _stitch_floating_pieces(
+        limb_correspondence,
+        floating_meshes,
+        limb_network_starts,
+        soma_mesh,
+        params
+    )
+
+    limb_concept_networks = _build_concept_networks(
+        limb_correspondence_stitched,
+        limb_network_starts
+    )
 
     if verbose:
-        print(f"soma_containing_meshes = {soma_containing_meshes}")
-
-    #     print(f"# of non soma touching seperate meshes = {len(non_soma_touching_meshes)}")
-    #     print(f"# of inside pieces = {len(inside_pieces)}")
-    
-
-    
-    '''  1/18 Addition that combines all soma meshes
-    
-    # ------ 11/15 Addition: Part 2.b 
-
-    """
-    Pseudocode: 
-    1) Get the largest of the meshes with a soma (largest in soma_touching_meshes)
-    2) Save all other meshes not the largest in 
-    3) Overwrite the following variables:
-        soma_mesh_list
-        soma_containing_meshes
-        soma_touching_meshes
-        total_soma_list_sdf
-
-
-    """
-    #1) Get the largest of the meshes with a soma (largest in soma_touching_meshes)
-    soma_containing_meshes_keys = np.array(list(soma_containing_meshes.keys()))
-    soma_touching_meshes = np.array([split_meshes[k] for k in soma_containing_meshes_keys])
-    largest_soma_touching_mesh_idx = soma_containing_meshes_keys[np.argmax([len(kk.faces) for kk in soma_touching_meshes])]
-
-    #2) Save all other meshes not the largest in 
-    not_processed_soma_containing_meshes_idx = np.setdiff1d(soma_containing_meshes_keys,[largest_soma_touching_mesh_idx])
-    not_processed_soma_containing_meshes = [split_meshes[k] for k in not_processed_soma_containing_meshes_idx]
-    print(f"Number of not_processed_soma_containing_meshes = {len(not_processed_soma_containing_meshes)}")
-
-    """
-    3) Overwrite the following variables:
-        soma_mesh_list
-        soma_containing_meshes
-        soma_touching_meshes
-        total_soma_list_sdf
-
-    """
-
-    somas_idx_to_process = soma_containing_meshes[largest_soma_touching_mesh_idx]
-    soma_mesh_list = [soma_mesh_list[k] for k in somas_idx_to_process]
-
-    soma_containing_meshes = {largest_soma_touching_mesh_idx:list(np.arange(0,len(soma_mesh_list)))}
-
-    soma_touching_meshes = [split_meshes[largest_soma_touching_mesh_idx]]
-
-    total_soma_list_sdf = total_soma_list_sdf[somas_idx_to_process]
-
-    print(f"\n-----After filtering away multiple disconneted soma pieces-----")
-    print(f"# of soma containing seperate meshes = {len(soma_touching_meshes)}")
-    print(f"meshes with somas = {soma_containing_meshes}")
-
-
-    if print_optimize:
-        print(f" Filtering Away Disconnected Soma Pieces {time.time()-optimize_time}")
-    optimize_time = time.time()
-    
-    '''
-    print(f"\n-----Before combining multiple mesh pieces-----")
-    print(f"soma_containing_meshes = {soma_containing_meshes}")
-    
-    soma_containing_meshes_keys = np.array(list(soma_containing_meshes.keys()))
-    combined_soma_containing_mesh = tu.combine_meshes([split_meshes[k] for k in soma_containing_meshes_keys])
-    not_processed_soma_containing_meshes = []
-    
-    #rewriting the 
-    soma_containing_meshes = {0:list(np.arange(0,len(soma_mesh_list)))}
-    soma_containing_meshes_keys = np.array(list(soma_containing_meshes.keys()))
-    
-    print(f"\n-----After combining multiple mesh pieces-----")
-    print(f"soma_containing_meshes = {soma_containing_meshes}")
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-        #--- Phase 3:  Soma Extraction was great (but it wasn't the original soma faces), so now need to get the original soma faces and the original non-soma faces of original pieces
-
-    """
-    for each soma touching mesh get the following:
-    1) original soma meshes
-    2) significant mesh pieces touching these somas
-    3) The soma connectivity to each of the significant mesh pieces
-    -- later will just translate the 
-
-
-    Process: 
-
-    1) Final all soma faces (through soma extraction and then soma original faces function)
-    2) Subtact all soma faces from original mesh
-    3) Find all significant mesh pieces
-    4) Backtrack significant mesh pieces to orignal mesh and find connectivity of each to all
-       the available somas
-    Conclusion: Will have connectivity map
-
-
-    """
-
-    soma_touching_mesh_data = dict()
-
-    for z,(mesh_idx, soma_idxes) in enumerate(soma_containing_meshes.items()):
-        soma_touching_mesh_data[z] = dict()
-        print(f"\n\n----Working on soma-containing mesh piece {z}----")
-        current_time = time.time()
-
-        #1) Final all soma faces (through soma extraction and then soma original faces function)
-        current_mesh = combined_soma_containing_mesh
-
-        current_soma_mesh_list = [soma_mesh_list[k] for k in soma_idxes]
-
-
-
-        current_time = time.time()
-        
-        """Old Way
-        seperate_soma_meshes = current_soma_mesh_list
-        non_soma_stacked_mesh_face_idx = tu.original_mesh_faces_map(original_mesh=current_mesh,
-                                      submesh=tu.combine_meshes(current_soma_mesh_list),
-                                      exact_match = True,
-                                    matching=False)
-
-        non_soma_stacked_mesh = current_mesh.submesh([non_soma_stacked_mesh_face_idx],append=True,repair=False)
-        """
-        
-        seperate_soma_meshes_idx = [tu.original_mesh_faces_map(original_mesh=current_mesh,
-                                  submesh=k,
-                                  exact_match = False,
-                                matching=True) for k in current_soma_mesh_list]
-        seperate_soma_meshes = [current_mesh.submesh([k],append=True,repair=False) for k in seperate_soma_meshes_idx]
-
-        non_soma_stacked_mesh = current_mesh.submesh([np.delete(np.arange(len(current_mesh.faces)),np.concatenate(seperate_soma_meshes_idx))],append=True,repair=False)
-
-        soma_touching_mesh_data[z]["soma_meshes"] = seperate_soma_meshes
-
-        print(f"Total time for Subtract Soma and Original_mesh_faces_map for somas= {time.time() - current_time}")
-        current_time = time.time()
-
-
-
-        # 3) Find all significant mesh pieces
-        """
-        Pseudocode: 
-        a) Iterate through all of the somas and get the pieces that are connected
-        b) Concatenate all the results into one list and order
-        c) Filter away the mesh pieces that aren't touching and add to the floating pieces
-
-        """
-        sig_non_soma_pieces,insignificant_limbs = tu.split_significant_pieces(non_soma_stacked_mesh,significance_threshold=limb_threshold,
-                                                         return_insignificant_pieces=True,
-                                                                             connectivity=pre_branch_connectivity)
-
-        # a) Filter these down to only those touching the somas
-        all_conneted_non_soma_pieces = []
-        for i,curr_soma in enumerate(seperate_soma_meshes):
-            (connected_mesh_pieces,
-             connected_mesh_pieces_vertices,
-             connected_mesh_pieces_vertices_idx) = tu.mesh_pieces_connectivity(
-                            main_mesh=current_mesh,
-                            central_piece=curr_soma,
-                            periphery_pieces = sig_non_soma_pieces,
-                            return_vertices = True,
-                            return_vertices_idx=True)
-            all_conneted_non_soma_pieces.append(connected_mesh_pieces)
-
-        #b) Iterate through all of the somas and get the pieces that are connected
-        t_non_soma_pieces = np.concatenate(all_conneted_non_soma_pieces)
-
-        #c) Filter away the mesh pieces that aren't touching and add to the floating pieces
-        sig_non_soma_pieces = [s_t for hh,s_t in enumerate(sig_non_soma_pieces) if hh in t_non_soma_pieces]
-        new_floating_pieces = [s_t for hh,s_t in enumerate(sig_non_soma_pieces) if hh not in t_non_soma_pieces]
-
-        print(f"new_floating_pieces = {new_floating_pieces}")
-
-        non_soma_touching_meshes += new_floating_pieces
-        
-#         non_soma_touching_meshes_to_stitch = tu.check_meshes_outside_multiple_mesh_bbox(seperate_soma_meshes,non_soma_touching_meshes,
-#                                  return_indices=False)
-        
-#         su.compressed_pickle(non_soma_touching_meshes_to_stitch,"non_soma_touching_meshes_to_stitch")
-#         raise Exception("")
-
-
-
-        print(f"Total time for sig_non_soma_pieces= {time.time() - current_time}")
-        current_time = time.time()
-
-        
-
-
-        # -------- 12/29: Part that will expand the limbs that need to be processed ------
-        
-#         su.compressed_pickle(non_soma_touching_meshes,"non_soma_touching_meshes")
-#         su.compressed_pickle(insignificant_limbs,"insignificant_limbs")
-#         su.compressed_pickle(seperate_soma_meshes,"seperate_soma_meshes")
-#         print(f"floating_piece_face_threshold_expansion = {floating_piece_face_threshold_expansion}")
-#         print(f"max_distance_threshold_expansion = {max_distance_threshold_expansion}")
-#         print(f"min_n_faces_on_path_expansion = {min_n_faces_on_path_expansion}")
-#         raise Exception("")
-        
-        if apply_expansion:
-            new_limbs_nst,new_limbs_il,nst_still_meshes,il_still_meshes= limb_meshes_expansion(
-                non_soma_touching_meshes,
-                insignificant_limbs,
-                seperate_soma_meshes,
-
-                #Step 1: Filering
-                plot_filtered_pieces = False,
-                non_soma_touching_meshes_face_min = floating_piece_face_threshold_expansion,
-                insignificant_limbs_face_min = floating_piece_face_threshold_expansion,
-
-                #Step 2: Distance Graph Structure
-                plot_distance_G = False,
-                plot_distance_G_thresholded = False,
-                max_distance_threshold = max_distance_threshold_expansion,
-
-                #Step 3: 
-                min_n_faces_on_path = min_n_faces_on_path_expansion,
-                plot_final_limbs = False,
-                plot_not_added_limbs = False,
-
-                verbose = verbose
-                )
-
-            non_soma_touching_meshes = list(nst_still_meshes)
-            insignificant_limbs = list(il_still_meshes)
-            sig_non_soma_pieces += list(new_limbs_il)
-        else:
-            if verbose:
-                print(f"Not applying expansions")
-            new_limbs_nst = []
-            
-        
-
-
-
-        print(f"Total time for split= {time.time() - current_time}")
-        current_time = time.time()
-
-
-
-        soma_to_piece_connectivity = dict()
-        soma_to_piece_touching_vertices = dict()
-        soma_to_piece_touching_vertices_idx = dict()
-        limb_root_nodes = dict()
-
-        #m_vert_graph = tu.mesh_vertex_graph(current_mesh)
-
-        for i,curr_soma in enumerate(seperate_soma_meshes):
-            (connected_mesh_pieces,
-             connected_mesh_pieces_vertices,
-             connected_mesh_pieces_vertices_idx) = tu.mesh_pieces_connectivity(
-                            main_mesh=current_mesh,
-                            central_piece=curr_soma,
-                            periphery_pieces = sig_non_soma_pieces,
-                            return_vertices = True,
-                            return_vertices_idx=True)
-            #print(f"soma {i}: connected_mesh_pieces = {connected_mesh_pieces}")
-            soma_to_piece_connectivity[i] = connected_mesh_pieces
-            
-            #add on the connectivity of th non-soma touching pieces
-            
-
-            soma_to_piece_touching_vertices[i] = dict()
-            for piece_index,piece_idx in enumerate(connected_mesh_pieces):
-                limb_root_nodes[piece_idx] = connected_mesh_pieces_vertices[piece_index][0]
-
-                """ Old way of finding vertex connected components on a mesh without trimesh function
-                #find the number of touching groups and save those 
-                soma_touching_graph = m_vert_graph.subgraph(connected_mesh_pieces_vertices_idx[piece_index])
-                soma_con_comp = [current_mesh.vertices[np.array(list(k)).astype("int")] for k in list(nx.connected_components(soma_touching_graph))]
-                soma_to_piece_touching_vertices[i][piece_idx] = soma_con_comp
-                """
-
-                soma_to_piece_touching_vertices[i][piece_idx] = tu.split_vertex_list_into_connected_components(
-                                                    vertex_indices_list=connected_mesh_pieces_vertices_idx[piece_index],
-                                                    mesh=current_mesh, 
-                                                    #vertex_graph=m_vert_graph, 
-                                                    return_coordinates=True
-                                                   )
-                
-                #add in the soma to piece touching vertices for non-soma touching pieces
-
-        
-        #-----12/29: Adding the non-soma touching pieces that don't currently touch ------
-        nst_n_vertices = 1
-    
-        for nst_piece_idx,piece in enumerate(new_limbs_nst):
-            closest_idx,closest_vertex = tu.closest_mesh_to_mesh(
-                mesh=piece,
-                meshes=seperate_soma_meshes,
-                verbose = True,
-                return_closest_distance = False,
-                return_closest_vertex_on_mesh = True,
-                )
-            if nst_n_vertices == 1:
-                touching_vertices = [np.array(closest_vertex).reshape(-1,3)]
-            else:
-                raise Exception("Unimplemented nst_n_vertices != 1")
-                
-            curr_idx = len(sig_non_soma_pieces) + nst_piece_idx
-            soma_to_piece_connectivity[closest_idx].append(curr_idx)
-            soma_to_piece_touching_vertices[closest_idx][curr_idx] = touching_vertices
-            limb_root_nodes[curr_idx] = np.array(closest_vertex).reshape(-1)
-            
-            
-
-
-    #         border_debug = False
-    #         if border_debug:
-    #             print(f"soma_to_piece_connectivity = {soma_to_piece_connectivity}")
-    #             print(f"soma_to_piece_touching_vertices = {soma_to_piece_touching_vertices}")
-
-
-        print(f"Total time for mesh_pieces_connectivity= {time.time() - current_time}")
-
-        soma_touching_mesh_data[z]["soma_to_piece_connectivity"] = soma_to_piece_connectivity
-
-    print(f"# of insignificant_limbs = {len(insignificant_limbs)} with trimesh : {insignificant_limbs}")
-    print(f"# of not_processed_soma_containing_meshes = {len(not_processed_soma_containing_meshes)} with trimesh : {not_processed_soma_containing_meshes}")
-
-    
-    
-    #adds on the meshes
-
-    soma_touching_mesh_data[z]["branch_meshes"] = sig_non_soma_pieces + list(new_limbs_nst)
-
-    # Lets have an alert if there was more than one soma disconnected meshes
-    if len(soma_touching_mesh_data.keys()) > 1:
-        raise Exception("More than 1 disconnected meshes that contain somas")
-
-    current_mesh_data = soma_touching_mesh_data
-    soma_containing_idx = 0
-
-    #doing inversion of the connectivity and touching vertices
-    piece_to_soma_touching_vertices = gu.flip_key_orders_for_dict(soma_to_piece_touching_vertices)
-
-
-    
-    
-    
-    
-    
-    
-    # Phase 4: Skeletonization, Mesh Correspondence,  
-
-    proper_time = time.time()
-
-    #The containers that will hold the final data for the preprocessed neuron
-    limb_correspondence=dict()
-    limb_network_stating_info = dict()
-
-    # ---------- Part A: skeletonization and mesh decomposition --------- #
-    skeleton_time = time.time()
-    
-    #raise Exception("")
-
-    for curr_limb_idx,limb_mesh_mparty in enumerate(current_mesh_data[0]["branch_meshes"]):
-        use_meshafterparty_current = copy.copy(use_meshafterparty)
-
-        #Arguments to pass to the specific function (when working with a limb)
-        soma_touching_vertices_dict = piece_to_soma_touching_vertices[curr_limb_idx]
-
-#         if curr_limb_idx != 1:
-#             continue
-        
-        verbose = True
-
-
-#         su.compressed_pickle(limb_mesh_mparty,"limb_mesh_mparty")
-#         su.compressed_pickle(soma_touching_vertices_dict,"soma_touching_vertices_dict")
-#         su.compressed_pickle(current_mesh_data[0]["branch_meshes"],"limb_meshes")
-#         su.compressed_pickle(piece_to_soma_touching_vertices,"piece_to_soma_touching_vertices")
-#         raise Exception("")
-        curr_limb_time = time.time()
-        for jj in range(0,2):
-            try:
-                print(f"\n\n----- Working on Proper Limb # {curr_limb_idx} ---------")
-
-#                 su.compressed_pickle(limb_mesh_mparty,f"limb_mesh_mparty_{curr_limb_idx}")
-#                 su.compressed_pickle(soma_touching_vertices_dict,f"soma_touching_vertices_dict_{curr_limb_idx}")
-                
-                print(f"meshparty_segment_size = {meshparty_segment_size}")
-                
-                limb_correspondence_individual,network_starting_info = preprocess_limb(mesh=limb_mesh_mparty,
-                               soma_touching_vertices_dict = soma_touching_vertices_dict,
-                               return_concept_network = False, 
-                               return_concept_network_starting_info=True,
-                               width_threshold_MAP=width_threshold_MAP,
-                               size_threshold_MAP=size_threshold_MAP,
-                               surface_reconstruction_size=surface_reconstruction_size,  
-
-                               #arguments added from the big preprocessing step                                                            
-                               distance_by_mesh_center=distance_by_mesh_center,
-                               meshparty_segment_size=meshparty_segment_size,
-                               meshparty_n_surface_downsampling = meshparty_n_surface_downsampling,
-
-                                use_meshafterparty=use_meshafterparty_current,
-                                error_on_no_starting_coordinates=True,
-                                                                                       
-                                use_adaptive_invalidation_d = use_adaptive_invalidation_d,
-                                axon_width_preprocess_limb_max = axon_width_preprocess_limb_max,
-                                remove_mesh_interior_face_threshold=limb_remove_mesh_interior_face_threshold,
-                                                                                       
-                                error_on_bad_cgal_return=error_on_bad_cgal_return,
-                                max_stitch_distance_CGAL = max_stitch_distance_CGAL
-
-                               )
-                #Storing all of the data to be sent to 
-
-                limb_correspondence[curr_limb_idx] = limb_correspondence_individual
-                limb_network_stating_info[curr_limb_idx] = network_starting_info
-            except Exception as e:
-                if jj == 0:
-                    use_meshafterparty_current = False
-                else:
-                    raise Exception(f"{e}")
-            else:
-                print(f"Successful Limb Decomposition")
-                break
-        
-    print(f"Total time for Skeletonization and Mesh Correspondence = {time.time() - skeleton_time}")
-        
-        
-        
-    # ---------- Part B: Stitching on floating pieces --------- #
-    print("\n\n ----- Working on Stitching ----------")
-    
-#     # --- Get the soma connecting points that don't want to stitch to ---- #
-#     excluded_node_coordinates = []
-#     for limb_idx,limb_start_v in limb_network_stating_info.items():
-#         for soma_idx,soma_v in limb_start_v.items():
-#             for soma_group_idx,group_v in soma_v.items():
-#                 excluded_node_coordinates.append(group_v["endpoint"])
-
-    excluded_node_coordinates = nru.all_soma_connnecting_endpionts_from_starting_info(limb_network_stating_info)
-    
-    
-
-    floating_stitching_time = time.time()
-    
-    if len(limb_correspondence) > 0:
-#         if verbose:
-#             print(f"BEFORE filtering floating points, {len(non_soma_touching_meshes)} floating pieces: "
-#                   f"{non_soma_touching_meshes[:np.min([10,len(non_soma_touching_meshes)])]}")
-            
-        outside_perc_threshold = 80
-        non_soma_touching_meshes_to_stitch = [k for k in non_soma_touching_meshes if tu.n_vertices_outside_mesh_bbox(
-            k,seperate_soma_meshes,return_percentage=True) > outside_perc_threshold]    
-        
-#         non_soma_touching_meshes_to_stitch = tu.check_meshes_outside_multiple_mesh_bbox(seperate_soma_meshes,non_soma_touching_meshes,
-#                                  return_indices=False)
-        
-#         if verbose:
-#             print(f"AFTER filtering floating points, {len(non_soma_touching_meshes_to_stitch)} floating pieces: "
-#                   f"{non_soma_touching_meshes_to_stitch[:np.min([10,len(non_soma_touching_meshes_to_stitch)])]}")
-        
-        # add in a check for distance
-        """
-        NO NEED TO FILTER FOR STITCH DISTANCE BECAUSE ALREADY DONE IN STEP ABOVE LOOKING FOR EXPANSION
-        
-        """
-        
-        
-        
-        limb_correspondence_with_floating_pieces = attach_floating_pieces_to_limb_correspondence(
-                limb_correspondence,
-                floating_meshes=non_soma_touching_meshes_to_stitch,
-                floating_piece_face_threshold = floating_piece_face_threshold,#600,
-                max_stitch_distance=max_stitch_distance,#8000,
-                distance_to_move_point_threshold = distance_to_move_point_threshold,
-                verbose = False,
-                excluded_node_coordinates = excluded_node_coordinates,
-                use_adaptive_invalidation_d = use_adaptive_invalidation_d_floating,
-                axon_width_preprocess_limb_max = axon_width_preprocess_limb_max,
-                )
-    else:
-        limb_correspondence_with_floating_pieces = limb_correspondence
-        
-
-
-
-    print(f"Total time for stitching floating pieces = {time.time() - floating_stitching_time}")
-
-
-
-
-
-    # ---------- Part C: Computing Concept Networks --------- #
-    concept_network_time = time.time()
-
-    limb_concept_networks=dict()
-    limb_labels=dict()
-
-    for curr_limb_idx,limb_mesh_mparty in enumerate(current_mesh_data[0]["branch_meshes"]):
-        limb_to_soma_concept_networks = calculate_limb_concept_networks(limb_correspondence_with_floating_pieces[curr_limb_idx],
-                                                                        limb_network_stating_info[curr_limb_idx],
-                                                                        run_concept_network_checks=True,
-                                                                           )   
-
-
-
-        limb_concept_networks[curr_limb_idx] = limb_to_soma_concept_networks
-        limb_labels[curr_limb_idx]= "Unlabeled"
-
-    print(f"Total time for Concept Networks = {time.time() - concept_network_time}")
-
-    soma_meshes = current_mesh_data[0]["soma_meshes"]
-    preprocessed_data= dict(
-        soma_meshes = soma_meshes,
-        # Soma volume is metadata only (Soma.volume -> total-volume stat + Soma.__eq__);
-        # it does not feed the limb/branch decomposition. The default fan-fill
-        # watertight-ification (fill_mesh_holes_with_fan) costs ~46s on a large H01 soma
-        # and falls back to convex_hull anyway when the fan can't close the mesh, so we
-        # take the convex_hull volume directly — instant, and an acceptable approximation
-        # here (soma accuracy is not a target for this pipeline).
-        soma_volumes = [tu.mesh_volume(k, watertight_method="convex_hull") for k in soma_meshes],
-        soma_to_piece_connectivity = current_mesh_data[0]["soma_to_piece_connectivity"],
-        soma_sdfs = total_soma_list_sdf,
-        insignificant_limbs=insignificant_limbs,
-        not_processed_soma_containing_meshes=not_processed_soma_containing_meshes,
-        glia_faces = glia_faces,
-        non_soma_touching_meshes=non_soma_touching_meshes,
-        inside_pieces=inside_pieces,
-        limb_correspondence=limb_correspondence_with_floating_pieces,
-        limb_concept_networks=limb_concept_networks,
-        limb_network_stating_info=limb_network_stating_info,
-        limb_labels=limb_labels,
-        limb_meshes=current_mesh_data[0]["branch_meshes"],
-        )
-
-
-
-    print(f"Total time for all mesh and skeletonization decomp = {time.time() - proper_time}")
-    
-    return preprocessed_data    
+        print(f"Total preprocessing time: {time.time() - start_time:.2f}s")
+
+    return {
+        "soma_meshes": [soma_mesh],
+        "soma_volumes": [tu.mesh_volume(soma_mesh, watertight_method="convex_hull")],
+        "soma_sdfs": [soma_sdf],
+        "soma_touching_vertices": soma_touching_vertices,
+        "soma_to_piece_connectivity" : soma_to_piece_connectivity,
+        "limb_meshes": branch_meshes,
+        "floating_meshes": floating_meshes,
+        "limb_correspondence": limb_correspondence_stitched,
+        "limb_concept_networks": limb_concept_networks,
+        "limb_network_stating_info": limb_network_starts,
+    }
     
     
 '''

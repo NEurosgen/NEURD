@@ -299,82 +299,6 @@ axon_width_like_functions_list = [
 
 
 @run_options(run_type="Limb")
-def axon_segment(curr_limb,limb_branch_dict=None,limb_name=None,
-                 
-                 #the parameters for the axon_segment_downstream_dendrites function
-                 downstream_face_threshold=5000,
-                 downstream_non_axon_percentage_threshold=0.3,
-                 max_skeletal_length_can_flip=20000,
-                 distance_for_downstream_check=40000,
-                 print_flag=False,
-                 
-                 
-                 #the parameters for the axon_segment_clean_false_positives function
-                 width_match_threshold=50,
-               width_type = "no_spine_median_mesh_center",
-               must_have_spine=True,
-             **kwargs):
-    """
-    Function that will go through and hopefully label all of the axon pieces on a limb
-    """
-    
-    curr_limb_concept_network = curr_limb.concept_network
-    #print(f"limb_branch_dict BEFORE = {limb_branch_dict}")
-    downstream_filtered_limb_branch_dict = axon_segment_downstream_dendrites(curr_limb,limb_branch_dict,limb_name=limb_name,
-             downstream_face_threshold=downstream_face_threshold,
-             downstream_non_axon_percentage_threshold=downstream_non_axon_percentage_threshold,                
-            max_skeletal_length_can_flip=max_skeletal_length_can_flip,                      
-            distance_for_downstream_check=distance_for_downstream_check,
-             print_flag=print_flag,
-             **kwargs)
-    """ Old way of doing before condensed
-    #print(f"limb_branch_dict AFTER = {limb_branch_dict}")
-    #unravel the output back into a dictionary mapping every node to a value
-    #print(f"downstream_filtered_limb_branch_dict BEFORE= {downstream_filtered_limb_branch_dict}")
-    downstream_filtered_limb_branch_dict =  convert_limb_function_return_to_dict(downstream_filtered_limb_branch_dict,
-                                                curr_limb_concept_network)
-    #print(f"downstream_filtered_limb_branch_dict AFTER= {downstream_filtered_limb_branch_dict}")
-    #convert the dictionary mapping to a new limb_branch_dict just for that limb
-    limb_branch_dict_downstream_filtered = {limb_name:[k for k,v in downstream_filtered_limb_branch_dict.items() if v == True]}
-    #print(f"limb_branch_dict_downstream_filtered = {limb_branch_dict_downstream_filtered}")
-    
-    """
-    
-    limb_branch_dict_downstream_filtered = convert_limb_function_return_to_limb_branch_dict(downstream_filtered_limb_branch_dict,
-                                                                                           curr_limb_concept_network,
-                                                                                           limb_name)
-    
-    
-    
-    clean_false_positives_dict = axon_segment_clean_false_positives(curr_limb=curr_limb,
-                                       limb_branch_dict=limb_branch_dict_downstream_filtered,
-                                       limb_name=limb_name,
-                                    width_match_threshold=width_match_threshold,
-                                   width_type = width_type,
-                                   must_have_spine=must_have_spine,
-                                 print_flag=print_flag,
-                                 **kwargs)
-    
-    limb_branch_dict_downstream_filtered = convert_limb_function_return_to_limb_branch_dict(clean_false_positives_dict,
-                                                                                           curr_limb_concept_network,
-                                                                                           limb_name)
-    
-    #print(f"limb_branch_dict_downstream_filtered before dendrite to axon flipping = {limb_branch_dict_downstream_filtered}")
-    
-    dendrit_to_axon_flip_branch_dict = flip_dendrite_to_axon(curr_limb,limb_branch_dict_downstream_filtered,limb_name=limb_name,
-                                                            **kwargs)
-    
-    
-    
-    limb_branch_dict_downstream_filtered = convert_limb_function_return_to_limb_branch_dict(dendrit_to_axon_flip_branch_dict,
-                                                                                           curr_limb_concept_network,
-                                                                                           limb_name)
-    
-    #print(f"limb_branch_dict_downstream_filtered AFTER dendrite to axon flipping = {limb_branch_dict_downstream_filtered}")
-    
-    return dendrit_to_axon_flip_branch_dict
-
-@run_options(run_type="Limb")
 def axon_segment_downstream_dendrites(curr_limb,limb_branch_dict,limb_name=None,downstream_face_threshold=5000,
                                       downstream_non_axon_percentage_threshold = 0.5,
                                       max_skeletal_length_can_flip=20000,
@@ -701,172 +625,7 @@ def flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name=None,
     return return_dict
     
 
-@run_options(run_type="Limb")
-def axon_segment_clean_false_positives(curr_limb,
-                                       limb_branch_dict,
-                                       limb_name=None,
-                                    width_match_threshold=50,
-                                   width_type = "no_spine_average_mesh_center",
-                                   must_have_spine=True,
-                                       interest_nodes=[],
-                                    #return_limb_branch_dict=False,
-                                       false_positive_max_skeletal_length = 35000,
-                                 print_flag=False,
-                                 **kwargs):
-    """
-    Purpose: To help prevent the false positives
-    where small end dendritic segments are mistaken for axon pieces
-    by checking if the mesh transition in width is very constant between an upstream 
-    node (that is a non-axonal piece) and the downstream node that is an axonal piece
-    then this will change the axonal piece to a non-axonal piece label: 
-    
-    
-    Idea: Can look for where width transitions are pretty constant with preceeding dendrite and axon
-    and if very similar then keep as non-dendrite
-
-    *** only apply to those with 1 or more spines
-
-    Pseudocode: 
-    1) given all of the axons
-
-    For each axon node:
-    For each of the directional concept networks
-    1) If has an upstream node that is not an axon --> if not then continue
-    1b) (optional) Has to have at least one spine or continues
-    2) get the upstream nodes no_spine_average_mesh_center width array
-    2b) find the endpoints of the current node
-    3) Find which endpoints match from the node and the upstream node
-    4) get the tangent part of the no_spine_average_mesh_center width array from the endpoints matching
-    (this is either the 2nd and 3rd from front or last depending on touching AND that it is long enough)
-
-    5) get the tangent part of the node based on touching
-
-    6) if the average of these is greater than upstream - 50
-
-    return an updated dictionary
-    
-    """
-    if limb_name not in list(limb_branch_dict.keys()):
-        if print_flag:
-            print(f"{limb_name} not in curr_limb_branch_dict.keys so returning False")
-        return False
-    
-    curr_axon_nodes = limb_branch_dict[limb_name]
-    
-    curr_limb_copy = deepcopy(curr_limb)
-    
-    non_axon_nodes = []
-    
-    #a) Get all of the concept maps (by first getting all of the somas)
-    touching_somas = [k["starting_soma"] for k in curr_limb_copy.all_concept_network_data]
-    
-    #b) For each of the concept maps: 
-    for sm_start in touching_somas:
-        curr_limb_copy.set_concept_network_directional(sm_start)
-        curr_directional_network = curr_limb_copy.concept_network_directional
-        
-        #- For each node: 
-        for n in curr_axon_nodes:
             
-            #if already added to the non-axons nodes then don't need to check anymore
-            if n in non_axon_nodes:
-                continue
-            
-            #1) If has an upstream node that is not an axon --> if not then continue
-            curr_upstream_nodes = xu.upstream_edges_neighbors(curr_directional_network,n)
-            
-            try:
-                upstream_node_temp = curr_upstream_nodes[0][0]
-            except:
-                upstream_node_list = curr_upstream_nodes
-            else:
-                upstream_node_list = curr_upstream_nodes[0]
-            
-            if len(upstream_node_list) == 0:
-                continue
-            if len(upstream_node_list) > 1:
-                raise Exception(f"More than one upstream node for node {n}: {upstream_node_list}")
-            
-            upstream_node = upstream_node_list[0]
-                
-            if print_flag:
-                print(f"n = {n}, upstream_node= {upstream_node}")
-            
-            if upstream_node in curr_axon_nodes:
-                if print_flag:
-                    print("Skipping because the upstream node is not a non-axon piece")
-                continue
-                
-            if (false_positive_max_skeletal_length < 
-                curr_limb_copy.concept_network.nodes[n]["data"].skeletal_length > 
-                        false_positive_max_skeletal_length):
-                if print_flag:
-                    print(f"Skipping because the pice was larger than false_positive_max_skeletal_length = {false_positive_max_skeletal_length} ")
-                continue
-                    
-        
-            #1b) (optional) Has to have at least one spine or continues
-            if must_have_spine:
-                if not (curr_limb_copy.concept_network.nodes[n]["data"].spines) is None:
-                    if (curr_limb_copy.concept_network.nodes[n]["data"].n_spines == 0):
-                        if print_flag:
-                            print(f"Not processing node {n} because there were no spines and  must_have_spine set to {must_have_spine}")
-                        continue
-                else:
-                    if print_flag:
-                        print(f"Not processing node {n} because spines were NONE and must_have_spine set to {must_have_spine}")
-                    continue #if spines were None
-                    
-            
-            #2- 5) get the tangent touching parts of the mesh
-            width_array_1,width_array_2 = wu.find_mesh_width_array_border(curr_limb=curr_limb_copy,
-                                 node_1 = n,
-                                 node_2 = upstream_node,
-                                width_name=width_type,
-                                segment_start = 1,
-                                segment_end = 6,
-                                skeleton_segment_size = 500,
-                                print_flag=False,
-                                **kwargs
-                                )
-            
-            #6) if the average of these is greater than upstream - 50 then add to the list of non axons
-            #interest_nodes = [56,71]`x
-            if n in interest_nodes or upstream_node in interest_nodes:
-                print(f"width_array_1 = {width_array_1}")
-                print(f"width_array_2 = {width_array_2}")
-                print(f"np.mean(width_array_1) = {np.mean(width_array_1)}")
-                print(f"np.mean(width_array_2) = {np.mean(width_array_2)}")
-            
-            if np.mean(width_array_1) >= (np.mean(width_array_2)-width_match_threshold):
-                
-                non_axon_nodes.append(n)
-                if print_flag:
-                    print(f"Adding node {n} to non_axon list with threshold {width_match_threshold} because \n"
-                          f"   np.mean(width_array_1)  = {np.mean(width_array_1) }"
-                          f"   np.mean(width_array_2)  = {np.mean(width_array_2) }")
-                 
-    #after checking all nodes and concept networks
-    #compile all of the non-axon nodes
-    total_non_axon_nodes = set(non_axon_nodes)
-    
-    if print_flag:
-        print(f"total_non_axon_nodes = {total_non_axon_nodes}")
-    #make a return dictionary that shows the filtered down axons
-    return_dict = dict()
-    for n in curr_limb_copy.concept_network.nodes():
-        if n in curr_axon_nodes and n not in total_non_axon_nodes:
-            return_dict[n] = True
-        else:
-            return_dict[n] = False
-    
-    return return_dict
-            
-    
-# --------- 1/15: Additions to help find axon -----------------#
-
-    
-
 
 #------------------------------- Creating the Data tables from the neuron and functions------------------------------
 def get_run_type(f):
@@ -1107,6 +866,19 @@ def functions_list_from_query(
     return found_functions
 
 
+def limb_branch_from_stats_df(
+    df
+    ):
+    """
+    Purpose: To convert a dataframe to a limb branch dict
+    """
+    limb_branch_pairings = df[["limb","node"]].to_numpy()
+
+    #gets a dictionary where key is the limb and value is a list of all the branches that were in the filtered dataframe
+    limb_to_branch = dict([(k,np.sort(limb_branch_pairings[:,1][np.where(limb_branch_pairings[:,0]==k)[0]]).astype("int")) 
+                           for k in np.unique(limb_branch_pairings[:,0])])
+    return limb_to_branch
+
 def query_neuron(
     concept_network,           
     query,
@@ -1313,7 +1085,7 @@ def query_neuron(
                                for k in np.unique(limb_branch_pairings[:,0])])
         """
         
-        limb_to_branch = nst.limb_branch_from_stats_df(filtered_returned_df)
+        limb_to_branch = limb_branch_from_stats_df(filtered_returned_df)
         
         
         if limb_branch_dict_restriction is not None:
@@ -1411,27 +1183,9 @@ def run_limb_function(limb_func,curr_limb,limb_name=None,
         output_dict[b] = div
     return output_dict
 
-@run_options(run_type="Limb")
-def upstream_skeletal_length(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.upstream_skeletal_length,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
 
-@run_options(run_type="Limb")
-def total_upstream_skeletal_length(curr_limb,limb_name=None,
-                    limb_branch_dict_restriction=None,
-               **kwargs):
-    return run_limb_function(nst.total_upstream_skeletal_length,
-                            curr_limb=curr_limb,
-                             limb_name=limb_name,
-                             limb_branch_dict_restriction=limb_branch_dict_restriction,
-                             **kwargs
-                            )
+
+
 
 
 
@@ -1522,7 +1276,6 @@ def set_limb_functions_for_search(
 
 #--- from neurd_packages ---
 from . import branch_utils as bu
-from . import neuron_statistics as nst
 from . import neuron_utils as nru
 
 from . import width_utils as wu

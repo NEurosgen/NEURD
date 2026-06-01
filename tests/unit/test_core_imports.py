@@ -22,7 +22,6 @@ skip_if_datasci_tools_unusable()
 CORE_MODULES = [
     "branch_utils",
     "concept_network_utils",
-    "limb_utils",
     "neuron_searching",
     "neuron_statistics",
     "neuron_utils",
