@@ -1398,6 +1398,178 @@ def _decompose_map_piece(
     return local_correspondence_revised, curr_limb_endpoints_must_keep, curr_soma_to_piece_touching_vertices
 
 
+def _fix_mp_soma_extension(
+    segment_branches,
+    divided_submeshes,
+    divided_submeshes_idx,
+    segment_widths_median,
+    curr_soma_to_piece_touching_vertices,
+    limb_mesh_mparty,
+):
+    """Part 10 (11/9 addition): для MP-сублимба, касающегося границы сомы,
+    достраивает soma-extending ветви и пересчитывает correspondence.
+
+    Мутирует/возвращает (segment_branches, divided_submeshes, divided_submeshes_idx,
+    segment_widths_median) плюс endpts_total, touching_total и флаг
+    no_soma_extension_add (для диагностического принта в вызывающем цикле).
+    """
+    no_soma_extension_add = True
+
+    endpts_total = dict()
+    curr_soma_to_piece_touching_vertices_total = dict()
+    for sm_idx, sm_bord_verts_list in curr_soma_to_piece_touching_vertices.items():
+        #will be used for later
+        endpts_total[sm_idx] = []
+        curr_soma_to_piece_touching_vertices_total[sm_idx] = []
+
+        for sm_bord_verts in sm_bord_verts_list:
+            #1) Get the mesh pieces that are touching the border
+            matching_mesh_idx = tu.filter_meshes_by_containing_coordinates(
+                mesh_list=divided_submeshes,
+                nullifying_points=sm_bord_verts,
+                filter_away=False,
+                distance_threshold=min_distance_threshold,
+                return_indices=True,
+            )
+            #2) concatenate all meshes and skeletons that are touching
+            if len(matching_mesh_idx) <= 0:
+                raise Exception("None of branches were touching the border vertices when fixing MP pieces")
+
+            touch_mesh = tu.combine_meshes(divided_submeshes[matching_mesh_idx])
+            touch_sk = sk.stack_skeletons(segment_branches[matching_mesh_idx])
+
+            local_curr_soma_to_piece_touching_vertices = {sm_idx: [sm_bord_verts]}
+            new_sk, endpts, new_branch_info = sk.create_soma_extending_branches(
+                current_skeleton=touch_sk,
+                skeleton_mesh=touch_mesh,
+                soma_to_piece_touching_vertices=local_curr_soma_to_piece_touching_vertices,
+                return_endpoints_must_keep=True,
+                return_created_branch_info=True,
+                check_connected_skeleton=False,
+            )
+
+            # ---- 12/30 Addition Check if the endpoint found is an endnode or not and if not then manually add branch ---
+            curr_endnode = endpts[sm_idx][0]
+            match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(
+                segment_branches, current_coordinate=curr_endnode
+            )
+
+            print(f"match_sk_branches = {match_sk_branches}")
+            if len(match_sk_branches) > 1:
+                border_average_coordinate = np.mean(sm_bord_verts, axis=0)
+                new_branch_sk = np.vstack([curr_endnode, border_average_coordinate]).reshape(-1, 2, 3)
+                br_info = dict(new_branch=new_branch_sk, border_verts=sm_bord_verts)
+                endpts_total[sm_idx].append(border_average_coordinate)
+            else:
+                br_info = new_branch_info[sm_idx][0]
+                endpts_total[sm_idx].append(endpts[sm_idx][0])
+            # -------------------- End of 12/30 Addition ------------------
+
+            #3) Add the info to the new running lists
+            curr_soma_to_piece_touching_vertices_total[sm_idx].append(sm_bord_verts)
+
+            #4) Skip if no new branch was added
+            if br_info is None:
+                print("The new branch info was none so skipping \n")
+                continue
+
+            #4 If new branch was made then
+            no_soma_extension_add = False
+
+            #1) Get the newly added branch (and the original vertex which is the first row)
+            br_new, sm_bord_verts = br_info["new_branch"], br_info["border_verts"]
+
+            curr_soma_to_piece_touching_vertices_MP = {sm_idx: [sm_bord_verts]}
+            endpoints_must_keep_MP = {sm_idx: [br_new[0][1]]}
+
+            orig_vertex = br_new[0][0]
+            print(f"orig_vertex = {orig_vertex}")
+
+            #2) Find the branches that have that coordinate (could be multiple)
+            match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(
+                segment_branches, current_coordinate=orig_vertex
+            )
+            print(f"match_sk_branches = {match_sk_branches}")
+
+            stitch_point_on_end_or_branch = find_if_stitch_point_on_end_or_branch(
+                matched_branches_skeletons=segment_branches[match_sk_branches],
+                stitch_coordinate=orig_vertex,
+                verbose=False,
+            )
+
+            if not stitch_point_on_end_or_branch:
+                matching_branch_sk = sk.cut_skeleton_at_coordinate(
+                    skeleton=segment_branches[match_sk_branches][0], cut_coordinate=orig_vertex
+                )
+            else:
+                matching_branch_sk = segment_branches[match_sk_branches]
+
+            #3) Find the mesh and skeleton of the winning branch
+            matching_branch_mesh_idx = np.array(divided_submeshes_idx)[match_sk_branches]
+            extend_soma_mesh_idx = np.concatenate(matching_branch_mesh_idx)
+            extend_soma_mesh = limb_mesh_mparty.submesh([extend_soma_mesh_idx], append=True, repair=False)
+
+            #4) Add newly created branch to skeleton and divide the skeleton into branches (could make 2 or 3)
+            sk.check_skeleton_connected_component(sk.stack_skeletons(list(matching_branch_sk) + [br_new]))
+
+            #5) Run Adaptive mesh correspondnece using branches and mesh
+            local_correspondnece_MP = mesh_correspondence_first_pass(
+                mesh=extend_soma_mesh,
+                skeleton_branches=list(matching_branch_sk) + [br_new],
+            )
+
+            # GETTING MESHES THAT ARE NOT FULLY CONNECTED!!
+            local_correspondence_revised = correspondence_1_to_1(
+                mesh=extend_soma_mesh,
+                local_correspondence=local_correspondnece_MP,
+                curr_limb_endpoints_must_keep=endpoints_must_keep_MP,
+                curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices_MP,
+            )
+
+            new_submeshes = [k["branch_mesh"] for k in local_correspondence_revised.values()]
+            new_submeshes_idx = [extend_soma_mesh_idx[k["branch_face_idx"]] for k in local_correspondence_revised.values()]
+            new_skeletal_branches = [k["branch_skeleton"] for k in local_correspondence_revised.values()]
+
+            #calculate the new width
+            ray_inter = tu.ray_pyembree.RayMeshIntersector(limb_mesh_mparty)
+            new_widths = []
+            for new_s_idx in new_submeshes_idx:
+                curr_ray_distance = tu.ray_trace_distance(mesh=limb_mesh_mparty, face_inds=new_s_idx, ray_inter=ray_inter)
+                curr_width_median = np.median(curr_ray_distance[curr_ray_distance != 0])
+                print(f"curr_width_median = {curr_width_median}")
+                if (not np.isnan(curr_width_median)) and (curr_width_median > 0):
+                    new_widths.append(curr_width_median)
+                else:
+                    print(f"USING A DEFAULT WIDTH BECAUSE THE NEWLY COMPUTED ONE WAS {curr_width_median}: {segment_widths_median[match_sk_branches[0]]}")
+                    new_widths.append(segment_widths_median[match_sk_branches[0]])
+
+            segment_branches = np.array([k for i, k in enumerate(segment_branches) if i not in match_sk_branches] + new_skeletal_branches)
+
+            divided_submeshes = np.delete(divided_submeshes, match_sk_branches, axis=0)
+            divided_submeshes = np.append(divided_submeshes, new_submeshes, axis=0)
+
+            divided_submeshes_idx = np.array([k for i, k in enumerate(divided_submeshes_idx) if i not in match_sk_branches] + new_submeshes_idx)
+
+            segment_widths_median = np.delete(segment_widths_median, match_sk_branches, axis=0)
+            segment_widths_median = np.append(segment_widths_median, new_widths, axis=0)
+
+            try:
+                sk.check_skeleton_connected_component(sk.stack_skeletons(segment_branches))
+            except:
+                su.compressed_pickle(local_correspondence_revised, "local_correspondence_revised")
+            print("checked segment branches after soma add on")
+
+    return (
+        segment_branches,
+        divided_submeshes,
+        divided_submeshes_idx,
+        segment_widths_median,
+        endpts_total,
+        curr_soma_to_piece_touching_vertices_total,
+        no_soma_extension_add,
+    )
+
+
 def _merge_map_mp_correspondence(limb_correspondence_MAP, limb_correspondence_MP):
     """Part 17: схлопывает MAP- и MP-correspondence в один плоский dict
     {branch_idx -> branch_dict}, последовательно перенумеровывая ветви."""
@@ -1869,202 +2041,27 @@ def preprocess_limb(
             print(f"Do Not Need to Fix MP Decomposition {sublimb_idx} so just continuing")
 
         else:
-
-            # ------- 11/9 addition: Fixing error where creating soma touching branch on mesh that doesn't touch border ------------------- #
+            # 11/9 addition: build soma-extending branches where the MP mesh touches a soma border
             print(f"Fixing Possible Soma Extension Branch for Sublimb {sublimb_idx}")
-            no_soma_extension_add = True 
-
-            endpts_total = dict()
-            curr_soma_to_piece_touching_vertices_total = dict()
-            for sm_idx,sm_bord_verts_list in curr_soma_to_piece_touching_vertices.items():
-                #will be used for later
-                endpts_total[sm_idx] = []
-                curr_soma_to_piece_touching_vertices_total[sm_idx] = []
-
-                for sm_bord_verts in sm_bord_verts_list:
-                    #1) Get the mesh pieces that are touching the border
-                    matching_mesh_idx = tu.filter_meshes_by_containing_coordinates(mesh_list=divided_submeshes,
-                                               nullifying_points=sm_bord_verts,
-                                                filter_away=False,
-                                               distance_threshold=min_distance_threshold,
-                                               return_indices=True)
-                    #2) concatenate all meshes and skeletons that are touching
-                    if len(matching_mesh_idx) <= 0:
-                        raise Exception("None of branches were touching the border vertices when fixing MP pieces")
-
-                    touch_mesh = tu.combine_meshes(divided_submeshes[matching_mesh_idx])
-                    touch_sk = sk.stack_skeletons(segment_branches[matching_mesh_idx])
-
-                    local_curr_soma_to_piece_touching_vertices = {sm_idx:[sm_bord_verts]}
-                    new_sk,endpts,new_branch_info = sk.create_soma_extending_branches(current_skeleton=touch_sk,
-                                          skeleton_mesh=touch_mesh,
-                                          soma_to_piece_touching_vertices=local_curr_soma_to_piece_touching_vertices,
-                                          return_endpoints_must_keep=True,
-                                          return_created_branch_info=True,
-                                          check_connected_skeleton=False)
-                    
-                    # ---- 12/30 Addition Check if the endpoint found is an endnode or not and if not then manually add branch ---
-                    curr_endnode = endpts[sm_idx][0]
-                    match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(segment_branches,
-                        current_coordinate=curr_endnode)
-
-                    print(f"match_sk_branches = {match_sk_branches}")
-                    if len(match_sk_branches) > 1:
-                        border_average_coordinate = np.mean(sm_bord_verts,axis=0)
-                        new_branch_sk = np.vstack([curr_endnode,border_average_coordinate]).reshape(-1,2,3)
-                        br_info = dict(new_branch = new_branch_sk,border_verts=sm_bord_verts)
-                        endpts_total[sm_idx].append(border_average_coordinate)
-                    else:
-                        
-                        br_info = new_branch_info[sm_idx][0]
-                        endpts_total[sm_idx].append(endpts[sm_idx][0])
-                    # -------------------- End of 12/30 Addition ------------------
-
-                    #3) Add the info to the new running lists
-                    
-                    curr_soma_to_piece_touching_vertices_total[sm_idx].append(sm_bord_verts)
-
-
-                    #4) Skip if no new branch was added
-                    if br_info is None:
-                        print("The new branch info was none so skipping \n")
-                        continue
-
-                    #4 If new branch was made then 
-                    no_soma_extension_add=False
-
-                    #1) Get the newly added branch (and the original vertex which is the first row)
-                    br_new,sm_bord_verts = br_info["new_branch"],br_info["border_verts"] #this will hold the new branch and the border vertices corresponding to it
-
-                    curr_soma_to_piece_touching_vertices_MP = {sm_idx:[sm_bord_verts]}
-                    endpoints_must_keep_MP = {sm_idx:[br_new[0][1]]}
-
-
-                    orig_vertex = br_new[0][0]
-                    print(f"orig_vertex = {orig_vertex}")
-
-                    #2) Find the branches that have that coordinate (could be multiple)
-                    match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(segment_branches,
-                        current_coordinate=orig_vertex)
-
-                    print(f"match_sk_branches = {match_sk_branches}")
-
-
-
-                    """ ******************* THIS NEEDS TO BE FIXED WITH THE SAME METHOD OF STITCHING ********************  """
-                    """
-                    Pseudocode:
-                    1) Find if branch point will require split or not
-                    2) If does require split then split the skeleton
-                    3) Gather mesh pieces for correspondence and the skeletons
-                    4) Run the mesh correspondence
-                    - this case calculate the new widths after run 
-                    5) Replace the old branch parts with the new ones
-
-
-
-                    """
-
-                    stitch_point_on_end_or_branch = find_if_stitch_point_on_end_or_branch(
-                                                            matched_branches_skeletons= segment_branches[match_sk_branches],
-                                                             stitch_coordinate=orig_vertex,
-                                                              verbose=False)
-
-
-                    if not stitch_point_on_end_or_branch:
-                        matching_branch_sk = sk.cut_skeleton_at_coordinate(skeleton=segment_branches[match_sk_branches][0],
-                                                                          cut_coordinate = orig_vertex)
-                    else:
-                        matching_branch_sk = segment_branches[match_sk_branches]
-
-
-                    #3) Find the mesh and skeleton of the winning branch
-                    matching_branch_meshes = np.array(divided_submeshes)[match_sk_branches]
-                    matching_branch_mesh_idx = np.array(divided_submeshes_idx)[match_sk_branches]
-                    extend_soma_mesh_idx = np.concatenate(matching_branch_mesh_idx)
-                    extend_soma_mesh = limb_mesh_mparty.submesh([extend_soma_mesh_idx ],append=True,repair=False)
-
-                    #4) Add newly created branch to skeleton and divide the skeleton into branches (could make 2 or 3)
-                    #extended_skeleton_to_soma = sk.stack_skeletons([list(matching_branch_sk),br_new])
-
-                    sk.check_skeleton_connected_component(sk.stack_skeletons(list(matching_branch_sk) + [br_new]))
-
-                    #5) Run Adaptive mesh correspondnece using branches and mesh
-                    local_correspondnece_MP = mesh_correspondence_first_pass(mesh=extend_soma_mesh,
-                                                                             skeleton_branches = list(matching_branch_sk) + [br_new]
-                                                  #skeleton=extended_skeleton_to_soma
-                                                                            )
-
-                    # GETTING MESHES THAT ARE NOT FULLY CONNECTED!!
-                    local_correspondence_revised = correspondence_1_to_1(mesh=extend_soma_mesh,
-                                                                local_correspondence=local_correspondnece_MP,
-                                                                curr_limb_endpoints_must_keep=endpoints_must_keep_MP,
-                                                                curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices_MP)
-
-                    # All the things that should be revised:
-                #     segment_branches, #skeleton branches
-                #     divided_submeshes, divided_submeshes_idx, #mesh correspondence (mesh and indices)
-                #     segment_widths_median
-
-
-                    new_submeshes = [k["branch_mesh"] for k in local_correspondence_revised.values()]
-                    new_submeshes_idx = [extend_soma_mesh_idx[k["branch_face_idx"]] for k in local_correspondence_revised.values()]
-                    new_skeletal_branches = [k["branch_skeleton"] for k in local_correspondence_revised.values()]
-
-                    #calculate the new width
-                    ray_inter = tu.ray_pyembree.RayMeshIntersector(limb_mesh_mparty)
-                    new_widths = []
-                    for new_s_idx in new_submeshes_idx:
-                        curr_ray_distance = tu.ray_trace_distance(mesh=limb_mesh_mparty, 
-                                            face_inds=new_s_idx,
-                                           ray_inter=ray_inter)
-                        curr_width_median = np.median(curr_ray_distance[curr_ray_distance!=0])
-                        print(f"curr_width_median = {curr_width_median}")
-                        if (not np.isnan(curr_width_median)) and (curr_width_median > 0):
-                            new_widths.append(curr_width_median)
-                        else:
-                            print(f"USING A DEFAULT WIDTH BECAUSE THE NEWLY COMPUTED ONE WAS {curr_width_median}: {segment_widths_median[match_sk_branches[0]]}")
-                            new_widths.append(segment_widths_median[match_sk_branches[0]])
-
-
-                    segment_branches = np.array([k for i,k in enumerate(segment_branches) if i not in match_sk_branches] + new_skeletal_branches)
-
-
-                    divided_submeshes = np.delete(divided_submeshes,match_sk_branches,axis=0)
-                    divided_submeshes = np.append(divided_submeshes,new_submeshes,axis=0)
-
-
-                    divided_submeshes_idx = np.array([k for i,k in enumerate(divided_submeshes_idx) if i not in match_sk_branches] + new_submeshes_idx)
-
-                    segment_widths_median = np.delete(segment_widths_median,match_sk_branches,axis=0)
-                    segment_widths_median = np.append(segment_widths_median,new_widths,axis=0)
-
-                    try:
-                        debug = False
-                        if debug:
-                            print(f"segment_branches.shape = {segment_branches.shape}")
-                            print(f"segment_branches = {segment_branches}")
-                            print(f"new_skeletal_branches = {new_skeletal_branches}")
-                        sk.check_skeleton_connected_component(sk.stack_skeletons(segment_branches))
-                    except:
-                        su.compressed_pickle(local_correspondence_revised,"local_correspondence_revised")
-                    print("checked segment branches after soma add on")
-                    return_find = sk.find_branch_skeleton_with_specific_coordinate(segment_branches,
-                                                 orig_vertex)
-
-
-
-                    """ ******************* END OF HOW CAN DO STITCHING ********************  """
-
-
+            (
+                segment_branches,
+                divided_submeshes,
+                divided_submeshes_idx,
+                segment_widths_median,
+                endpts_total,
+                curr_soma_to_piece_touching_vertices_total,
+                no_soma_extension_add,
+            ) = _fix_mp_soma_extension(
+                segment_branches,
+                divided_submeshes,
+                divided_submeshes_idx,
+                segment_widths_median,
+                curr_soma_to_piece_touching_vertices,
+                limb_mesh_mparty,
+            )
 
             limb_to_endpoints_must_keep_list.append(endpts_total)
             limb_to_soma_touching_vertices_list.append(curr_soma_to_piece_touching_vertices_total)
-            
-            #print(f"limb_to_endpoints_must_keep_list = {limb_to_endpoints_must_keep_list}")
-            #print(f"limb_to_soma_touching_vertices_list = {limb_to_soma_touching_vertices_list}")
-
-            # ------------------- 11/9 addition ------------------- #
 
             if no_soma_extension_add:
                 print("No soma extending branch was added for this sublimb even though it had a soma border (means they already existed)")
