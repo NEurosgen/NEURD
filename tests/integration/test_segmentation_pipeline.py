@@ -35,6 +35,12 @@ from neurd import parameters
 from neurd.segmentation_pipeline import segmentation_pipeline
 from mesh_tools import trimesh_utils as tu
 
+# save_segmentation lives in process_all_neurons.py at the repo root (not a package),
+# so it can write the same soma/limb/branch .off + .npy + connectivity.json layout
+# that the production run produces — letting us inspect the test's segmentation.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from process_all_neurons import save_segmentation  # noqa: E402
+
 # h01 single-neuron fixture: preprocess_neuron forces params.use('h01'), so the
 # segmentation path is now specialised for one soma with no glia/nuclei.
 _FIXTURE = (
@@ -51,6 +57,13 @@ _requires_fixture = pytest.mark.skipif(
 )
 
 
+# Where to write the inspectable segmentation (soma/limb/branch .off + .npy +
+# connectivity.json). Override with SEG_OUTPUT_DIR=/some/path to redirect.
+_SEG_OUTPUT_DIR = Path(
+    os.environ.get("SEG_OUTPUT_DIR", Path(__file__).resolve().parent / "_seg_output")
+)
+
+
 @pytest.fixture(scope="module")
 def decomposed_neuron(tmp_path_factory):
     """Run the slim pipeline once; share the decomposed Neuron across assertions.
@@ -58,6 +71,10 @@ def decomposed_neuron(tmp_path_factory):
     The decomposition shells out to meshlabserver, which writes ~tens of MB of
     working files to `./<segment_id>/` in the CWD. Run inside a pytest tmp dir so
     that scratch never lands in the repo.
+
+    After decomposing, the segmented result is saved (best-effort) under
+    _SEG_OUTPUT_DIR/<fixture_stem>/ via the same save_segmentation() that the
+    production process_all_neurons run uses, so the output can be inspected.
     """
     work_dir = tmp_path_factory.mktemp("segmentation_pipeline")
     prev_cwd = os.getcwd()
@@ -68,9 +85,20 @@ def decomposed_neuron(tmp_path_factory):
         parameters.params.use("h01")
         mesh = tu.load_mesh_no_processing(str(_FIXTURE))
         assert len(mesh.faces) > 0, "fixture mesh has no faces"
-        return segmentation_pipeline(mesh, verbose=False)
+        neuron_obj = segmentation_pipeline(mesh, verbose=False)
     finally:
         os.chdir(prev_cwd)
+
+    # Persist the segmentation for inspection. Best-effort: a save failure must not
+    # fail the contract assertions (the Neuron object itself is what they test).
+    try:
+        out_base = _SEG_OUTPUT_DIR / _FIXTURE.stem
+        save_segmentation(neuron_obj, out_base)
+        print(f"\n[segmentation saved] {out_base}")
+    except Exception as e:  # noqa: BLE001
+        print(f"\n[segmentation save skipped] {type(e).__name__}: {e}")
+
+    return neuron_obj
 
 
 @_requires_mesh_tools
