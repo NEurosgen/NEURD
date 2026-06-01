@@ -673,27 +673,6 @@ def branches_to_concept_network(curr_branch_skeletons,
     return concept_network
 
 
-
-
-            
-#for finding the closest endpoint
-
-# ----------------------- End of Concept Networks ------------------------------------- #
-    
-    
-
-    
-
-
-
-
-
-
-
-
-    
- 
-
 # --------------  END OF COMPRESSION OF NEURON ---------------- #
 
 # --------------  7/23 To help with visualizations of neuron ---------------- #
@@ -2112,29 +2091,6 @@ def mesh_without_boutons(obj):
 
     
 
-def limb_mesh_from_branches(limb_obj,
-                             plot_mesh=False):
-    """
-    Purpose: To reconstruct the mesh of neuron
-    from all of the branch obejcts
-
-    Pseudocode:
-    Iterate through all the limbs:
-        iterate through all the branches
-            add to big list
-
-    Add some to big list
-
-    concatenate list into mesh
-    """
-
-    neuron_mesh_list = []
-    
-    for branch_obj in limb_obj:
-        neuron_mesh_list.append(branch_obj.mesh)
-
-    neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
-    return neuron_mesh_from_branches
     
 def neuron_mesh_from_branches(neuron_obj,
                              plot_mesh=False):
@@ -2280,17 +2236,6 @@ def neighbor_endpoint(limb_obj,
     2a) if upstream node is None then use the current current starting node
     2b) if upstream node, find the common skeleton point between the 2
 
-    Ex: 
-    
-    limb_obj = neuron_obj[2]
-    for branch_idx in limb_obj.get_branch_names():
-        k = upstream_endpoint(limb_obj = limb_obj,
-        branch_idx = branch_idx,
-        verbose = True,
-                             return_endpoint_index = True)
-        total_dist = nst.total_upstream_skeletal_length(limb_obj,branch_idx)
-        print(f"k = {k}")
-        print(f"total upstream dist = {total_dist}\n")
     """
 
     upstream_node = upstream_node(limb_obj,branch_idx)
@@ -2352,15 +2297,7 @@ def upstream_endpoint(limb_obj,
                      return_endpoint_index,
                      neighbor_type="upstream")
 
-def downstream_endpoint(limb_obj,
-                     branch_idx,
-                     verbose = False,
-                     return_endpoint_index=False):
-    return neighbor_endpoint(limb_obj,
-                     branch_idx,
-                     verbose,
-                     return_endpoint_index,
-                     neighbor_type="downstream")
+
 
 def upstream_downstream_endpoint_idx(
     limb_obj,
@@ -2380,10 +2317,6 @@ def upstream_downstream_endpoint_idx(
     
     
 
-def downstream_nodes(limb_obj,branch):
-    return xu.downstream_nodes(limb_obj.concept_network_directional,branch)
-
-    
     
 def branch_path_to_node(limb_obj,
                              start_idx,
@@ -2410,23 +2343,9 @@ def branch_path_to_node(limb_obj,
     a. get skeletal length of all branches on path
     b. Filter out all branches that are not above the skeletal length threshold
 
-    Example: 
-    for k in limb_obj.get_branch_names():
-        branch_path_to_start_node(limb_obj = neuron_obj[0],
-        branch_idx = k,
-        include_branch_idx = False,
-        skeletal_length_min = 2000,
-        verbose = False)
+
         
-        
-    Ex: How to find path from one branch to another after starting
-    from a certain soma
-    
-    branch_path_to_node(neuron_obj[0],
-                       start_idx = 109,
-                       destination_idx = 164,
-                       starting_soma_for_di_graph = "S0",
-                       include_branch_idx = True)
+
     """
     if starting_soma_for_di_graph is not None:
         limb_obj.set_concept_network_directional(soma_group_idx=starting_soma_for_di_graph,
@@ -2469,138 +2388,9 @@ def branch_path_to_node(limb_obj,
 
     return shortest_path
 
-def branch_path_to_start_node(limb_obj,
-                             branch_idx,
-                             include_branch_idx = False,
-                              include_last_branch_idx = True,
-                            skeletal_length_min = None,
-                            verbose = False,):
-    start_idx = limb_obj.current_starting_node
-    if verbose:
-        print(f"start_idx = {start_idx}")
-    
-    return branch_path_to_node(limb_obj,
-                             branch_idx,
-                            destination_idx=start_idx,
-                             include_branch_idx = include_branch_idx,
-                              include_last_branch_idx = include_last_branch_idx,
-                            skeletal_length_min = skeletal_length_min,
-                            verbose = verbose)
-
-    
-
-    
-def restrict_skeleton_from_start_plus_offset_upstream(
-    limb_obj,
-    branch_idx,
-    start_coordinate=None,
-    offset=500,
-    comparison_distance=2000,
-    skeleton_resolution=100,
-    min_comparison_distance = 1000,
-    plot_skeleton = False,
-    nodes_to_exclude = None,
-    verbose = False):
-    
-    """
-    Purpose: To get the upstream skeleton using the new subgraph around node function
-
-    Pseudocode: 
-    1) Get the upstream subgraph around the node that is a little more than the offset 
-    and comparison distance
-    2) Get the skeleton of all of the 
-    """
-    
-    if start_coordinate is None:
-        start_coordinate = downstream_endpoint(limb_obj,branch_idx)
-
-    from neurd.concept_network_utils import subgraph_around_branch  # P3: local import breaks neuron_utils<->concept_network_utils cycle
-    upstream_node_list = subgraph_around_branch(limb_obj,
-                           branch_idx,
-                            downstream_distance = -1,
-                           upstream_distance=comparison_distance + offset + 1000,
-                          include_branch_in_upstream_dist=True,
-                           include_branch_idx = True,
-                          return_branch_idxs=True,
-                          nodes_to_exclude=nodes_to_exclude,
-                          )
-    
-    if verbose:
-        print(f"upstream_node_list = {upstream_node_list}")
-    
-    upstream_skeleton_total = sk.stack_skeletons([limb_obj[k].skeleton for k in upstream_node_list])
-    upstream_final_skeleton = sk.restrict_skeleton_from_start_plus_offset(upstream_skeleton_total,
-                                                   offset=offset,
-                                                comparison_distance=comparison_distance,
-                                                    min_comparison_distance=min_comparison_distance,
-                                                verbose=verbose,
-                                                 start_coordinate=start_coordinate,
-                                                skeleton_resolution = skeleton_resolution
-                                                   )
-    
-    
-    return upstream_final_skeleton
+  
 
 
-def restrict_skeleton_from_start_plus_offset_downstream(
-    limb_obj,
-    branch_idx,
-    start_coordinate=None,
-    offset=500,
-    comparison_distance=2000,
-    skeleton_resolution=100,
-    min_comparison_distance = 1000,
-    plot_skeleton = False,
-    nodes_to_exclude = None,
-    verbose = False):
-    
-    """
-    Purpose: To get the upstream skeleton using the new subgraph around node function
-
-    Pseudocode: 
-    1) Get the upstream subgraph around the node that is a little more than the offset 
-    and comparison distance
-    2) Get the skeleton of all of the 
-    
-    
-    Ex: 
-    restrict_skeleton_from_start_plus_offset_downstream(limb_obj,97,
-                                                      comparison_distance=100000,
-                                                     plot_skeleton=True,
-                                                       verbose=True)
-    """
-    
-    if start_coordinate is None:
-        start_coordinate = upstream_endpoint(limb_obj,branch_idx)
-
-    from neurd.concept_network_utils import subgraph_around_branch  # P3: local import breaks neuron_utils<->concept_network_utils cycle
-    upstream_node_list = subgraph_around_branch(limb_obj,
-                           branch_idx,
-                           downstream_distance=comparison_distance + offset + 1000,
-                            upstream_distance=-1,
-                            only_non_branching_downstream = True,
-                          include_branch_in_upstream_dist=True,
-                           include_branch_idx = True,
-                          return_branch_idxs=True,
-                            nodes_to_exclude=nodes_to_exclude,
-                                                    verbose = verbose
-                          )
-    if verbose:
-        print(f"downstream_node_list = {upstream_node_list}")
-    
-    upstream_skeleton_total = sk.stack_skeletons([limb_obj[k].skeleton for k in upstream_node_list])
-    
-    upstream_final_skeleton = sk.restrict_skeleton_from_start_plus_offset(upstream_skeleton_total,
-                                                   offset=offset,
-                                                comparison_distance=comparison_distance,
-                                                    min_comparison_distance=min_comparison_distance,
-                                                verbose=verbose,
-                                                 start_coordinate=start_coordinate,
-                                                skeleton_resolution = skeleton_resolution
-                                                   )
-    
-    
-    return upstream_final_skeleton
 
 
 # --------- 7/28: For the apical classification ------------
@@ -2656,8 +2446,6 @@ def shortest_path(limb_obj,start_branch_idx,destiation_branch_idx,
     shortest_p = np.array(xu.shortest_path(limb_obj.concept_network,start_branch_idx,destiation_branch_idx))
     return shortest_p
 
-def get_soma_meshes(neuron_obj):
-    return neuron_obj.get_soma_meshes()
     
     
 # ---------- 10/22 -------------

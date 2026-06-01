@@ -322,17 +322,7 @@ class Spine:
     def head_mesh(self):
         return spu.head_mesh(self)
     
-#     def head_mesh_splits(
-#         self,
-#         n_faces_threshold = 10):
-#         if self.n_faces_head == 0:
-#             return []
-#         else:
-#             return tu.split_significant_pieces(
-#                 self.head_mesh,
-#                 significance_threshold=n_faces_threshold,
-#                 connectivity="vertices"
-#             )
+
 
     @property
     def head_mesh_splits(self):
@@ -941,25 +931,7 @@ def head_mesh_splits_face_idx_by_index(spine_obj,index):
     return np.array(spine_obj.head_face_idx)[np.where(spine_obj.head_mesh_splits_face_idx == index)[0]]
 def head_mesh_splits_from_index(spine_obj,index):
     return mesh_from_name_or_idx(spine_obj,idx = head_mesh_splits_face_idx_by_index(spine_obj,index))
-"""
-def head_mesh(spine_obj):
-    if spine_obj.head_face_idx is None or len(spine_obj.head_face_idx) == 0:
-        return tu.empty_mesh()
-    else:
-        return spine_obj.mesh.submesh([spine_obj.head_face_idx],append=True)
-    
-def neck_mesh(spine_obj):
-    if spine_obj.neck_face_idx is None:
-        return tu.empty_mesh()
-    else:
-        return spine_obj.mesh.submesh([spine_obj.neck_face_idx],append=True)
-    
-def no_head_mesh(spine_obj):
-    if spine_obj.no_head_face_idx is None or len(spine_obj.no_head_face_idx) == 0:
-        return tu.empty_mesh()
-    else:
-        return spine_obj.mesh.submesh([spine_obj.no_head_face_idx],append=True)
-"""
+
     
 def head_exist(spine_obj):
     if spine_obj.head_face_idx is None or len(spine_obj.head_face_idx) == 0:
@@ -1488,15 +1460,7 @@ def spine_head_neck(
     Can optionally return:
     1) Meshes instead of face idx
     
-    Ex: 
-    curr_idx = 38
-    sp_mesh = curr_branch.spines[curr_idx]
-    spu.spine_head_neck(sp_mesh,
-                        cluster_options=(2,3,4),
-                        smoothness=0.15,
-                        verbose = True,
-                        plot_segmentation=True,
-                       plot_head_neck=True)
+
 
     """
     
@@ -1652,23 +1616,7 @@ def spine_head_neck(
                 break
 
     # Filtering away the heads that are 
-#     if no_head_coordinates is not None:
-#         if len(head_face_idx) > 0:
-#             if verbose:
-#                 print(f"Attempting to filter head synapses close to coordinates")
-#             head_face_idx = tu.filter_away_connected_comp_in_face_idx_with_minimum_vertex_distance_to_coordinates(
-#                 mesh = mesh,
-#                 face_idx = head_face_idx,
-#                 coordinates = no_head_coordinates,
-#                 verbose = verbose,
-#                 plot = False,
-#             )
-            
-#             if len(head_face_idx) > 0:
-#                 head_face_idx = np.hstack(head_face_idx)
-                
-#             neck_face_idx = np.delete(np.arange(len(mesh.faces)),head_face_idx)
-            
+
     neck_face_idx = neck_face_idx_win
     neck_sdf = neck_sdf_win
     neck_width = neck_width_win
