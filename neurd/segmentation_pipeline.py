@@ -16,9 +16,6 @@ Prerequisite: module global parameters must already be configured for the datase
 (`neurd.set_volume_params(...)` / the volume_data_interface), same as the full pipeline.
 """
 
-from datasci_tools import pipeline
-
-from neurd import soma_extraction_utils as sm
 from neurd import neuron
 
 
