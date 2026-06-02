@@ -132,7 +132,7 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 | # | Симптом | Причина | Фикс (где) |
 |---|---|---|---|
 | 1 | `TypeError ... scalar index` (soma split) | trimesh≥4 `mesh.split()` → `list`, не `ndarray` | `soma_extraction_utils.py`: `list(...)` + list-comprehension |
-| 2 | Poisson не выполняется, нет выходного файла | `meshlab.Poisson` пишет `<xmlfilter>` XML, MeshLabServer 2020.09 игнорирует | `__init__.py`: патч `Poisson.initialize_script_filters` → `type=Rich*` |
+| 2 | Poisson не выполняется, нет выходного файла | `meshlab.Poisson` пишет `<xmlfilter>` XML, MeshLabServer 2020.09 игнорирует | `__init__.py`: **superseded** — `Poisson.__call__` → in-process no-op (выход=вход), т.к. фильтр всё равно no-op на этой сборке; реальный Poisson за `NEURD_REAL_POISSON=1` (open3d/pymeshlab) |
 | 3 | `NameError: csm` (CGAL не установлен) | C++ расширение CGAL отсутствует | `__init__.py`: stub `_cgal_segmentation.py` в `sys.modules['cgal_Segmentation_Module']` |
 | 4 | `scipy ValueError: axis 0 index ... exceeds` | MeshLabServer 2020.09 OFF-экспортёр: компактные вершины, грани в старой нумерации | `__init__.py`: патч `Meshlab.fetch_mesh_from_off` (перенумерация searchsorted) |
 | 5 | `IndexError ... size 1` (multi-soma split) | две сомы на одном стартовом узле → путь из 1 узла | `proofreading_utils.py:1147` guard *(модуль удалён; патч исторический)* |
@@ -140,8 +140,20 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 | 7 | `numpy_dep has no attribute 'in1d'` | `np.in1d` удалён в numpy 2 | `__init__.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
 | 8 | `NameError: calcification_param` (MAP-путь, толстые ветви) | CGAL teasar-скелетонизатор (`calcification_param_Module`) собирался в Docker; с его удалением исчез. `mesh_tools.skeleton_utils` импортит через `try/except` → имя не связано | **Не stub, а реальная пересборка:** [cgal/cgal_skeleton_param/](cgal/cgal_skeleton_param/) — исходник из git, портирован под CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Собирается `install_local.sh` (best-effort, нужны CGAL/eigen/gmp/mpfr). Без него падают только нейроны с толстыми ветвями |
 
+**Перф-монкипатчи (не баг-фиксы, а замена дорогих узлов mesh_tools in-process — см. [OPTIMIZATION.md §0★](OPTIMIZATION.md)):**
+
+| узел | было | стало (`__init__.py`) | эффект |
+|---|---|---|---|
+| `meshlab.Poisson` | xvfb+meshlabserver subprocess (но фильтр no-op) | in-process no-op; реальный за `NEURD_REAL_POISSON=1` | −536s (4.5× на малом) |
+| `meshlab.FillHoles` | subprocess (тоже сломан → no-op) | in-process pass-through | убран лишний форк |
+| `meshlab.Decimator` | subprocess + OFF round-trip | open3d in-process (`_mesh_ops.decimate`); `NEURD_MESHLAB_DECIMATE=1` → старый | **−184s (−14%) на большом** |
+| trimesh `mesh._cache` | копится (vertex_adjacency_graph 1.6GB, ветки 1.4GB) | `_drop_trimesh_caches` после сегментации + `_clear_mesh_caches` чистит ветки | **пик RAM −1.1GB (−16%)** |
+
 > Корни багов — в `git log` соответствующих правок. Здесь — что/где, чтобы понимать `__init__.py`.
 > Патч #8 (CGAL skeletonizer) — отдельный C++ extension, не monkeypatch; см. [cgal/README.md](cgal/README.md).
+> **Почему перф-фиксы идут монкипатчами, а не правкой mesh_tools:** mesh_tools = plain site-packages
+> (правки теряются при reinstall, как `.so`/skeleton_utils); 116 функций / 16.7K строк ядра — заменить
+> = переписать NEURD. Перехват узлов in-process — durable + обратимо + fidelity-нейтрально. Детально — OPTIMIZATION.md §0★.
 
 ---
 
@@ -154,10 +166,11 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
   стоил ~536s — уже заменён in-process pass-through: пайплайн **688s → 151s (4.5×)**.
 - **SDF-лучи 0.46s, deepcopy ~2s** — НЕ драйверы времени (прежние «гипотезы» про них неверны;
   deepcopy может быть драйвером RAM, но не скорости).
-- Остаток meshlab для замены in-process: **FillHoles** (тоже сломан → no-op), **Decimator**
-  (→ open3d, fidelity проверена), **Interior removal** (реальный, сложнее). Делать по одной,
-  валидируя per-op фикстурой + характеризационным тестом.
-- Реальный compute-пол: **скелетонизация** (meshparty/CGAL teasar) + **детект шипиков**.
-- RAM (наблюдалось ~32 ГБ): deepcopy submesh/Branch + deepcopy Neuron на границах — для памяти и
-  throughput (батч многих нейронов), не для latency одного.
-</content>
+- Meshlab in-process замены: **Poisson** ✅ (no-op), **FillHoles** ✅ (no-op), **Decimator** ✅
+  (→ open3d, −184s). Осталось: **Interior removal** (`tu.remove_mesh_interior` ~104s, реальный
+  Ambient-Occlusion фильтр, in-process замены нет — последний крупный рычаг по времени).
+- Реальный compute-пол: **скелетонизация** (meshparty/CGAL teasar) + ~60% времени ВНУТРИ
+  mesh_tools (`split_by_vertices`, `resolve_empty`, `np.unique`) — durable-правки там невозможны.
+- **RAM (2026-06-02): driver = НЕ deepcopy (113MB), а lazy-кэш trimesh** — `vertex_adjacency_graph`
+  1.6GB на полном меше + 1.4GB на ветках. Частично закрыто очисткой кэша (пик 6974→5876 MB).
+  Карта RAM целиком — OPTIMIZATION.md §0★.

@@ -15,6 +15,104 @@ measure-first: профиль → захват эталона → секундн
 
 ---
 
+## 0★. ОБНОВЛЕНИЕ 2026-06-02: 3 отгруженные победы + полная карта RAM + почему НЕ лезем в mesh_tools
+
+> Это самая свежая сводка. Разделы ниже (§0, §1-6) — более ранние замеры/планы; где
+> расходятся с этим разделом, верить этому. Все три фикса проверены: малый h01 4/4,
+> mesh-ops fidelity+unit 7/7, большой H01 `1830470325` проходит целиком с идентичным
+> выводом (3 лимба, 74/78/1 веток). **Конфиг замеров:** Poisson = no-op (дефолт,
+> `NEURD_REAL_POISSON` не выставлен), no-spines. База большого нейрона = **1127s / пик 6974 MB**.
+
+### Сначала: fidelity-фикс, который вообще разблокировал большой нейрон (коммит 8d30624)
+До оптимизаций большой `1830470325` **падал** в `apply_adaptive_mesh_correspondence_to_neuron`
+→ `resolve_empty_conflicting_face_labels` с `"missing labels was not resolved"`. Корень
+(воспроизведён офлайн из дампа функции): плотный лимб 74 ветви, 34 из них не имеют НИ ОДНОЙ
+единолично-своей грани (всё делится с соседями) → после фильтрации связных компонент стираются;
+perfect-match conflict-path их не спасает. **Доказано необратимым** (даже closest-skeleton split
+оставляет 46 веток без граней — их скелет нигде не ближайший). Этот шаг — лишь *уточнение*
+партиции, которую декомпозиция уже построила корректно, поэтому при неудаче `continue` сохраняет
+её (try/except в `neuron_utils.apply_adaptive_mesh_correspondence_to_neuron`). Подробно —
+память `cgal_skeletonizer_fix.md` слой 3. Заодно: громкий лог при тихом откате CGAL→meshparty
+(`preprocess_neuron._decompose_map_piece`, non-watertight MAP-меш → CGAL return 4).
+
+### Победа №1 — ВРЕМЯ: Decimator → open3d in-process (коммит fcc72ce). **−184s (−14%)**
+Соме-экстракция децимирует меш через `meshlab.Decimator` — форк xvfb+meshlabserver + OFF
+round-trip, ~13 вызовов ≈ 104s. Заменено на in-process open3d (`_mesh_ops.decimate`, уже
+валидирован vs meshlab) монкипатчем `Decimator.__call__`/`__init__` в `neurd/__init__.py`
+(тот же паттерн, что Poisson/FillHoles). Env `NEURD_MESHLAB_DECIMATE=1` → старый meshlab (A/B).
+Замер: **1311→1127s**, вывод идентичен. (Выигрыш > 104s: убраны ещё xvfb-форки + OFF round-trip.)
+
+### Победа №2 — RAM: очистка lazy-кэша trimesh (коммит 0969fd1). **пик −1.1 GB (−16%)**
+**Корень RAM найден точно (tracemalloc + per-attr замер `mesh._cache`):** НЕ deepcopy (113 MB
+на пике), а **lazy-кэш trimesh**. На полном меше 3.27M граней кэш = **3.3 GB** при сырых данных
+162 MB (×20):
+
+| `mesh._cache` ключ | RAM | |
+|---|---|---|
+| **`vertex_adjacency_graph`** | **1636 MB** | networkx-граф на 1.6M вершин — №1 |
+| `vertex_faces` | 902 MB | вершина→грани |
+| `triangles` | 235 MB | N×3×3 float64 |
+| `edges` | 235 MB | |
+| `edges_sorted` + `face_adjacency` | 314 MB | |
+
+`vertex_adjacency_graph` строит `split_by_vertices` при разрезании меша на лимбы (он же = 241s
+в профиле). 153 branch-меша вместе держат ещё **~1.4 GB** кэша (сырые 96 MB). Фикс (оба
+behaviour-preserving, кэш пересчитывается лениво): (1) `_drop_trimesh_caches(mesh)` сразу после
+`_segment_limbs_from_soma` — полный меш дальше не нужен (остаток работает на branch_meshes; в
+возвращаемом dict полного меша нет) → снимает крупнейший держатель на время декомпозиции;
+(2) `Neuron._clear_mesh_caches` теперь чистит и все branch-меши (раньше пропускал; в агрегате это
+1.4 GB, а `process_all_neurons` сохраняет ветки на диск и удаляет Neuron). Замер: **пик 6974→5876
+MB, retained end 4661→4218 MB.** gc.collect() каждую итерацию ОТВЕРГНУТ (+120s за 0.5GB).
+
+⚠️ **Время прогонов коррелирует с числом лимбов, НЕ с фиксами:** 3 лимба→1127/1215s, 4 лимба→
+1250/1285s. Лишний флоатинг-лимб (run-to-run недетерминизм стичинга) = +100-150s. Не путать
+со штрафом оптимизаций.
+
+### Полная карта RAM (потолок на нашем уровне ~исчерпан)
+| Держатель | RAM | Достижимо durable? |
+|---|---|---|
+| импорт библиотек (open3d/embree/trimesh/networkx) | 465 MB | нет (неизбежно) |
+| кэш полного меша (vertex_adjacency_graph 1.6GB) | ~1.6 GB | ✅ **чищу** |
+| кэш 153 branch-мешей | ~1.4 GB | ✅ **чищу** (на retained) |
+| транзиентный пик в `preprocess_limb` (submesh'и 74-веточного лимба) | ~1-2 GB | частично (часть в mesh_tools) |
+| embree BVH (ray-trace ширин) | ~0.5 GB | нет (нативный) |
+
+### ПОЧЕМУ МЫ НЕ ЛЕЗЕМ В mesh_tools (хотя он — источник большинства затрат)
+Замер зависимости: **наш код зовёт 116 уникальных функций mesh_tools, 209 вызовов**;
+`{trimesh_utils, skeleton_utils, compartment_utils}.py` = **16 722 строки** ядра алгоритмов
+(skeletonization, mesh correspondence, soma extraction). По профилю большого нейрона **~60%
+времени — ВНУТРИ mesh_tools**: `split_by_vertices` ~241s, `resolve_empty`/`filter_face_coloring`
+~169-178s, `np.unique` 1.2M вызовов 113s, meshparty-скелетонизация ~99s.
+
+Три причины НЕ трогать его напрямую:
+1. **Не durable.** mesh_tools — plain site-packages (НЕ editable, не в репо). Любая правка
+   там теряется при переустановке env — ровно как уже терялись C++ CGAL `.so` и патч
+   `skeleton_utils` (см. `cgal_skeletonizer_fix.md`). Чинить там = чинить заново после каждого
+   `pip install`.
+2. **Не обёртка, а ядро.** Заменить mesh_tools = переписать сам NEURD (116 функций, 16.7K строк)
+   и потерять fidelity к Docker-эталону, которую мы аккуратно держим. Это новый проект, не
+   оптимизация.
+3. **Алгоритмический риск.** `resolve_empty`, `split_by_vertices`, correspondence — это
+   geometry-меняющая логика. Микро-правки (np.unique→set, list.index→dict) дёшевы по риску, НО
+   их «горячие» вхождения именно в mesh_tools, т.е. см. п.1.
+
+**Что мы делаем ВМЕСТО:** перехватываем конкретные дорогие *узлы* mesh_tools на in-process
+замены через монкипатч в `neurd/__init__.py` — durable (в нашем репо), обратимо (env-флаг),
+fidelity-нейтрально. Так уже сделаны **Poisson (no-op), FillHoles (no-op), Decimator (open3d)**.
+Это и есть правильный способ «обойти» mesh_tools, не переписывая его.
+
+**Когда МОЖНО трогать mesh_tools-функцию:** только если (а) её правка тривиальна и
+behaviour-preserving И (б) мы готовы оформить её как монкипатч в нашем `__init__.py` (а не
+правку site-packages). Иначе — мимо.
+
+### Единственный крупный НЕтронутый durable-рычаг по ВРЕМЕНИ
+**Interior filter (`tu.remove_mesh_interior`) ~104s** — последний meshlab-сабпроцесс в соме-пути
+(meshlab.py:695, 13 вызовов). Готовой in-process замены НЕТ (использует Ambient Occlusion — рендер
+видимости из 128 ракурсов). Риск средний (меняет вход soma-детектора), но качество сомы
+пользователю не важно → выполнимо как следующий шаг. Всё прочее durable по времени ≈ выжато.
+
+---
+
 ## 0. ОБНОВЛЕНИЕ 2026-05-31: смена парадигмы + реальные H01-нейроны
 
 Сессия вышла за рамки «оптимизации» и вскрыла **две Docker-fidelity регрессии** форка
