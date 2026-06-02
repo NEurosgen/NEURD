@@ -863,10 +863,20 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
         #original_labels = gu.get_unique_values_dict_of_lists(face_lookup)
         original_labels = np.arange(0,len(ex_limb))
 
+        # branch_skeletons indexed by branch label 0..N-1 — cu.resolve_empty_conflicting_face_labels
+        # needs them for its missing-label conflict path (tu.split_mesh_by_closest_skeleton); the
+        # library default is None, so NOT passing it crashes ('NoneType' not subscriptable) on the
+        # rare conflict path that complex limbs with MAP pieces trigger.
+        branch_skeletons = [
+            ex_limb.concept_network.nodes[b]["data"].skeleton
+            for b in np.sort(ex_limb.concept_network.nodes())
+        ]
+
         face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = ex_limb.mesh,
                                                                                         face_lookup=face_lookup,
                                                                                         no_missing_labels = list(original_labels),
-                                                                     max_submesh_threshold=50000)
+                                                                     max_submesh_threshold=50000,
+                                                                     branch_skeletons=branch_skeletons)
 
         divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(ex_limb.mesh,face_coloring_copy)
 
