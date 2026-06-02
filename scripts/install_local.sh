@@ -42,6 +42,28 @@ pip install -r requirements-local.txt
 # NEURD itself in editable mode.
 pip install -e .
 
+# CGAL mean-curvature-flow skeletonizer (calcification_param_Module). Required for the
+# MAP decomposition path (thick branches); without it mesh_tools raises
+# `NameError: calcification_param` the moment a neuron has a thick limb. Best-effort:
+# it needs CGAL/Eigen/gmp/mpfr C++ headers in the env prefix (present in conda envs, or
+# `apt install libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev`). If they are missing the
+# build is skipped with a warning — the pipeline still works for thin-branch neurons.
+echo
+echo "Building CGAL skeletonizer extension (calcification_param_Module)..."
+if [[ -f "$(python -c 'import sys; print(sys.prefix)')/include/CGAL/version.h" ]]; then
+    if pip install ./cgal/cgal_skeleton_param; then
+        echo "  CGAL skeletonizer installed."
+    else
+        echo "  WARNING: CGAL skeletonizer build FAILED — MAP path (thick branches) will crash."
+        echo "           See cgal/cgal_skeleton_param/ and PIPELINE.md."
+    fi
+else
+    echo "  WARNING: CGAL headers not found in env prefix — skipping calcification_param_Module."
+    echo "           MAP path (thick branches) will raise NameError. To enable: install CGAL 6"
+    echo "           (conda: 'conda install -c conda-forge cgal eigen gmp mpfr', or apt libcgal-dev),"
+    echo "           then 'pip install ./cgal/cgal_skeleton_param'."
+fi
+
 echo
 echo "Install complete. Activate with:"
 echo "  source $VENV_DIR/bin/activate"
