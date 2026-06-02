@@ -138,8 +138,10 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 | 5 | `IndexError ... size 1` (multi-soma split) | две сомы на одном стартовом узле → путь из 1 узла | `proofreading_utils.py:1147` guard *(модуль удалён; патч исторический)* |
 | 6 | `ValueError: data_pts ... 2 dimensions` | новая pykdtree требует 2D, upstream строит из 1D | `__init__.py`: обёртка `skeleton_utils.KDTree` (1D→(N,1)) |
 | 7 | `numpy_dep has no attribute 'in1d'` | `np.in1d` удалён в numpy 2 | `__init__.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
+| 8 | `NameError: calcification_param` (MAP-путь, толстые ветви) | CGAL teasar-скелетонизатор (`calcification_param_Module`) собирался в Docker; с его удалением исчез. `mesh_tools.skeleton_utils` импортит через `try/except` → имя не связано | **Не stub, а реальная пересборка:** [cgal/cgal_skeleton_param/](cgal/cgal_skeleton_param/) — исходник из git, портирован под CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Собирается `install_local.sh` (best-effort, нужны CGAL/eigen/gmp/mpfr). Без него падают только нейроны с толстыми ветвями |
 
 > Корни багов — в `git log` соответствующих правок. Здесь — что/где, чтобы понимать `__init__.py`.
+> Патч #8 (CGAL skeletonizer) — отдельный C++ extension, не monkeypatch; см. [cgal/README.md](cgal/README.md).
 
 ---
 
