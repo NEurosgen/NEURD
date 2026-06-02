@@ -872,11 +872,28 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
             for b in np.sort(ex_limb.concept_network.nodes())
         ]
 
-        face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = ex_limb.mesh,
-                                                                                        face_lookup=face_lookup,
-                                                                                        no_missing_labels = list(original_labels),
-                                                                     max_submesh_threshold=50000,
-                                                                     branch_skeletons=branch_skeletons)
+        # This step only *refines* the per-branch face partition that the decomposition
+        # (preprocess_neuron) already produced — the 2-hop adaptive correspondence above lets
+        # each branch reclaim faces from its neighbours, then resolve_empty_conflicting_face_labels
+        # disambiguates the overlaps by closest skeleton.
+        #
+        # On a very dense limb (e.g. an H01 apical with 70+ branches whose skeletons sit "behind"
+        # their neighbours) some branches end up with NO face that is solely theirs AND for which
+        # their own skeleton is the closest one — so no closest-skeleton partition can give them a
+        # connected patch, and resolve_empty raises "missing labels was not resolved". This is an
+        # irreducible geometric limit of the refinement, not a decomposition bug: every branch
+        # already has a valid .mesh / .mesh_face_idx from preprocess_neuron's own resolve. Keep that
+        # pre-refinement partition for the offending limb instead of crashing the whole neuron.
+        try:
+            face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = ex_limb.mesh,
+                                                                                            face_lookup=face_lookup,
+                                                                                            no_missing_labels = list(original_labels),
+                                                                         max_submesh_threshold=50000,
+                                                                         branch_skeletons=branch_skeletons)
+        except Exception as e:
+            print(f"[adaptive correspondence] limb {limb_idx}: keeping decomposition partition "
+                  f"(refinement could not resolve {len(original_labels)} branches: {e})")
+            continue
 
         divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(ex_limb.mesh,face_coloring_copy)
 
@@ -887,10 +904,10 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
             ex_branch.mesh = divided_submeshes[branch_idx]
             ex_branch.mesh_face_idx = divided_submeshes_idx[branch_idx]
             ex_branch.mesh_center = tu.mesh_center_vertex_average(ex_branch.mesh)
-            
+
             #need to change the preprocessed_data to reflect the change
             limb_idx_used = int(limb_idx[1:])
-            current_neuron.preprocessed_data["limb_correspondence"][limb_idx_used][branch_idx]["branch_mesh"] = ex_branch.mesh 
+            current_neuron.preprocessed_data["limb_correspondence"][limb_idx_used][branch_idx]["branch_mesh"] = ex_branch.mesh
             current_neuron.preprocessed_data["limb_correspondence"][limb_idx_used][branch_idx]["branch_face_idx"] = ex_branch.mesh_face_idx
             
             

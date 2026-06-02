@@ -1347,6 +1347,18 @@ def _decompose_map_piece(
     else:
         curr_total_border_vertices = None
 
+    # The C++ CGAL skeletonizer (calcification_param) refuses a non-closed mesh: it returns 4
+    # ("Not closed mesh"), writes no .cgal file, and skeleton_utils then SILENTLY falls back to
+    # meshparty ("..._skeleton.cgal not found so skipping" -> meshparty skeletonization). That swap
+    # is harmless for decomposition (meshparty carries ~all skeletonization on H01 — typically a
+    # single MAP piece per neuron), but it is invisible in the logs, so a real CGAL regression would
+    # hide behind it. Surface the fallback loudly: CGAL contributes here ONLY if the piece is closed.
+    if not tu.is_watertight(mesh):
+        print(f"[MAP {sublimb_idx}] mesh not watertight -> CGAL skeletonizer will return 4 "
+              f"('Not closed mesh') and SILENTLY fall back to meshparty skeletonization "
+              f"(faces={len(mesh.faces)}). This is expected on H01; flagged so a genuine CGAL "
+              f"failure is not mistaken for it.")
+
     cleaned_branch, curr_limb_endpoints_must_keep = sk.skeletonize_and_clean_connected_branch_CGAL(
         mesh=mesh,
         curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,

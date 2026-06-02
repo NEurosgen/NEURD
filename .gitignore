@@ -179,3 +179,13 @@ tests/fixtures/mesh_ops/
 
 # Inspectable segmentation output from integration test (large .off files)
 tests/integration/_seg_output/
+tests/integration/_seg_output_big/
+
+# Claude Code local scratch (scheduled-task lock etc.)
+.claude/
+
+# Root-level pickle/mesh dumps that resolve_empty_conflicting_face_labels / skeleton_cgal
+# write into CWD on failure or skeletonization (curr_limb_mesh.pbz2, face_lookup.pbz2,
+# mesh_watertight.off, ...). Scratch only — never committed.
+/*.pbz2
+/mesh_watertight.off
