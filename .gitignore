@@ -189,3 +189,4 @@ tests/integration/_seg_output_big/
 # mesh_watertight.off, ...). Scratch only — never committed.
 /*.pbz2
 /mesh_watertight.off
+tests/integration/_seg_output_spines/

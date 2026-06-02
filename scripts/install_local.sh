@@ -64,6 +64,25 @@ else
     echo "           then 'pip install ./cgal/cgal_skeleton_param'."
 fi
 
+# Second CGAL extension: SDF mesh segmentation (cgal_Segmentation_Module). Without it
+# mesh_tools falls back to neurd/_cgal_segmentation.py (KMeans stand-in) which produces
+# 0 spines, so spine detection is effectively off. With it built, real CGAL segmentation
+# runs and spines work as in Docker. Same build prerequisites as the skeletonizer.
+echo
+echo "Building CGAL segmentation extension (cgal_Segmentation_Module)..."
+if [[ -f "$(python -c 'import sys; print(sys.prefix)')/include/CGAL/version.h" ]]; then
+    if pip install ./cgal/cgal_segmentation; then
+        echo "  CGAL segmentation installed (spine detection enabled)."
+    else
+        echo "  WARNING: CGAL segmentation build FAILED — spines fall back to the KMeans stub (0 spines)."
+        echo "           See cgal/cgal_segmentation/ and PIPELINE.md."
+    fi
+else
+    echo "  WARNING: CGAL headers not found — skipping cgal_Segmentation_Module."
+    echo "           Spine detection will use the KMeans stub (0 spines). To enable: install CGAL 6,"
+    echo "           then 'pip install ./cgal/cgal_segmentation'."
+fi
+
 echo
 echo "Install complete. Activate with:"
 echo "  source $VENV_DIR/bin/activate"

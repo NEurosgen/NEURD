@@ -2388,8 +2388,11 @@ class Neuron:
                 print("7) Calculating the spines for the neuorn if do not already exist")
                 if not self.spines_already_computed():
                     print("7a) calculating spines because didn't exist")
-                    spu.calculate_spines_on_neuron(self,**spines_kwargs)
-                    #self.calculate_spines() the old function for calculating spines
+                    # spines_kwargs was a removed __init__ param (single-soma specialization
+                    # dropped it); the spine path was never exercised since spines were off, so
+                    # this NameError was latent. calculate_spines_on_neuron's args are all
+                    # optional (query/volume/etc. default sensibly) — call with defaults.
+                    spu.calculate_spines_on_neuron(self)
                     
             
             for w in widths_to_calculate:

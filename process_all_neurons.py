@@ -84,9 +84,11 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         mesh = tu.load_mesh_no_processing(str(off_path))
         mesh_proc = mesh  # decimate отключён, как и в microns-версии
 
-        # Спайны отключены: детекция шипиков (CGAL/KMeans-стенд) выдаёт 0 спайнов и
-        # стоит ~100s+ на нейрон — отказываемся от неё. Сохраняем limb/branch, без спайнов.
-        neuron_obj = neuron.Neuron(mesh=mesh_proc, calculate_spines=False)
+        # Спайны ВКЛЮЧЕНЫ: настоящий CGAL SDF-сегментатор (cgal_Segmentation_Module,
+        # cgal/cgal_segmentation/) восстановлен — даёт тонкую over-сегментацию для детекции
+        # шипиков (KMeans-заглушка давала 0). Стоит ~+100s/нейрон. Меши шипиков сохраняются
+        # в branch_*/spines/spine_*.off (save_segmentation).
+        neuron_obj = neuron.Neuron(mesh=mesh_proc, calculate_spines=True)
         save_segmentation(neuron_obj, neuron_base)
 
         del neuron_obj, mesh_proc, mesh
@@ -424,6 +426,7 @@ def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
     return {
         "data_type": DATA_TYPE,
         "n_limbs": len(limbs_sum),
+        "total_spines": int(sum(l["total_spines"] for l in limbs_sum)),
         "limbs": limbs_sum,
         "soma_present": _get_soma_mesh(neuron_obj) is not None,
     }
@@ -487,7 +490,16 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
             if skeleton_branch is not None:
                 _safe_save_array(np.asarray(skeleton_branch), br_dir / "branch_skeleton.npy")
 
-            # Спайны отключены — спайн-меши не сохраняем (только branch mesh + skeleton).
+            # Спайны: branch.spines — список trimesh-submesh'ей ветки (neuron.py:2536).
+            # Сохраняем каждый как spine_<i>.off в подпапку spines/. Если шипиков нет
+            # (ветка без шипиков) — папка не создаётся.
+            spines = list(_iter_spines(branch))
+            if spines:
+                spines_dir = br_dir / "spines"
+                spines_dir.mkdir(parents=True, exist_ok=True)
+                for spine_ind, spine_mesh in enumerate(spines):
+                    if spine_mesh is not None and hasattr(spine_mesh, "faces"):
+                        _safe_export_mesh(spine_mesh, spines_dir / f"spine_{spine_ind:03d}{EXPORT_EXT}")
 
 
 # ---------------------- ОБРАБОТКА ОДНОГО МЕША (без подпроцесса) ----------------------
@@ -497,7 +509,7 @@ def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True) ->
     neuron_base = out_dir / basename
 
     mesh = tu.load_mesh_no_processing(str(off_path))
-    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=False)  # спайны отключены
+    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=True)  # спайны включены (CGAL segmentation)
     save_segmentation(neuron_obj, neuron_base)
 
     del neuron_obj, mesh
