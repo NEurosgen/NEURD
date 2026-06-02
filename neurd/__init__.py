@@ -205,6 +205,64 @@ try:
 except Exception:
     pass
 
+# MeshLab Decimator (Quadric Edge Collapse) is real work, but each call forks
+# xvfb+meshlabserver and round-trips the mesh through OFF. On the big H01 neuron the
+# soma-extraction decimations (outer on the full ~1.6M-face mesh + per-Poisson inner)
+# are ~13 calls ≈ 104 s of subprocess time (profile_cumulative: meshlab.py:375 __call__).
+# open3d's quadric decimation is the same algorithm in-process; _mesh_ops.decimate is
+# already fidelity-validated against meshlab (tests/integration/test_mesh_ops_fidelity.py)
+# and the user does not need pristine soma quality. Replace __call__ in-process by default;
+# set NEURD_MESHLAB_DECIMATE=1 to keep the original meshlab subprocess (A/B / fidelity check).
+#
+# decimation_ratio is baked into the .mls script (not stored on self), so __init__ is
+# wrapped to also stash it on the instance for the in-process path. A 0 / >=1 ratio means
+# "no decimation" in the meshlab script (TargetPerc), so we pass the mesh through unchanged.
+try:
+    import os as _os_dec
+    if _os_dec.environ.get("NEURD_MESHLAB_DECIMATE") != "1":
+        from mesh_tools.meshlab import Decimator as _Decimator
+
+        _decimator_init_orig = _Decimator.__init__
+
+        def _decimator_init_capture(self, decimation_ratio, temp_folder, overwrite=False, **kwargs):
+            _decimator_init_orig(self, decimation_ratio, temp_folder, overwrite=overwrite, **kwargs)
+            self._decimation_ratio = decimation_ratio
+
+        def _decimate_inprocess(
+            self, vertices=[], faces=[], segment_id=None, return_mesh=True,
+            input_mesh_path="", mesh_filename="", printout=True,
+            delete_temp_files=True, **kwargs,
+        ):
+            import random as _r
+            import trimesh as _tm
+            from neurd import _mesh_ops as _mo
+            if segment_id is None:
+                segment_id = _r.randint(100, 100000)
+            if len(mesh_filename) <= 0:
+                mesh_filename = f"neuron_{segment_id}.off"
+            # output path mirrors the real wrapper ({input_stem}_decimated.off); only its
+            # stem is consumed downstream for naming, not its bytes.
+            output_obj = self.temp_folder_obj / f"{Path(mesh_filename).stem}_decimated.off"
+            if len(vertices) == 0 and input_mesh_path:
+                mesh = self.fetch_mesh_from_off(str(input_mesh_path))
+            else:
+                mesh = _tm.Trimesh(vertices=vertices, faces=faces, process=False)
+            ratio = getattr(self, "_decimation_ratio", 0)
+            # ratio 0 / >=1 == meshlab "no decimation"; otherwise quadric-decimate in-process.
+            if 0 < ratio < 1:
+                mesh = _mo.decimate(mesh, decimation_ratio=ratio)
+            if not return_mesh:
+                self.temp_folder_obj.mkdir(parents=True, exist_ok=True)
+                mesh.export(str(output_obj))
+                return output_obj
+            return mesh, output_obj
+
+        _Decimator.__init__ = _decimator_init_capture
+        _Decimator.__call__ = _decimate_inprocess
+        # NB: do NOT `del _decimator_init_orig` — the wrapped __init__ closes over it.
+except Exception:
+    pass
+
 # MeshLabServer 2020.09 OFF-exporter bug: after a vertex-deleting filter (e.g. the
 # interior-removal chain in remove_mesh_interior), it writes the compacted vertex
 # block (only surviving vertices) but leaves the face indices in the ORIGINAL
