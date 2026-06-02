@@ -2779,6 +2779,18 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     soma_to_piece_connectivity = {0: list(range(len(branch_meshes)))}
     return branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity
 
+def _drop_trimesh_caches(mesh):
+    """Clear trimesh's lazy derived-array cache (triangles, edges, face_adjacency, ...).
+
+    These caches total ~6.6x a mesh's raw vertices+faces and are the dominant RAM holder
+    mid-decomposition (see _decompose_limbs). They recompute on demand, so dropping them on
+    meshes we retain but won't immediately touch again costs nothing but peak memory.
+    """
+    c = getattr(mesh, "_cache", None)
+    if c is not None:
+        c.clear()
+
+
 def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
     """Заменяет Фазу 4A (Скелетизация).
 
@@ -2826,6 +2838,14 @@ def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
         )
         limb_correspondence[idx] = corr
         limb_network_starts[idx] = net_start
+
+        # Drop the trimesh cache on the just-consumed limb input mesh (its derived arrays are
+        # not needed again here). The produced branch meshes are deliberately NOT cleared in
+        # this loop — they are used heavily downstream (adaptive correspondence, widths), so
+        # clearing now would just force immediate recomputes; their caches are cleared once at
+        # the end of construction instead (Neuron._clear_mesh_caches). The single largest RAM
+        # holder, the full neuron mesh, is cleared right after segmentation (preprocess_neuron).
+        _drop_trimesh_caches(limb_mesh)
 
     return limb_correspondence, limb_network_starts
 
@@ -2901,6 +2921,14 @@ def preprocess_neuron(
     branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity = _segment_limbs_from_soma(
         mesh, soma_mesh, params
     )
+
+    # Segmenting the full neuron mesh built its heaviest trimesh caches — on the big H01
+    # neuron `vertex_adjacency_graph` alone is ~1.6 GB and `vertex_faces` ~0.9 GB (split_by_
+    # vertices populates them). The full mesh is NOT used past this point (the rest of
+    # preprocessing works on the per-limb `branch_meshes`, and the returned dict carries
+    # branch_meshes / soma_mesh, never `mesh`), so dropping its cache here removes the single
+    # largest RAM holder for the long _decompose_limbs phase. Recomputes on demand if touched.
+    _drop_trimesh_caches(mesh)
 
     limb_correspondence, limb_network_starts = _decompose_limbs(
         branch_meshes, soma_touching_vertices, params

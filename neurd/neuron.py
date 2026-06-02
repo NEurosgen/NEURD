@@ -2413,20 +2413,37 @@ class Neuron:
         self._clear_mesh_caches()
 
     def _clear_mesh_caches(self):
-        """Clear trimesh lazy-property caches on the full mesh and every Limb mesh.
+        """Clear trimesh lazy-property caches on the full mesh, every Limb mesh, and every
+        Branch mesh, at the end of construction.
 
-        trimesh populates expensive derived arrays (vertex_adjacency_graph ~27 MB,
-        triangles ~5 MB, vertex_faces ~4 MB, …) on first access.  After full
-        construction those cached arrays are no longer needed and can be recomputed
-        on demand if any code path asks for them again.  Branch meshes are left
-        alone — they are small and accessed frequently during downstream analysis.
+        trimesh populates expensive derived arrays on first access — vertex_adjacency_graph,
+        vertex_faces, triangles, edges, face_adjacency. On the big H01 neuron these dominate
+        RAM: the full mesh's caches are ~1.6 GB and the 153 branch meshes together hold ~1.4 GB
+        of cache (vs only ~0.1 GB of raw vertices+faces — a ~15x blow-up). The cached arrays are
+        not needed once construction is done and recompute on demand if any later code path asks.
+
+        Branches WERE previously left alone ("small, accessed frequently"); that holds per-branch
+        but not in aggregate on a many-branch neuron, and the segmentation deliverable
+        (process_all_neurons) saves branch mesh+skeleton to disk then drops the Neuron, so nothing
+        re-reads the caches. Clearing them frees ~0.5-1 GB off the retained object. Any downstream
+        analysis that does touch a branch mesh transparently repopulates that one branch's cache.
         """
-        if hasattr(self, "mesh") and hasattr(self.mesh, "_cache"):
-            self.mesh._cache.clear()
+        def _clear(m):
+            c = getattr(m, "_cache", None)
+            if c is not None:
+                c.clear()
+
+        if hasattr(self, "mesh"):
+            _clear(self.mesh)
         for limb_name in self.get_limb_node_names() if hasattr(self, "concept_network") else []:
             limb = self.concept_network.nodes[limb_name].get("data")
-            if limb is not None and hasattr(limb, "mesh") and hasattr(limb.mesh, "_cache"):
-                limb.mesh._cache.clear()
+            if limb is None:
+                continue
+            _clear(getattr(limb, "mesh", None))
+            for branch_name in (limb.concept_network.nodes() if hasattr(limb, "concept_network") else []):
+                branch = limb.concept_network.nodes[branch_name].get("data")
+                if branch is not None:
+                    _clear(getattr(branch, "mesh", None))
 
     @property
     def limbs(self):
