@@ -732,8 +732,23 @@ def attach_floating_pieces_to_limb_correspondence(
                 local_correspondnece = mesh_correspondence_first_pass(mesh=stitch_mesh,
                                                           skeleton_branches=matching_branch_sk)
 
-                local_correspondence_revised = correspondence_1_to_1(mesh=stitch_mesh,
-                                                            local_correspondence=local_correspondnece)
+                # CLASS-B guard: cutting the main branch + re-correspondence can fail when the cut
+                # leaves a skeleton segment with no connected face patch (resolve_empty_conflicting_
+                # face_labels -> "missing labels was not resolved"). Floating-piece stitching is
+                # best-effort, so skip this piece instead of crashing the whole neuron. Safe to skip
+                # here: nothing has been mutated yet (limb_correspondence_cp is only edited below).
+                # We must mark the piece processed before `continue`, else the while loop reselects
+                # the same winning_float forever.
+                try:
+                    local_correspondence_revised = correspondence_1_to_1(mesh=stitch_mesh,
+                                                                local_correspondence=local_correspondnece)
+                except Exception as _stitch_err:
+                    print(f"[stitch] floating piece {winning_float} -> main limb "
+                          f"{winning_float_match_main_limb} (dist {winning_float_dist:.1f}): cut-branch "
+                          f"re-correspondence failed ({type(_stitch_err).__name__}: {_stitch_err}); "
+                          f"skipping this floating piece")
+                    floating_limbs_to_process = np.setdiff1d(floating_limbs_to_process, [winning_float])
+                    continue
 
                 #3. (just give the both the same old width)
                 old_width = limb_correspondence_cp[winning_float_match_main_limb][main_branch]["width_from_skeleton"]
