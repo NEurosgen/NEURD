@@ -38,10 +38,12 @@
 - **Скелет (skeleton).** 1D-граф по «середине» трубчатого отростка (осевая линия). Длина =
   длина отростка; точки несут ширину (из SDF); разбивается на **ветки** в точках ветвления.
   **Код:** скелетонизация в `preprocess_neuron.py` (meshafterparty/MAP, `mesh_tools.skeleton_utils`).
-- **Mesh segmentation по SDF.** Кластеризация граней по SDF. Оригинал — CGAL MRF graph-cut;
-  наш stub (`neurd/_cgal_segmentation.py`) — KMeans по log(SDF) без пространственного сглаживания
-  (контраст SDF сома/отростки велик → достаточно). **Код:** `tu.mesh_segmentation(mesh, clusters,
-  smoothness)` → sub-меши + **SDF-медиана сегмента** (сома = высокая медиана + подходящий размер).
+- **Mesh segmentation по SDF.** Кластеризация граней по SDF — CGAL MRF graph-cut. Реальный C++
+  `cgal_Segmentation_Module` (.so) **восстановлен** (`cgal/cgal_segmentation/`, см. cgal/README.md);
+  KMeans-стенд `neurd/_cgal_segmentation.py` остаётся лишь **fallback'ом**, если .so не собран
+  (`__init__.py` регистрирует stub только при отсутствии реального модуля). KMeans давал грубую
+  сегментацию (ок для сомы, но **0 шипиков**) — отсюда возврат к настоящему CGAL. **Код:**
+  `tu.mesh_segmentation(mesh, clusters, smoothness)` → sub-меши + **SDF-медиана сегмента**.
 - **Concept network.** Направленный граф веток лимба: узлы=ветки, рёбра=«A продолжается в B»,
   корень = точка касания сомы, направление upstream→downstream (от сомы наружу). Один граф на
   (лимб, сома). **Код:** `nru.branches_to_concept_network(...)`, живёт в `Limb.concept_network`.
@@ -95,7 +97,10 @@ Neuron
    скелетонизация (meshafterparty/MAP) → ветки → `limb_correspondence` (branch_mesh,
    branch_skeleton, width_from_skeleton).
 4. `_stitch_floating_pieces(...)` — пришивает значимые floating-куски к скелету.
-5. `_build_concept_networks(...)` — concept network на каждый (лимб, сома).
+   ⚠️ **Содержит баг рассинхрона кадров — см. §2.1.**
+5. `_rebuild_limb_frames(...)` — **фикс §2.1:** пересобирает самосогласованный кадр у лимбов,
+   чью партицию стичинг сломал (limb_mesh = `combine_meshes(ветки)`, contiguous `branch_face_idx`).
+6. `_build_concept_networks(...)` — concept network на каждый (лимб, сома).
 
 **`preprocess_limb` — контракт параметров.** Сигнатура
 `preprocess_limb(mesh, neuron_params, limb_params, soma_touching_vertices_dict=None, ...)`:
@@ -108,10 +113,12 @@ Neuron
 Тело `preprocess_limb` декомпозировано по фазам: `_cycle_for_something` (MP-скелетонизация +
 adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_mp_soma_extension`
 (достройка soma-extending веток), Part 17–18 (`_merge_map_mp_correspondence`,
-`_rearrange/_clean_network_starting_info`). ⚠️ **MAP/stitching-путь (Part 11–16) не исполняется
-на одно-сомных h01-нейронах без толстых веток** — он покрыт только статически (см.
-[memory/preprocess_limb_decomposition.md]). Конфиг датасета функция **не перебивает** —
-вызыватель обязан выставить `parameters.params.use("microns"|"h01")` заранее.
+`_rearrange/_clean_network_starting_info`). ⚠️ **MAP/stitching-путь снова АКТИВЕН** после
+пересборки CGAL teasar-скелетонизатора (`c9d3f7f`): толстые ветви (`width > width_threshold_MAP`)
+идут через `_decompose_map_piece`, floating-куски — через `_stitch_floating_pieces`. Раньше путь был
+мёртв (NameError calcification_param) и покрывался только статически — теперь исполняется, и именно
+он вскрыл баг §2.1. Конфиг датасета функция **не перебивает** — вызыватель обязан выставить
+`parameters.params.use("microns"|"h01")` заранее.
 
 ⚠️ Сердце core clump. `Branch.__init__` делает deepcopy submesh/skeleton — дорого по RAM
 (перф ниже), но менять рискованно. Скелетонизация (meshparty) — отдельная зависимость, НЕ meshlab.
@@ -120,6 +127,39 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 - Пороги отбора сомы (`soma_width_threshold=0.32`, size thresholds) — завязаны на [0,1] SDF.
 - `Branch`/`Limb`/`Neuron` и concept network — на структуре графа/атрибутах держится всё.
 - Семантика направления concept network (upstream/downstream от сомы).
+
+### 2.1 ⚠️ Баг стичинга: рассинхрон кадров `branch_face_idx` (class A) — частично починен
+
+**Симптом (массовый).** Множество H01-нейронов падали `IndexError: index N is out of bounds for
+axis 0 with size N` в `nru.apply_adaptive_mesh_correspondence_to_neuron`
+([neuron_utils.py](neurd/neuron_utils.py), `ex_limb.mesh.submesh([surround_mesh_faces])`).
+
+**Корень (доказан реперами IDX-TRACE, `NEURD_IDX_TRACE=1`).** Инвариант: `branch_face_idx` каждой
+ветки обязан адресовать **хранимый лимб-меш** (`limb_meshes[limb_idx]` = `branch_meshes[limb_idx]`)
+как чистая партиция. **Декомпозиция (`_decompose_limbs`) этот инвариант держит** (репер N1 чист на
+всех лимбах). **Ломает его `_stitch_floating_pieces`** (репер N2 — битые ровно сшитые лимбы):
+дописывает floating-ветки (`flaot_data` из `preprocess_limb(mesh=floating_piece)`) и cut-ветки
+(`correspondence_1_to_1(mesh=stitch_mesh)`) с `branch_face_idx` **в кадре их собственного меша**, не
+перемапленным в кадр лимб-меша → индексы выходят за пределы (`oob`) и/или алиасят чужие грани
+(`overlap`). Конкретно — [preprocess_neuron.py](neurd/preprocess_neuron.py), цикл вставки floating-веток
+(`limb_correspondence_cp[...][curr_limb_key_len + 1 + float_idx] = flaot_data`). **Не watertight,
+не off-by-one, не MAP/MP-комбинация** — все эти гипотезы проверены и отвергнуты.
+
+**Текущий фикс (`50b769f`, шаг 5 выше).** `_rebuild_limb_frames` после стичинга: для лимба, чья
+партиция перестала быть чистой, пересобирает кадр — `limb_mesh = tu.combine_meshes(ветки)`,
+`branch_face_idx = ` непрерывные диапазоны (`combine_meshes` сохраняет порядок/число граней даже на
+дублях — проверено). Только сломанные лимбы трогаются → не-сшитые нейроны не затронуты. **Краш
+устранён**, нейроны сегментируются (валидация: `neuron_2889815798`, 7 лимбов, без краша).
+
+**🔧 Что осталось для дальнейшей модификации (глубже).** Фикс делает выход *самосогласованным*, но
+не лечит причину: стичинг плодит **перекрывающиеся** ветки → пересобранный лимб-меш раздувается
+(×1.8–12.7 на тестовом нейроне), а adaptive-уточнение на нём **пропускается** (рабочий class-B guard
+в `apply_adaptive_*`, т.к. склейка веток даёт дисконнектный меш). Не краш, но качество: дубль-геометрия
++ нет 2-hop refinement. Правильное место чинить — `attach_floating_pieces_to_limb_correspondence`:
+перемапливать `branch_face_idx` в кадр лимб-меша **при вставке** и дедупить overlap, чтобы
+`_rebuild_limb_frames` стал не нужен. Диагностика — `NEURD_IDX_TRACE=1` (реперы N1/N2/N3 →
+`/tmp/neurd_diag/idx_trace.log`), repro — `tests/integration/reproduce_2889815798.py`,
+детали — `memory/class_a_frame_desync.md`.
 
 ---
 
@@ -133,14 +173,14 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 |---|---|---|---|
 | 1 | `TypeError ... scalar index` (soma split) | trimesh≥4 `mesh.split()` → `list`, не `ndarray` | `soma_extraction_utils.py`: `list(...)` + list-comprehension |
 | 2 | Poisson не выполняется, нет выходного файла | `meshlab.Poisson` пишет `<xmlfilter>` XML, MeshLabServer 2020.09 игнорирует | `__init__.py`: **superseded** — `Poisson.__call__` → in-process no-op (выход=вход), т.к. фильтр всё равно no-op на этой сборке; реальный Poisson за `NEURD_REAL_POISSON=1` (open3d/pymeshlab) |
-| 3 | `NameError: csm` (CGAL не установлен) | C++ расширение CGAL отсутствует | `__init__.py`: stub `_cgal_segmentation.py` в `sys.modules['cgal_Segmentation_Module']` |
+| 3 | `NameError: csm` (CGAL не установлен) | C++ `cgal_Segmentation_Module` отсутствует | **Реальный ext восстановлен** (`cgal/cgal_segmentation/`). `__init__.py` ставит stub `_cgal_segmentation.py` (KMeans) в `sys.modules` **только если .so не найден** (fallback) |
 | 4 | `scipy ValueError: axis 0 index ... exceeds` | MeshLabServer 2020.09 OFF-экспортёр: компактные вершины, грани в старой нумерации | `__init__.py`: патч `Meshlab.fetch_mesh_from_off` (перенумерация searchsorted) |
 | 5 | `IndexError ... size 1` (multi-soma split) | две сомы на одном стартовом узле → путь из 1 узла | `proofreading_utils.py:1147` guard *(модуль удалён; патч исторический)* |
 | 6 | `ValueError: data_pts ... 2 dimensions` | новая pykdtree требует 2D, upstream строит из 1D | `__init__.py`: обёртка `skeleton_utils.KDTree` (1D→(N,1)) |
 | 7 | `numpy_dep has no attribute 'in1d'` | `np.in1d` удалён в numpy 2 | `__init__.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
 | 8 | `NameError: calcification_param` (MAP-путь, толстые ветви) | CGAL teasar-скелетонизатор (`calcification_param_Module`) собирался в Docker; с его удалением исчез. `mesh_tools.skeleton_utils` импортит через `try/except` → имя не связано | **Не stub, а реальная пересборка:** [cgal/cgal_skeleton_param/](cgal/cgal_skeleton_param/) — исходник из git, портирован под CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Собирается `install_local.sh` (best-effort, нужны CGAL/eigen/gmp/mpfr). Без него падают только нейроны с толстыми ветвями |
 
-**Перф-монкипатчи (не баг-фиксы, а замена дорогих узлов mesh_tools in-process — см. [OPTIMIZATION.md §0★](OPTIMIZATION.md)):**
+**Перф-монкипатчи (не баг-фиксы, а замена дорогих узлов mesh_tools in-process — см. [OPTIMIZATION.md](OPTIMIZATION.md)):**
 
 | узел | было | стало (`__init__.py`) | эффект |
 |---|---|---|---|
@@ -153,7 +193,7 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
 > Патч #8 (CGAL skeletonizer) — отдельный C++ extension, не monkeypatch; см. [cgal/README.md](cgal/README.md).
 > **Почему перф-фиксы идут монкипатчами, а не правкой mesh_tools:** mesh_tools = plain site-packages
 > (правки теряются при reinstall, как `.so`/skeleton_utils); 116 функций / 16.7K строк ядра — заменить
-> = переписать NEURD. Перехват узлов in-process — durable + обратимо + fidelity-нейтрально. Детально — OPTIMIZATION.md §0★.
+> = переписать NEURD. Перехват узлов in-process — durable + обратимо + fidelity-нейтрально. Детально — OPTIMIZATION.md.
 
 ---
 
@@ -173,4 +213,4 @@ adaptive invalidation_d), `_decompose_map_piece` (MAP-кусок, CGAL), `_fix_m
   mesh_tools (`split_by_vertices`, `resolve_empty`, `np.unique`) — durable-правки там невозможны.
 - **RAM (2026-06-02): driver = НЕ deepcopy (113MB), а lazy-кэш trimesh** — `vertex_adjacency_graph`
   1.6GB на полном меше + 1.4GB на ветках. Частично закрыто очисткой кэша (пик 6974→5876 MB).
-  Карта RAM целиком — OPTIMIZATION.md §0★.
+  Карта RAM целиком — OPTIMIZATION.md.
