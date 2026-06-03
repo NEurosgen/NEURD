@@ -258,13 +258,23 @@ def correspondence_1_to_1(
 
 
     #here is where can call the function that resolves the face labels
-    face_coloring_copy = cu.resolve_empty_conflicting_face_labels(
-                     curr_limb_mesh = curr_limb_mesh,
-                     face_lookup=face_lookup,
-                     no_missing_labels = list(original_labels),
-                    must_keep_labels=must_keep_labels,
-                    branch_skeletons = [local_correspondence[k]["branch_skeleton"] for k in local_correspondence.keys()],
-    )
+    try:
+        face_coloring_copy = cu.resolve_empty_conflicting_face_labels(
+                         curr_limb_mesh = curr_limb_mesh,
+                         face_lookup=face_lookup,
+                         no_missing_labels = list(original_labels),
+                        must_keep_labels=must_keep_labels,
+                        branch_skeletons = [local_correspondence[k]["branch_skeleton"] for k in local_correspondence.keys()],
+        )
+    except Exception as e:
+        # CLASS-B legibility: this resolve is the floating-piece / dense-limb correspondence step.
+        # "missing labels was not resolved" here means some skeleton segment cannot claim a
+        # connected face patch (geometric limit), not a corrupt input. Surface WHEN/WHY, re-raise
+        # unchanged (no behavior change) so any existing handler still sees the original error.
+        print(f"[correspondence_1_to_1] resolve_empty_conflicting_face_labels FAILED on a "
+              f"{len(curr_limb_mesh.faces)}-face piece with {len(original_labels)} skeleton "
+              f"segment(s) -> {type(e).__name__}: {e}")
+        raise
 
     """  9/17 Addition: Will make sure that the desired starting node is touching the soma border """
     """
@@ -1359,20 +1369,33 @@ def _decompose_map_piece(
               f"(faces={len(mesh.faces)}). This is expected on H01; flagged so a genuine CGAL "
               f"failure is not mistaken for it.")
 
-    cleaned_branch, curr_limb_endpoints_must_keep = sk.skeletonize_and_clean_connected_branch_CGAL(
-        mesh=mesh,
-        curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
-        total_border_vertices=curr_total_border_vertices,
-        filter_end_node_length=filter_end_node_length,
-        perform_cleaning_checks=perform_cleaning_checks,
-        combine_close_skeleton_nodes=combine_close_skeleton_nodes,
-        combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
-        use_surface_after_CGAL=use_surface_after_CGAL,
-        surface_reconstruction_size=surface_reconstruction_size,
-        remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
-        error_on_bad_cgal_return=error_on_bad_cgal_return,
-        max_stitch_distance=max_stitch_distance_CGAL,
-    )
+    try:
+        cleaned_branch, curr_limb_endpoints_must_keep = sk.skeletonize_and_clean_connected_branch_CGAL(
+            mesh=mesh,
+            curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
+            total_border_vertices=curr_total_border_vertices,
+            filter_end_node_length=filter_end_node_length,
+            perform_cleaning_checks=perform_cleaning_checks,
+            combine_close_skeleton_nodes=combine_close_skeleton_nodes,
+            combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
+            use_surface_after_CGAL=use_surface_after_CGAL,
+            surface_reconstruction_size=surface_reconstruction_size,
+            remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
+            error_on_bad_cgal_return=error_on_bad_cgal_return,
+            max_stitch_distance=max_stitch_distance_CGAL,
+        )
+    except Exception as e:
+        # CLASS-C legibility: skeletonization of this MAP piece blew up (e.g. mesh_subtraction_by_
+        # skeleton leaves a degenerate/empty submesh -> trimesh "too many indices for array").
+        # Report the piece geometry that triggered it; re-raise unchanged (no behavior change).
+        try:
+            _wt = tu.is_watertight(mesh)
+        except Exception:
+            _wt = "?"
+        print(f"[MAP {sublimb_idx}] skeletonize_and_clean_connected_branch_CGAL FAILED "
+              f"(faces={len(mesh.faces)}, vertices={len(mesh.vertices)}, watertight={_wt}) "
+              f"-> {type(e).__name__}: {e}")
+        raise
 
     if curr_limb_endpoints_must_keep is None:
         print("Inside MAP decomposition and curr_limb_endpoints_must_keep was None")
@@ -1727,6 +1750,57 @@ def _clean_network_starting_info(
 
             network_starting_info_revised_cleaned[soma_idx][bound_g_idx] = winning_dict
     return network_starting_info_revised_cleaned
+
+
+def _safe_frame_faces(meshes, li):
+    """Best-effort len(meshes[li].faces); None if unavailable. For IDX-TRACE only."""
+    try:
+        return len(meshes[li].faces)
+    except Exception:
+        return None
+
+
+def _trace_branch_face_idx(face_idx_arrays, frame_n_faces, label,
+                           _logpath="/tmp/neurd_diag/idx_trace.log"):
+    """
+    TEMP INSTRUMENTATION (behavior-neutral): localize the class-A frame desync.
+
+    Given a limb's branch_face_idx arrays and the face count of the mesh they SHOULD address,
+    print + log max-index / overlap / out-of-bounds. By calling this at each decomposition
+    handoff we can see WHERE branch indices stop addressing the stored limb mesh (frame inflation)
+    and WHERE overlap (broken partition) appears. Pure read/print/append; never raises.
+
+    Opt-in via env var (default OFF) so it is free to leave in permanently: when disabled it returns
+    before doing ANY work (one dict lookup) -> zero cost on production runs. Enable with
+    NEURD_IDX_TRACE=1. Env is inherited by spawn workers, so it also works under process_all_neurons.
+    """
+    import os
+    if not os.environ.get("NEURD_IDX_TRACE"):
+        return
+    import numpy as _np
+    try:
+        arrs = [_np.asarray(a).ravel() for a in face_idx_arrays
+                if a is not None and _np.asarray(a).size]
+        if not arrs:
+            line = f"[IDX-TRACE] {label}: (no face_idx)"
+        else:
+            allidx = _np.concatenate(arrs)
+            uniq = int(_np.unique(allidx).size)
+            mx = int(allidx.max())
+            overlap = allidx.size / max(uniq, 1)
+            oob = (frame_n_faces is not None) and (mx >= frame_n_faces)
+            flag = "  <<< FAIL" if (oob or overlap > 1.01) else ""
+            line = (f"[IDX-TRACE] {label}: nbranch={len(arrs)} frame_faces={frame_n_faces} "
+                    f"max_idx={mx} unique={uniq} overlap={overlap:.2f}x oob={oob}{flag}")
+    except Exception as e:
+        line = f"[IDX-TRACE] {label}: trace failed: {e}"
+    print(line, flush=True)
+    try:
+        os.makedirs(os.path.dirname(_logpath), exist_ok=True)
+        with open(_logpath, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 
 def preprocess_limb(
@@ -2094,6 +2168,12 @@ def preprocess_limb(
 
 
     
+    # IDX-TRACE P1: MP and MAP sub-decompositions vs the limb frame (limb_mesh_mparty == input mesh)
+    _trace_branch_face_idx([d.get("branch_face_idx") for sub in limb_correspondence_MP.values() for d in sub.values()],
+                           len(limb_mesh_mparty.faces), "P1 MP-build vs limb_mesh_mparty")
+    _trace_branch_face_idx([d.get("branch_face_idx") for sub in limb_correspondence_MAP.values() for d in sub.values()],
+                           len(limb_mesh_mparty.faces), "P1 MAP-build vs limb_mesh_mparty")
+
     if check_correspondence_branches:
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP)
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MP)
@@ -2657,6 +2737,10 @@ def preprocess_limb(
         limb_correspondence_MAP, limb_correspondence_MP
     )
 
+    # IDX-TRACE P2: after MP+MAP merge, vs the limb frame
+    _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_individual.values()],
+                           len(limb_mesh_mparty.faces), "P2 after-merge vs limb_mesh_mparty")
+
     # -------------- Part 18: filter the network starting info into a clean presentation ------------ #
     # 1) перегруппировать в soma_idx -> border_group -> [dict(touching_verts, endpoint)]
     network_starting_info_revised = _rearrange_network_starting_info(
@@ -2883,6 +2967,59 @@ def _stitch_floating_pieces(
 
     return stitched_correspondence
 
+
+def _rebuild_limb_frames(limb_correspondence, limb_meshes):
+    """Make every limb's branch_face_idx a clean partition of a self-consistent limb mesh.
+
+    `_stitch_floating_pieces` appends floating-piece and re-cut branches whose branch_face_idx live
+    in a FOREIGN mesh frame (the floating piece / stitch mesh), never remapped into the limb mesh.
+    Downstream that surfaces as `index N is out of bounds for axis 0 with size N` in
+    apply_adaptive_mesh_correspondence_to_neuron (class A), or as branches silently aliasing the
+    wrong faces (overlap). Decomposition itself is correct — only the stitch desyncs the frame.
+
+    For any limb whose branches no longer form a clean partition of its stored mesh, rebuild a
+    consistent frame:
+        limb mesh       = tu.combine_meshes(branch meshes, in branch-key order)
+        branch_face_idx = contiguous [offset, offset + n) ranges into that combined mesh
+    combine_meshes preserves face order and count (verified, even for fully duplicate geometry), so
+    each range exactly recovers its branch's faces. Only inconsistent (stitched) limbs are rebuilt;
+    clean limbs are left untouched, so neurons that never stitch are byte-for-byte unaffected. The
+    floating-piece faces now genuinely live in the limb mesh, which is the correct post-stitch state.
+    Returns limb_meshes (mutated in place and returned for convenience).
+    """
+    import numpy as _np
+    rebuilt = 0
+    for li, corr in limb_correspondence.items():
+        n_faces = _safe_frame_faces(limb_meshes, li)
+        arrs = [_np.asarray(d["branch_face_idx"]).ravel() for d in corr.values()
+                if d.get("branch_face_idx") is not None]
+        if not arrs:
+            continue
+        allidx = _np.concatenate(arrs)
+        clean = (n_faces is not None
+                 and int(allidx.max()) < n_faces
+                 and int(_np.unique(allidx).size) == int(allidx.size))
+        if clean:
+            continue
+
+        ordered_keys = sorted(corr.keys())
+        branch_mesh_list = [corr[k]["branch_mesh"] for k in ordered_keys]
+        combined = tu.combine_meshes(branch_mesh_list)
+        offset = 0
+        for k in ordered_keys:
+            n = len(corr[k]["branch_mesh"].faces)
+            corr[k]["branch_face_idx"] = _np.arange(offset, offset + n)
+            offset += n
+        limb_meshes[li] = combined
+        rebuilt += 1
+        print(f"[rebuild-limb-frame] limb {li}: stitch-induced desync (stored {n_faces} faces, "
+              f"max branch idx {int(allidx.max())}) -> rebuilt from {len(ordered_keys)} branch "
+              f"meshes into {len(combined.faces)} faces")
+    if rebuilt:
+        print(f"[rebuild-limb-frame] rebuilt {rebuilt} limb frame(s) after stitching")
+    return limb_meshes
+
+
 def _build_concept_networks(limb_correspondence_stitched, limb_network_starts):
     """
     Формирует графы концептов (Concept Networks) для каждой ветви.
@@ -2934,6 +3071,11 @@ def preprocess_neuron(
         branch_meshes, soma_touching_vertices, params
     )
 
+    # IDX-TRACE N1: decomposition output vs the stored limb meshes (branch_meshes == ex_limb.mesh)
+    for _li in sorted(limb_correspondence.keys(), key=lambda x: str(x)):
+        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence[_li].values()],
+                               _safe_frame_faces(branch_meshes, _li), f"N1 after_decompose limb={_li}")
+
 
     limb_correspondence_stitched = _stitch_floating_pieces(
         limb_correspondence,
@@ -2942,6 +3084,21 @@ def preprocess_neuron(
         soma_mesh,
         params
     )
+
+    # IDX-TRACE N2: stitch-induced frame desync is visible here (pre-rebuild)
+    for _li in sorted(limb_correspondence_stitched.keys(), key=lambda x: str(x)):
+        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_stitched[_li].values()],
+                               _safe_frame_faces(branch_meshes, _li), f"N2 after_stitch limb={_li}")
+
+    # FIX (class A): _stitch_floating_pieces leaves floating/cut branches in a foreign mesh frame.
+    # Rebuild a self-consistent frame (limb mesh = combined branch meshes, contiguous face idx) for
+    # any limb whose partition is no longer clean. Only broken (stitched) limbs are touched.
+    branch_meshes = _rebuild_limb_frames(limb_correspondence_stitched, branch_meshes)
+
+    # IDX-TRACE N3: after the rebuild every limb must be a clean partition (validation of the fix)
+    for _li in sorted(limb_correspondence_stitched.keys(), key=lambda x: str(x)):
+        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_stitched[_li].values()],
+                               _safe_frame_faces(branch_meshes, _li), f"N3 after_rebuild limb={_li}")
 
     limb_concept_networks = _build_concept_networks(
         limb_correspondence_stitched,
