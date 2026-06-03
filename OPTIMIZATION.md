@@ -1,535 +1,133 @@
-# NEURD — оптимизация сегментации: профиль, выигрыши, план
+# NEURD — оптимизация сегментации: текущее состояние
 
-Ветка `optimize_segmentation`. Цель: сократить время и RAM пути `mesh → Neuron`,
-переписывая техники там, где это оправдано **замером** (а не интуицией). Метод —
-measure-first: профиль → захват эталона → секундная проверка → 2.5-мин гейт.
+Цель: сократить время и RAM пути `mesh → Neuron`, **замеряя** (measure-first), а не по интуиции.
+Геометрия пайплайна — [PIPELINE.md](PIPELINE.md), карта модулей — [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md).
 
-**Целевой кейс:** одно-нейронные меши с **ровно одной сомой** (microns и h01). Оптимизации
-могут это предполагать. ⚠️ Committed fixture `864691...` — это **два** нейрона (нерепрезентативен);
-одно-сомный меш для валидации: `Applications/.../neuron_2530864375.off` (H01 → `data_type="h01"`,
-иначе скелетонизатор падает `NameError: calcification_param`). Полный пайплайн на нём 215.8s
-(сома 70s + декомпозиция ~146s), 1 сома.
+> Это сжатая сводка durable-выводов. Подробный журнал сессий (профили, тупики, пересмотры) жил
+> здесь раньше и убран — историю смотри в `git log` и в `memory/`.
 
-Как работает пайплайн геометрически — [PIPELINE.md](PIPELINE.md). Карта модулей —
-[NEURD_STRUCTURE.md](NEURD_STRUCTURE.md).
+**Целевой кейс:** одно-нейронные меши с **ровно одной сомой** (microns и h01). Оптимизации это
+предполагают. Валидационные меши: малый h01 `Applications/.../neuron_2530864375.off` (507k граней,
+~125–215s) и большой h01 `1830470325` (3.27M граней). ⚠️ Committed fixture `864691…` — **два**
+нейрона, нерепрезентативен.
 
----
-
-## 0★. ОБНОВЛЕНИЕ 2026-06-02: 3 отгруженные победы + полная карта RAM + почему НЕ лезем в mesh_tools
-
-> Это самая свежая сводка. Разделы ниже (§0, §1-6) — более ранние замеры/планы; где
-> расходятся с этим разделом, верить этому. Все три фикса проверены: малый h01 4/4,
-> mesh-ops fidelity+unit 7/7, большой H01 `1830470325` проходит целиком с идентичным
-> выводом (3 лимба, 74/78/1 веток). **Конфиг замеров:** Poisson = no-op (дефолт,
-> `NEURD_REAL_POISSON` не выставлен → `NEURD_POISSON_DEPTH` НЕ применяется вообще; depth-sweep
-> 11/9/8 в §0/§ниже относится к режиму `NEURD_REAL_POISSON=1`, не к нашему дефолту), no-spines.
-> База большого нейрона = **1127s / пик 6974 MB**. ⚠️ Что `1830470325` проходит без Poisson —
-> новость относительно §0 «Регрессии №1» (там он падал); вероятно потому, что починили CGAL.
-> См. пересмотр-врезку в §0 «Регрессия №1». Открытый вопрос: нужен ли реальный Poisson другим H01.
-
-### Сначала: fidelity-фикс, который вообще разблокировал большой нейрон (коммит 8d30624)
-До оптимизаций большой `1830470325` **падал** в `apply_adaptive_mesh_correspondence_to_neuron`
-→ `resolve_empty_conflicting_face_labels` с `"missing labels was not resolved"`. Корень
-(воспроизведён офлайн из дампа функции): плотный лимб 74 ветви, 34 из них не имеют НИ ОДНОЙ
-единолично-своей грани (всё делится с соседями) → после фильтрации связных компонент стираются;
-perfect-match conflict-path их не спасает. **Доказано необратимым** (даже closest-skeleton split
-оставляет 46 веток без граней — их скелет нигде не ближайший). Этот шаг — лишь *уточнение*
-партиции, которую декомпозиция уже построила корректно, поэтому при неудаче `continue` сохраняет
-её (try/except в `neuron_utils.apply_adaptive_mesh_correspondence_to_neuron`). Подробно —
-память `cgal_skeletonizer_fix.md` слой 3. Заодно: громкий лог при тихом откате CGAL→meshparty
-(`preprocess_neuron._decompose_map_piece`, non-watertight MAP-меш → CGAL return 4).
-
-### Победа №1 — ВРЕМЯ: Decimator → open3d in-process (коммит fcc72ce). **−184s (−14%)**
-Соме-экстракция децимирует меш через `meshlab.Decimator` — форк xvfb+meshlabserver + OFF
-round-trip, ~13 вызовов ≈ 104s. Заменено на in-process open3d (`_mesh_ops.decimate`, уже
-валидирован vs meshlab) монкипатчем `Decimator.__call__`/`__init__` в `neurd/__init__.py`
-(тот же паттерн, что Poisson/FillHoles). Env `NEURD_MESHLAB_DECIMATE=1` → старый meshlab (A/B).
-Замер: **1311→1127s**, вывод идентичен. (Выигрыш > 104s: убраны ещё xvfb-форки + OFF round-trip.)
-
-### Победа №2 — RAM: очистка lazy-кэша trimesh (коммит 0969fd1). **пик −1.1 GB (−16%)**
-**Корень RAM найден точно (tracemalloc + per-attr замер `mesh._cache`):** НЕ deepcopy (113 MB
-на пике), а **lazy-кэш trimesh**. На полном меше 3.27M граней кэш = **3.3 GB** при сырых данных
-162 MB (×20):
-
-| `mesh._cache` ключ | RAM | |
-|---|---|---|
-| **`vertex_adjacency_graph`** | **1636 MB** | networkx-граф на 1.6M вершин — №1 |
-| `vertex_faces` | 902 MB | вершина→грани |
-| `triangles` | 235 MB | N×3×3 float64 |
-| `edges` | 235 MB | |
-| `edges_sorted` + `face_adjacency` | 314 MB | |
-
-`vertex_adjacency_graph` строит `split_by_vertices` при разрезании меша на лимбы (он же = 241s
-в профиле). 153 branch-меша вместе держат ещё **~1.4 GB** кэша (сырые 96 MB). Фикс (оба
-behaviour-preserving, кэш пересчитывается лениво): (1) `_drop_trimesh_caches(mesh)` сразу после
-`_segment_limbs_from_soma` — полный меш дальше не нужен (остаток работает на branch_meshes; в
-возвращаемом dict полного меша нет) → снимает крупнейший держатель на время декомпозиции;
-(2) `Neuron._clear_mesh_caches` теперь чистит и все branch-меши (раньше пропускал; в агрегате это
-1.4 GB, а `process_all_neurons` сохраняет ветки на диск и удаляет Neuron). Замер: **пик 6974→5876
-MB, retained end 4661→4218 MB.** gc.collect() каждую итерацию ОТВЕРГНУТ (+120s за 0.5GB).
-
-⚠️ **Время прогонов коррелирует с числом лимбов, НЕ с фиксами:** 3 лимба→1127/1215s, 4 лимба→
-1250/1285s. Лишний флоатинг-лимб (run-to-run недетерминизм стичинга) = +100-150s. Не путать
-со штрафом оптимизаций.
-
-### Полная карта RAM (потолок на нашем уровне ~исчерпан)
-| Держатель | RAM | Достижимо durable? |
-|---|---|---|
-| импорт библиотек (open3d/embree/trimesh/networkx) | 465 MB | нет (неизбежно) |
-| кэш полного меша (vertex_adjacency_graph 1.6GB) | ~1.6 GB | ✅ **чищу** |
-| кэш 153 branch-мешей | ~1.4 GB | ✅ **чищу** (на retained) |
-| транзиентный пик в `preprocess_limb` (submesh'и 74-веточного лимба) | ~1-2 GB | частично (часть в mesh_tools) |
-| embree BVH (ray-trace ширин) | ~0.5 GB | нет (нативный) |
-
-### ПОЧЕМУ МЫ НЕ ЛЕЗЕМ В mesh_tools (хотя он — источник большинства затрат)
-Замер зависимости: **наш код зовёт 116 уникальных функций mesh_tools, 209 вызовов**;
-`{trimesh_utils, skeleton_utils, compartment_utils}.py` = **16 722 строки** ядра алгоритмов
-(skeletonization, mesh correspondence, soma extraction). По профилю большого нейрона **~60%
-времени — ВНУТРИ mesh_tools**: `split_by_vertices` ~241s, `resolve_empty`/`filter_face_coloring`
-~169-178s, `np.unique` 1.2M вызовов 113s, meshparty-скелетонизация ~99s.
-
-Три причины НЕ трогать его напрямую:
-1. **Не durable.** mesh_tools — plain site-packages (НЕ editable, не в репо). Любая правка
-   там теряется при переустановке env — ровно как уже терялись C++ CGAL `.so` и патч
-   `skeleton_utils` (см. `cgal_skeletonizer_fix.md`). Чинить там = чинить заново после каждого
-   `pip install`.
-2. **Не обёртка, а ядро.** Заменить mesh_tools = переписать сам NEURD (116 функций, 16.7K строк)
-   и потерять fidelity к Docker-эталону, которую мы аккуратно держим. Это новый проект, не
-   оптимизация.
-3. **Алгоритмический риск.** `resolve_empty`, `split_by_vertices`, correspondence — это
-   geometry-меняющая логика. Микро-правки (np.unique→set, list.index→dict) дёшевы по риску, НО
-   их «горячие» вхождения именно в mesh_tools, т.е. см. п.1.
-
-**Что мы делаем ВМЕСТО:** перехватываем конкретные дорогие *узлы* mesh_tools на in-process
-замены через монкипатч в `neurd/__init__.py` — durable (в нашем репо), обратимо (env-флаг),
-fidelity-нейтрально. Так уже сделаны **Poisson (no-op), FillHoles (no-op), Decimator (open3d)**.
-Это и есть правильный способ «обойти» mesh_tools, не переписывая его.
-
-**Когда МОЖНО трогать mesh_tools-функцию:** только если (а) её правка тривиальна и
-behaviour-preserving И (б) мы готовы оформить её как монкипатч в нашем `__init__.py` (а не
-правку site-packages). Иначе — мимо.
-
-### Единственный крупный НЕтронутый durable-рычаг по ВРЕМЕНИ
-**Interior filter (`tu.remove_mesh_interior`) ~104s** — последний meshlab-сабпроцесс в соме-пути
-(meshlab.py:695, 13 вызовов). Готовой in-process замены НЕТ (использует Ambient Occlusion — рендер
-видимости из 128 ракурсов). Риск средний (меняет вход soma-детектора), но качество сомы
-пользователю не важно → выполнимо как следующий шаг. Всё прочее durable по времени ≈ выжато.
+**Инструмент замера:** [tests/tools/benchmark_neuron.py](tests/tools/benchmark_neuron.py) — точно
+повторяет `process_all_neurons`, даёт per-stage wall + RSS-пик + cProfile (пишет отчёт даже при краше).
+Гейт fidelity — [tests/integration/test_segmentation_pipeline.py](tests/integration/test_segmentation_pipeline.py).
 
 ---
 
-## 0. ОБНОВЛЕНИЕ 2026-05-31: смена парадигмы + реальные H01-нейроны
+## Текущая конфигурация пайплайна (дефолты)
 
-Сессия вышла за рамки «оптимизации» и вскрыла **две Docker-fidelity регрессии** форка
-(уход от Docker-тулчейна сломал реальные вещи). Проверено на настоящих H01-нейронах
-из `Diplom/notebooks/notebooks/H01/*.off` через новый бенчмарк.
-
-### Инструмент: [tests/tools/benchmark_neuron.py](tests/tools/benchmark_neuron.py)
-Переиспользуемый time+memory бенчмарк, **точно повторяет** `process_all_neurons` (h01,
-`load → Neuron → save_segmentation`). Даёт: per-stage wall-clock, RSS-таймлайн + пик
-(`ru_maxrss`), cProfile (cumulative/tottime/**junk по ncalls**), опц. tracemalloc. Пишет
-отчёт + `profile.prof`. Флаги: `--no-profile` (чистый wall), `--no-spines`, `--no-save`,
-`--tracemalloc`. **Пишет отчёт даже при краше пайплайна.** Запуск:
-`python tests/tools/benchmark_neuron.py --neuron <path.off> --out <dir>`.
-
-### Регрессия №1: Poisson (no-op → краш на сложных H01)
-Форк заменил MeshLab Poisson на **no-op** (вывод: «локальный meshlab 2020.09 его не умеет,
-значит Poisson не нужен»). Но это вывод из **сломанного локального meshlab + microns-фикстуры,
-которой Poisson не нужен**. В Docker Poisson **работал**: чинил EM-меши (щели/само-контакты) в
-связную поверхность. Без него у сложных нейронов лимб-submesh распадается → краш в
-`preprocess_neuron.py:209 correspondence_1_to_1` («not just one mesh»). Не регрессия именно
-`optimize_segmentation` — `main` упал бы так же. Пример: `neuron_1830470325.off` (3.27М граней)
-падал; Docker давал 4 лимба + 214 спайнов (`H01_Seg/neuron_1830470325/`).
-
-> ⚠️ **ПЕРЕСМОТР 2026-06-02 (важно, противоречие с записью выше):** этот вывод записан 2026-05-31,
-> **до починки C++ CGAL-скелетонизатора** (коммит c9d3f7f, 2026-06-02 09:34) и fidelity-фикса
-> плотного лимба (8d30624). На тот момент `calcification_param` падал `NameError` → MAP-путь
-> (толстые ветви) НЕ скелетонизировался → лимб-меши распадались. **После починки CGAL тот же
-> `neuron_1830470325` проходит ЦЕЛИКОМ с Poisson=no-op** (3 лимба / 153 ветки — наши замеры
-> decimate/RAM этой сессии). **Гипотеза (НЕ подтверждена на других нейронах):** краш «not just
-> one mesh» был следствием сломанного CGAL, а не отсутствия Poisson; с рабочим CGAL связность
-> лимбов восстановилась и реальный Poisson на этом нейроне не нужен. ⚠️ Сам guard
-> `correspondence_1_to_1` (стр. 230, `raise`) ВСЁ ЕЩЁ без try/except — если гипотеза неверна,
-> другой сложный H01 может упасть. **Открытый вопрос:** прогнать ещё 1-2 H01 с no-op Poisson,
-> прежде чем считать реальный Poisson ненужным. Решение пользователя (был прерван на этом).
-
-**Фикс (за флагом `NEURD_REAL_POISSON=1`, дефолт = no-op):** [_mesh_ops.py](neurd/_mesh_ops.py)
-`poisson_surface_reconstruction_meshlab` — настоящий MeshLab Screened Poisson через **pymeshlab**
-(in-process, без Docker), те же параметры (depth=11, fulldepth=6, pointweight=4, samplespernode=1.5,
-scale=1.1, iters=8), что форк удалил. Подключён в [__init__.py](neurd/__init__.py) под флагом.
-- ✅ **краш чинит** (нейрон проходит).
-- ⚠️ но **реконструкция ещё не пиксель-в-пиксель Docker**: 11 лимбов vs Docker 4 (open3d-версия
-  давала 18 — хуже: она сабсэмплит точки и рвёт тонкие отростки). Тюнинг depth/params **отложен**:
-  параметры уже = Docker (см. ниже), а за Docker-точностью разбиения мы **решили не гнаться**
-  (пользователь: «такое разбиение пойдёт», 11 лимбов ок). 4 лимба Docker = 2 крупных дерева
-  (82+85 веток) + 2 огрызка; наши 11 = те же 2 дерева, распавшиеся на ~9 кусков. Лимбы режутся из
-  **исходного** меша минус грани сомы (`_segment_limbs_from_soma`, [preprocess_neuron.py:2736](neurd/preprocess_neuron.py#L2736)),
-  Poisson влияет на их число лишь косвенно (через какие грани = сома).
-- 🔴 **РЕГРЕССИЯ ВРЕМЕНИ 55→77 мин — это и есть «замена Poisson».** Большой `1830470325`:
-  open3d-Poisson (лёгкий) → **53 мин / 18 лимбов**; pymeshlab MeshLab-Poisson depth=11 (тяжёлый,
-  Docker-верный) → **77 мин / 11 лимбов**. То есть +24 мин куплены за лучшую (но всё ещё не
-  Docker) связность. depth=11 на 3.27М граней = **766s чистого CPU за 17 вызовов** — крупнейший
-  одиночный расход (см. §0 «Большой нейрон»). Параметры pymeshlab сверены 1:1 с Docker-скриптом
-  (`mesh_tools/meshlab.py:486` Screened Poisson): depth=11/fulldepth=6/cgDepth=0/scale=1.1/
-  samplesPerNode=1.5/pointWeight=4/iters=8 — крутить «ближе к Docker» нечего.
-
-### Регрессия №2: CGAL→KMeans → СПАЙНЫ СЛОМАНЫ ВЕЗДЕ
-`_cgal_segmentation.py` (наш Python-стенд) заменил CGAL C++ SDF-segmentation на **KMeans по 1D-SDF**.
-Для **сомы** (грубый контраст толстое/тонкое) ок. Для **спайнов** нужна тонкая over-сегментация —
-KMeans её не даёт → **0 спайнов на ВСЕХ нейронах** (microns-fixture, малый и большой H01; Docker
-давал 214). Мои §2-оптимизации (KMeans n_init, lazy-shaft) **ускоряли стадию, выдающую ноль**.
-
-### РЕШЕНИЕ (пользователь): ОТКАЗ ОТ ШИПИКОВ
-`process_all_neurons.py`: `Neuron(..., calculate_spines=False)` в обоих местах + убрано сохранение
-спайн-мешей в `save_segmentation` (limb/branch меши+скелеты сохраняются как раньше). Эффект на
-малом H01: **215s → 123s (−40%)**, спайн-папок 0, limb/branch с widths на месте (протестировано).
-Стадия шипиков (сломана + дорога) выпилена целиком — §2/§4a про неё теперь моот.
-
-### Профиль МАЛОГО H01 (no-spines) — где время РЕАЛЬНО
-| Операция | ~время | природа |
+| Узел | Дефолт | Переключатель |
 |---|---|---|
-| ✅ **Объём сомы** — **УДЕШЕВЛЁН** (коммит `7918ffc`) | **0s** (было ~46s) | см. ниже |
-| **Meshlab-сабпроцессы** (`remove_interior` + децимация, 5 спавнов xvfb) | ~19s | §5 #3 |
-| networkx-граф (correspondence `bfs_edges` ×431К) | ~12s | граф-обвязка |
-| Скелетонизация (meshparty, в потоках) | скромно | НЕ доминанта |
+| **Spines** | **ВКЛ** — реальный CGAL SDF-сегментатор (`cgal_Segmentation_Module` .so) | `calculate_spines=False` |
+| CGAL teasar-скелет (MAP, толстые ветви) | реальный C++ ext (`calcification_param_Module`) | тихий откат на meshparty если меш non-watertight |
+| Poisson (сома) | **no-op** (meshlab-фильтр и так был сломан) | `NEURD_REAL_POISSON=1` → pymeshlab/open3d |
+| Decimator (сома) | **open3d** in-process | `NEURD_MESHLAB_DECIMATE=1` → старый meshlab |
+| FillHoles (сома) | no-op | — |
+| trimesh `_cache` | чистится после сегментации + на ветках | — |
+| IDX-TRACE (диагностика декомпозиции) | OFF | `NEURD_IDX_TRACE=1` |
 
-✅ **СДЕЛАНО — объём сомы (`7918ffc`, −35s wall на малом H01: 146.8→112.2s, вывод побайтово
-тот же 5 лимбов/28 веток):** `soma_volumes` ([preprocess_neuron.py:2916](neurd/preprocess_neuron.py#L2916))
-питает только `Soma.volume` (стат суммарного объёма + `Soma.__eq__`), НЕ декомпозицию. Дефолтный
-`mesh_volume` watertight-ит через `fill_mesh_holes_with_fan` (~46s на большой соме) и **сам падает
-на convex_hull**, если fan не сомкнул — поэтому берём `mesh_volume(..., watertight_method="convex_hull")`
-напрямую. `fill_mesh_holes_with_fan` исчез из профиля на обоих нейронах.
-
-**Выводы по малой основной фазе:**
-- **GPU не поможет** — топ-расходы это mesh-починка/сабпроцессы/графы, не числодробление. SDF уже 0.46s.
-- **Kimimaro почти не поможет** — скелетонизация-ядро скромно (на потоках).
-- **#1 оставшийся рычаг:** `remove_interior` → in-process через pymeshlab (−~19s сабпроцессов).
-
-### ⭐ Большой нейрон `1830470325` (3.27М граней): где РЕАЛЬНО время
-Прогон no-spines + real Poisson + удешевлённая сома (`/tmp/bench_big_nospines`): **4515s ≈ 75 мин**,
-12 лимбов / 220 веток / 0 спайнов, RAM пик **8.27 ГБ**. cProfile: total 5301s.
-
-**Сравнение прогонов большого (объясняет регрессию 55→77 и роль шипиков):**
-| Конфиг | Poisson | Лимбы | Время | вывод |
-|---|---|---|---|---|
-| open3d Poisson + spines | лёгкий | 18 | **53 мин** | «оригинальные 55 мин» |
-| pymeshlab depth=11 + spines | тяжёлый | 11 | **77 мин** | замена Poisson = +24 мин |
-| pymeshlab depth=11, **no-spines**, cheap-soma | тяжёлый | 12 | **75 мин** | −спайны дали лишь ~110s! |
-
-👉 **На большом нейроне шипики НЕ были бочтлнеком** (−110s), в отличие от малого (−368s). Большой
-ограничен Poisson + meshlab-сабпроцессами + геометрией декомпозиции — они есть в обоих прогонах.
-
-**Чистые self-цифры (где CPU реально горит):**
-| Реальная работа | CPU self | вызовов | что |
-|---|---|---|---|
-| **Real Poisson (pymeshlab)** | **766s** | 17 | depth=11; крупнейший расход; **мы сами добавили ради краш-фикса** |
-| meshlab-сабпроцессы | ~346s | — | Decimator 146 + Interior 100 + FillHoles 100 (xvfb/meshlabserver) |
-| `closest_distance_between_meshes` | 166s | 10731 | геометрия привязки floating-кусков/лимбов |
-| `signed_distance` (embree) | 71s | 773 | лучевые запросы |
-
-### ⚠️ Как читать «3636s acquire of _thread.lock» (НЕ баг, НЕ отдельное время)
-Топ профиля по tottime — `{method 'acquire' of '_thread.lock'}` 3636s. Прослежена цепочка:
-`lock.acquire ← Condition.wait ← Event.wait ← главный поток`. Это **главный (единственный
-профилируемый) поток Python, заблокированный в ожидании**, пока работа идёт ВНЕ Python:
-(1) в нативном C, отпускающем GIL — pymeshlab Poisson, embree (`signed_distance`); (2) во внешних
-процессах — `meshlabserver`/xvfb через `subprocess.communicate`. cProfile видит только Python-байткод,
-поэтому «спящее» время пишет как ожидание лока. **Эти 3636s НЕ складываются** с self-цифрами выше —
-это те же секунды стены, вид со стороны Python. Исчезнут только вместе с нативной работой под ними.
-
-### ⭐ Poisson depth-sweep (2026-05-31) — depth=8 новая рабочая точка
-
-Почему depth дорог: цена Poisson определяется **глубиной октодерева (разрешением 2^depth)**, а не
-числом граней. depth=11 = сетка 2048³ — восстанавливает тонкие детали; для гладкого толстого блоба
-сомы это оверкилл. **Сома = НЕ «самая большая компонента»** (весь нейрон — один связный меш); она
-выделяется классификацией **толщины каждой грани** (SDF), а SDF требует замкнутой поверхности →
-Poisson. Поэтому depth бьёт по детекции сомы.
-
-Env-регуляторы (дефолты = без изменений): `NEURD_POISSON_DEPTH` (11), `NEURD_POISSON_ITERS` (8),
-`NEURD_POISSON_BACKEND` ("meshlab" или "open3d"), `NEURD_SOMA_OUTER_DECIM` / `NEURD_SOMA_INNER_DECIM` (0.25).
-
-| Конфиг | Время | Лимбы | Ветки | RAM | Сома |
-|---|---|---|---|---|---|
-| depth=11 pymeshlab (Docker) | 4515s (75м) | 12 | 220 | 8.27 ГБ | ✅ |
-| depth=9 pymeshlab | 1589s (26.5м) | 5 | 220 | 7.8 ГБ | ✅ |
-| **depth=8 pymeshlab** ⭐ | **1155s (19.2м)** | **5** | **196** | **8.36 ГБ** | ✅ |
-| depth=7 pymeshlab | 179s† | — | — | 2.95 ГБ | ❌ 0 сом «No Somas» |
-| open3d depth=9 | 861s† | — | — | 4.2 ГБ | ❌ «not just one mesh» |
-| depth=9 + decim0.15 + iters6 | 1397s† | — | — | 4.8 ГБ | ❌ «not just one mesh» |
-| *Docker* | — | *4* | — | — | ✅ |
-
-† умер на полпути, не досчитал.
-
-**Выводы:**
-- ⭐ **depth=8 — новая лучшая точка: −27% от depth=9 (19.2 vs 26.5 мин), те же 5 лимбов, сома
-  детектируется.** Ветки 196 vs 220 — чуть грубее, принято (качество сомы/разбиения не критично).
-- **depth=9 — тоже работает** (fallback если depth=8 ломает другие нейроны).
-- **depth=7 = ниже порога детекции сомы** → 0 сом → краш. depth=8 — у нового «пола».
-- **open3d depth=9 → краш** (`correspondence_1_to_1`): open3d при depth<11 теряет тонкие отростки →
-  рвёт меш. open3d depth=11 работал (53 мин / 18 лимбов), но медленнее depth=8 pymeshlab. open3d-путь
-  закрыт — pymeshlab точнее реконструирует EM-поверхность.
-- 🔴 **Агрессивная децимация соме-меша КОНТРПРОДУКТИВНА (опровергнута замером).** Идея: грубее меш →
-  дешевле весь соме-этап. Реально: соме-экстракция ретраит (`max_fail_loops`) на борделайн-кандидатах
-  → Poisson-вызовов стало **11 вместо 6**, времени не сэкономлено, И вернулся исходный краш
-  `correspondence_1_to_1 "not just one mesh"` (огрубление < порога связности).
-
-**Рычаги для большого ПОСЛЕ depth=8 (Poisson выжат, дальше НЕ сома):**
-1. ⭐ **meshlab-сабпроцессы** (Decimator + Interior + FillHoles) — перенести в in-process pymeshlab.
-   **Не трогает реконструкцию → низкий риск краша.** Теперь это рычаг №1.
-2. `closest_distance_between_meshes` — геометрия привязки floating-кусков (сложнее, output-changing).
-3. ✅ **depth=8 — зафиксировать дефолтом** (через `NEURD_POISSON_DEPTH=8` в process_all_neurons).
-   Пока не закоммичено.
-
-### RAM на реальных H01
-Малый (507К граней): пик ~1.65 ГБ (после удешевления сомы; было ~1.8). Большой `1830470325`
-(3.27М граней): пик **~8.36 ГБ** (depth=8). Децимация уже идёт внутри соме-экстракции (0.25×0.25) — НЕ рычаг.
+> ⚠️ Ранний вывод «отказ от шипиков» (2026-05-31) **ОТМЕНЁН**: KMeans-заглушка заменена настоящим
+> CGAL SDF-сегментатором (2026-06-02, `cgal/cgal_segmentation/`), шипики снова детектируются.
+> `_cgal_segmentation.py` (KMeans) остаётся лишь fallback'ом, если .so не собран.
 
 ---
 
-## 1. Baseline и результаты профайлера (2026-05-30, fixture-меш 323k граней)
+## Отгруженные выигрыши
 
-**Чистый wall-clock (без профайлера):** сома 283.5s + декомпозиция 398.5s = **682s**, limbs=7.
-
-**cProfile — относительная разбивка** (абсолюты раздуты overhead'ом профайлера + параллельной
-нагрузкой; важны **пропорции**):
-
-| Бакет | Доля / время | Природа |
+| Что | Эффект | Коммит |
 |---|---|---|
-| **MeshLab сабпроцесс** | **~74%** | спавн `xvfb`+`meshlabserver` + ASCII-OFF на диск, на крошечных мешах |
-| └ **Poisson** | **~536s** (9 × ~60s) | **сломанный no-op** — выход байт-в-байт = вход (Screened Poisson не работает на MeshLabServer 2020.09) |
-| Скелетонизация (meshparty/CGAL teasar) | ~178s ⚠️ | **загрязнено** Poisson внутри (см. чистый профиль §4: реально ~69s, teasar 0.31s) |
-| Детект шипиков (`calculate_spines`) | ~98s ⚠️ | на самом деле ДОМИНАНТА декомпозиции (см. §4: ~133s) |
-| SDF-лучи (`ray_trace_distance`) | **0.46s** | НЕ бочтлнек |
-| deepcopy | **~2s** | НЕзначим по времени (возможно по RAM) |
+| **Poisson → in-process no-op** (meshlab-фильтр был сломан, выход=вход) | малый −4.5× (688→151s) | `469f492` |
+| **Decimator → open3d in-process** | большой −184s (−14%) | `fcc72ce` |
+| **trimesh cache cleanup** (vertex_adjacency_graph 1.6GB + ветки 1.4GB) | пик RAM −1.1GB (−16%) | `0969fd1` |
+| **Объём сомы → convex_hull** (был `fill_mesh_holes_with_fan` ~46s) | малый −35s | `7918ffc` |
+| RAM: убран двойной deepcopy + очистка preprocessed_data/кэшей | live-size 458→78 MB | `fedde35`/`2a86407`/`3643d3e` |
+| CGAL teasar-скелетонизатор пересобран (был `NameError`) | разблокировал MAP/толстые ветви | `c9d3f7f` |
+| CGAL SDF-сегментатор восстановлен (был KMeans-стенд) | вернул шипики | `e53769a` |
+| `_rebuild_limb_frames` — фикс рассинхрона кадров стичинга | масса нейронов перестала падать (class A) | `50b769f` |
 
-**Что НЕ сработало (measure-first отсёк бесполезное):**
-1. **GPU-SDF снят** — лучи уже 0.46s, ускорять нечего.
-2. **deepcopy по времени — пшик (2s)** — не драйвер времени (может быть драйвером RAM).
-3. **single-soma short-circuit (`max_somas`) — НЕ ускоряет** одно-нейронный меш: там ОДИН кусок,
-   пропускать нечего (70.3s vs 70.1s). Multi-piece overhead есть только у многонейронных мешей.
-   Параметр оставлен как **корректностный guardrail** (защита от over-segmentation), не как скорость.
-4. **Бочтлнек — оверхед сабпроцесса**, и крупнейшее — Poisson, который вообще ничего не делал.
+Poisson/FillHoles были байт-идентичными no-op (доказано захватом пар вход/выход), но платили ~536s
+за спавн xvfb+meshlabserver. Замены behaviour-preserving (характеризационный тест).
 
 ---
 
-## 2. Отгруженные выигрыши (коммиты на `optimize_segmentation`)
+## Где реально время и RAM (замерено)
 
-| Коммит | Что | Результат |
+**Время.** Доминанта — **скелетонизация + граф-обвязка** (teasar-ядро само дёшево 0.31s; дорого
+построение networkx-графов скелета) + meshlab-сабпроцессы. На большом нейроне ~60% времени —
+**внутри mesh_tools**: `split_by_vertices` ~241s, `resolve_empty`/`filter_face_coloring` ~170s,
+`np.unique` 1.2M вызовов ~113s.
+
+**НЕ бочтлнеки (measure-first отсёк бесполезное):** SDF-лучи 0.46s; deepcopy ~2s; смена алгоритма
+скелетона (teasar 0.31s — Kimimaro/Skeletor не помогут); GPU для одного нейрона; `max_somas`
+short-circuit (на одно-сомном меше пропускать нечего). Параллелизация шипиков через `fork` —
+**отложена**: fork-after-threads deadlock (нативные BLAS/CGAL-пулы), а `forkserver`/`spawn` → RAM ×3.
+
+**RAM (большой нейрон).** Driver — НЕ deepcopy (113MB), а **lazy-кэш trimesh**:
+
+| держатель | RAM | чистим? |
 |---|---|---|
-| `469f492` | **Poisson → in-process no-op** (meshlab Poisson был сломан, выход=вход) | пайплайн (microns 2-сомы) **688s → 151s (4.5×)**; сома 283s → 45s; контракт 4 passed |
-| `5aca8c0` | **FillHoles → in-process no-op** (тоже сломан, returncode 255) | сома 45s → 41s; та же сома |
-| `4982d0c` | **Neuron-output baseline** (safety net для output-changing замен) | `tests/fixtures/neuron_baseline.json` + `TestNeuronBaseline` |
-| (committed) | **`max_somas` guardrail** (single-neuron) | корректность (не скорость — см. §1) |
-| `fedde35` | **`copy_concept_network` — убран двойной deepcopy** | пиковые Branch-аллокации при копировании 2N → N |
-| `2a86407` | **`preprocessed_data` очистка** — удалить `limb_meshes`/`limb_concept_networks`/`soma_meshes` после init | −190 МБ живых объектов; ключи были дубликатом данных уже в Limb/Soma |
-| `3643d3e` | **trimesh-кэши** — очистить Limb.mesh + neuron.mesh после init | −380 МБ живых объектов (−83% от измеренных атрибутов) |
-| `bdfd8b7` | **KMeans `n_init=10→1`** в `_cgal_segmentation.py` (наш Python-стенд CGAL) | fixture build **142s → 124.9s**, стадия шипиков 52.9s → 43.0s; **выход byte-identical** (1-D log(SDF) k-means++ сходится в тот же оптимум); baseline PASS. Бьёт по сому+шипикам (обе зовут `cgal_segmentation`) |
-| (uncommitted) | **Ленивая шафт-рестрикция** — `restrict_meshes_to_shaft_meshes_without_coordinates` считает `mesh_volume`/`close_hole_area` (починка дыр) лениво в порядке cheap→expensive вместо жадного `stats_df` | стадия шипиков **43.0s → 14.3s (~3×)**, build 124.9s → **95.9s**; **byte-identical**: 28/28 вызовов `restrict` дали тот же выбор шафта, что жадный (вход не мутируется — `mesh_volume` читает, не меняет геометрию); baseline PASS |
+| `vertex_adjacency_graph` полного меша | 1.6 GB | ✅ `_drop_trimesh_caches` после сегментации |
+| кэши 153 branch-мешей | ~1.4 GB | ✅ `_clear_mesh_caches` (на retained) |
+| транзиент в `preprocess_limb` (submesh'и плотного лимба) | ~1-2 GB | частично (в mesh_tools) |
+| embree BVH + импорты библиотек (open3d/embree/trimesh/nx) | ~1 GB | нет (нативное) |
 
-Poisson/FillHoles были байт-идентичными no-op (доказано захватом пар вход/выход), но платили
-~536s+ за спавн. Соме-детект работает без них. Замены behavior-preserving — характеризационный
-тест подтвердил идентичность контракта. **Это главный результат по времени.**
-
-RAM-сессия (2026-05-30): нейрон-объект похудел с **~458 МБ → ~78 МБ** live-size (замер через
-`deep_size` на fixture 323k граней, 2-сомы, 7 лимбов, 49 веток). RSS-пик процесса (1760 МБ)
-не изменился — это watermark; реальный выигрыш виден при форке воркеров.
-
-⚠️ Тайминги выше — на microns 2-сомном fixture. На **целевом H01 одно-сомном** меше (507k граней)
-полный пайплайн с этими фиксами = **215.8s** (сома 70s + декомпозиция 146s).
+⚠️ Время прогона коррелирует с **числом лимбов** (run-to-run недетерминизм стичинга = ±100-150s),
+не путать со штрафом оптимизаций.
 
 ---
 
-## 3. Метод (быстрый цикл вместо 11 минут)
+## Принцип: НЕ правим mesh_tools напрямую
 
-- **Захват эталона:** [tests/tools/capture_mesh_op_fixtures.py](tests/tools/capture_mesh_op_fixtures.py)
-  monkeypatch'ит meshlab-операции и пишет реальные пары вход/выход (фикстуры gitignored, регенерируемы).
-- **In-process операции:** [neurd/_mesh_ops.py](neurd/_mesh_ops.py) — decimate (open3d quadric),
-  poisson (open3d screened, для опц. эксперимента качества), fill_holes (trimesh).
-- **Секундные проверки:** [tests/unit/test_mesh_ops.py](tests/unit/test_mesh_ops.py) (синтетика, ~3s)
-  + [tests/integration/test_mesh_ops_fidelity.py](tests/integration/test_mesh_ops_fidelity.py)
-  (vs meshlab-эталон, ~13s; decimate validated).
-- **Гейт:** характеризационный тест `tests/integration/test_segmentation_pipeline.py` (теперь ~2.5 мин).
+mesh_tools = plain site-packages (НЕ в репо, НЕ editable): правки теряются при `pip install` (ровно
+так уже терялись C++ CGAL `.so` и патчи). 116 функций / 16.7K строк ядра алгоритмов — заменить =
+переписать NEURD и потерять fidelity. **Вместо** этого перехватываем дорогие узлы in-process
+монкипатчем в `neurd/__init__.py` (durable + обратимо через env-флаг + fidelity-нейтрально): так
+сделаны Poisson, FillHoles, Decimator. Трогать функцию mesh_tools можно, только если правка
+тривиальна И оформлена как монкипатч в нашем `__init__.py` (а не правка site-packages).
 
 ---
 
-## 4. Чистый профиль декомпозиции (H01, Poisson-no-op активен) — где реально 146s
+## Остаточные durable-рычаги (по убыванию отдачи)
 
-Перепрофилировано на целевом H01 меше (старый профиль был **загрязнён**: Poisson вызывался
-ВНУТРИ скелетонизации, ~60s/вызов — теперь no-op):
+1. **Interior filter** (`tu.remove_mesh_interior`, ~104s) — последний meshlab-сабпроцесс в соме-пути
+   (Ambient Occlusion, рендер из 128 ракурсов). In-process замены нет (нужен open3d RaycastingScene).
+   Качество сомы пользователю не критично → выполнимо, риск средний. **Рычаг №1 по времени.**
+2. **Poisson depth** (только при `NEURD_REAL_POISSON=1`): depth=8 — рабочая точка (−27% от depth=9,
+   те же 5 лимбов), depth=7 роняет детекцию сомы.
 
-| Высокоуровневая функция | Время | Природа |
-|---|---|---|
-| **`calculate_spines_on_neuron`** (детект шипиков) | **~133s (65%)** | per-branch (×28); НЕ логика (SDF-сегментация ~22s), а **починка меша**: объёмы (`fill_mesh_holes_with_fan`+`fix_normals`, ~5×/ветку) + `group_rows` (1М вызовов) |
-| Скелетонизация (`preprocess_neuron`) | ~69s | ⚠️ **teasar-ядро = 0.31s** — смена алгоритма (Kimimaro/Skeletor) НЕ поможет; дорога обвязка (стичинг/графы) |
-
-**Вывод:** узкое место декомпозиции — **шипики (133s)**, не скелетонизация. Логику шипиков
-оптимизировать почти нечего (дёшево); дорога mesh-починка/объёмы (upstream `mesh_tools`,
-output-рискованно). Пользователю шипики **нужны** (не отключить).
-
-### 4a. Свежий per-function профиль стадии шипиков (2026-05-31, microns fixture, cProfile)
-
-Разбивка `calculate_spines_on_branch` (×28 веток, ~53s чистыми; spines=0 на этом меше → чистая
-**детекция** без объёмов реальных шипиков):
-
-| Поддерево | cumtime | Что |
-|---|---|---|
-| `restrict_meshes_to_shaft_meshes_without_coordinates` → `query_meshes_from_stats` → `stats_df`/`stitch` → `mesh_volume` → `fill_mesh_holes_with_fan` → `fix_normals`/`fix_winding` | **~66s (65%)** | «шафт vs спайн» считает **объём+площадь дыр каждого сегмента** через починку. `fix_winding` 42.7s, `group_rows` 27.8s (427K вызовов) — внутренности trimesh repair |
-| `mesh_segmentation` → `cgal_segmentation` → **sklearn KMeans** | 28.9s (KMeans 22s) | ✅ **ВЗЯТО:** `n_init=10→1`, см. §2 |
-
-**✅ Зацепка #2 ВЗЯТА (output-preserving):** `restrict_meshes_to_shaft_meshes_without_coordinates`
-теперь считает статистики лениво (cheap→expensive) вместо жадного `tu.stats_df`. Запрос
-`(close_hole_area > X OR mesh_volume > Y) AND (n_faces > min)`: `close_hole_area` нужен только при
-`n_faces>min`, `mesh_volume` — только при `n_faces>min И close_hole_area<=X`; остальным — 0-sentinel
-(их решают другие термы, значение не влияет). Тот же query-evaluator → byte-identical (28/28
-вызовов совпали с жадным; вход не мутируется — проверено: `mesh_volume`/`stitch` пишут в **новый**
-меш). **43s → 14.3s (~3×)**, см. §2.
-
-**Следующая зацепка (#3, не разобрана):** что осталось в 14.3s стадии шипиков — пере-профилировать
-(вероятно `mesh_segmentation`/CGAL-диск-roundtrip + `close_hole_area` на выживших). Также width
-(§отдельно): считается ~дважды по всем веткам (`median_mesh_center` внутри шипиков +
-`no_spine_median_mesh_center` после), `branch_mesh_no_spines` пересоздаётся на вызов.
-
-### 4b. Полный профиль СБОРКИ после спайн-фиксов (2026-05-31, fixture, cProfile)
-
-После KMeans+lazy-shaft ландшафт **сместился** — шипики больше не доминанта. Реальная сборка
-**92s** (cProfile раздут до 139s; пропорции верны):
-
-| Стадия | cumtime (проф.) | Что внутри |
-|---|---|---|
-| **`preprocess_limb` — скелетонизация+обвязка** | **~84s (доминанта)** | `skeletonize_and_clean_connected_branch_CGAL` 52s (3×); `convert_skeleton_to_graph` 16s (**1417 вызовов ≈29/ветку**); `skeleton_obj_to_branches` 12.7s; `filter_limb_correspondence_for_end_nodes` 11s; `resolve_empty_conflicting_face_labels` 14s |
-| **Сома-экстракция** | ~34s | meshlab `remove_interior` 11.6s (subprocess ×4), poisson-watertight чеки, `cgal_segmentation` (уже с KMeans-фиксом) |
-| Шипики | 14.3s | ✅ оптимизированы |
-
-**Подтверждает §4:** teasar-ядро дёшево, дорога **обвязка скелета — графы/networkx**. Самый горячий
-self-time: **`networkx.add_edges_from` 9.7s self (2775 вызовов)** внутри `convert_skeleton_to_graph`.
-
-⚠️ **Эти выигрыши КАЧЕСТВЕННО сложнее спайн-фиксов:**
-- Граф-обвязка (`convert_skeleton_to_graph`/`add_edges_from`) — **upstream `mesh_tools/skeleton_utils`**,
-  не наш код; networkx-построение графа. Ускорить можно (scipy-sparse/igraph вместо networkx, или
-  кэш если 1417 вызовов редундантны — НЕ проверено), но **output-риск** (топология скелета) и upstream.
-- `remove_interior` (11.6s, meshlab subprocess) — §5 #3, нужен in-process raycasting (open3d
-  RaycastingScene), высокая сложность, output-changing.
-
-**Развилка для след. сессии:** лёгкие высоко-уверенные спайн-выигрыши исчерпаны. Дальше — либо
-браться за skeleton-граф-обвязку (замерить редундантность `convert_skeleton_to_graph`: если граф
-строится повторно на одном скелете — кэш дешёв и output-preserving; если структурно — дорого/рискованно),
-либо за `remove_interior` (§5 #3). Оба — не «лёгкие места».
+Всё прочее durable по времени ≈ выжато; пол — реальный compute (скелетонизация + mesh_tools).
+**Открытый вопрос:** нужен ли реальный Poisson другим сложным H01, или починка CGAL сняла исходный
+краш «not just one mesh» (на `1830470325` он проходит с Poisson=no-op). Прогнать 1-2 H01 прежде чем
+считать real Poisson ненужным; guard `correspondence_1_to_1` (raise) всё ещё без try/except.
 
 ---
 
-## 5. Plan вперёд (по убыванию замеренной отдачи) + СТЕНА
+## ⚠️ Известная проблема корректности — для дальнейшей модификации
 
-> ⭐ **АКТУАЛЬНЫЕ приоритеты (2026-05-31) — см. §0 «Poisson depth-sweep».** Большой H01:
-> **depth=9 ПРОВЕРЕН** — 75м→26.5м (−2.84×), Poisson 766→167s, ближе к Docker (5 лимбов vs 4).
-> Poisson/сома-рычаг **исчерпан** (depth<9 и децимация ломают пайплайн — замерено). Дальше:
-> **(1) meshlab Decimator/Interior/FillHoles → in-process pymeshlab (−262s, низкий риск)**,
-> (2) `closest_distance` геометрия (151s). depth=9 зафиксировать дефолтом (пользователь думает).
-> Таблица ниже — история малого нейрона/fixture; для большого см. §0.
+**Class-A: рассинхрон кадров при стичинге floating-кусков.** `_stitch_floating_pieces` дописывает
+floating- и cut-ветки с `branch_face_idx` в кадре *чужого* меша → масса нейронов падала
+`IndexError: index N is out of bounds for size N` в `apply_adaptive_mesh_correspondence_to_neuron`.
 
-| # | Цель | Где | Сложность | Статус/ожидание |
-|---|---|---|---|---|
-| 1 | ~~fill_holes → no-op~~ | `__init__.py` | — | ✅ **СДЕЛАНО** (`5aca8c0`) |
-| 2 | **Decimator → open3d/pymeshlab** | патч `__init__.py` | низко (fidelity ✓) | **держим** — output-changing: меняет сому (median 0.533→0.479), −12s на малом / **−146s на большом**. Прототип был, откатан. Судить против baseline |
-| 3 | **remove_interior** (meshlab `Interior`) | соме-стадия | высоко | реальная операция (не no-op!) — in-process через pymeshlab/рейкастинг (open3d RaycastingScene). **−100s на большом** |
-| 4 | ~~**Объём сомы (fill_mesh_holes_with_fan)**~~ | `preprocess_neuron.py:2916` | — | ✅ **СДЕЛАНО** (`7918ffc`) — convex_hull, −35s малый |
-| 5 | ~~**Шипики — параллелизация**~~ | — | — | ⛔ **ЗАБРОШЕНО:** шипики выпилены целиком (`calculate_spines=False`, см. §0). Стенки про fork/deadlock ниже — историческая справка |
-| 6 | ~~**RAM** (deepcopy/кэши)~~ | `neuron.py` | — | ✅ **СДЕЛАНО** (`fedde35`, `2a86407`, `3643d3e`) — live-size 458 МБ → 78 МБ |
-
-### 🧱 СТЕНА: параллелизация шипиков (попытка провалена, откатана; частично снята)
-
-Форк-`multiprocessing.Pool` **взрывал память**: нейрон ~1.7 ГБ RSS, ~18 форк-процессов × 1.7 ГБ
-→ своп → медленнее последовательного.
-
-**Текущее состояние после RAM-оптимизаций:**
-- Live-size нейрон-объекта: **~78 МБ** (было ~458 МБ)
-- RSS процесса всё ещё ~1.7 ГБ (watermark; Python + библиотеки + историческая аллокация)
-- При форке воркеры наследуют **текущие** страницы, не watermark → COW-давление снижено
-
-**Два пути к параллелизации:**
-- **Путь A (рекомендуется):** теперь нейрон лёгкий — попробовать форк снова, замерить RSS per-worker.
-  Ожидание: воркеры наследуют ~78 МБ Python-объектов вместо 458 МБ → мало COW.
-- **Путь B (запасной):** пиклить воркерам только **меши веток** как numpy arrays, не весь нейрон.
-
-✅ **БЛОКЕР СНЯТ (2026-05-31): где хранятся спайны и почему читались 0.**
-
-Спайны живут **на `Branch`** как обычные изменяемые атрибуты (НЕ property):
-- `branch.spines` — list submesh-объектов, выход `calculate_spines_on_branch`, пишется в
-  `spine_utils.py:2214`.
-- `branch.spines_volume` — list float'ов (если `calculate_spine_volume`), `spine_utils.py:2202`.
-- `branch.spines_obj` — **сбрасывается в None** в `spine_utils.py:2221`; богатые spine-объекты
-  строятся ОТДЕЛЬНОЙ поздней стадией, не в `calculate_spines_on_neuron` → воркеру не нужны.
-
-`Limb.spines` (`neuron.py:1040`) и `Neuron.spines` (`neuron.py:3056`) — **read-only
-property-агрегаторы** (`nru.feature_list_over_object` обходит дочерние ветки). Сеттера нет;
-возвращают `[]`/0, когда у веток `.spines is None`. `n_spines` идёт через
-`neuron_utils.py:1032` → `len(obj.spines)` или 0 при None.
-
-**Почему fork читал 0:** классика fork-`Pool` — воркер мутировал `curr_branch.spines` в **своей
-форк-копии** нейрона; мутация не вернулась в родитель → ветки остались `spines=None` → `n_spines=0`.
-Это НЕ баг хранилища. **Решение Пути A:** воркер **возвращает** `(limb_idx, branch_idx, spines,
-spines_volume)`, **родитель переприсваивает** `curr_branch.spines = ...`. In-place мутация в
-дочернем процессе не годится.
-
-**Контракт воркера:** вход — ветка (`calculate_spines_on_branch` читает ТОЛЬКО `branch.mesh` и
-`branch.skeleton` — суррогат `SimpleNamespace(mesh, skeleton)` достаточен) + per-limb `soma_kdtree`;
-выход — `spines` (+ опц. `spines_volume`). spine-меши picklable → возврат через границу процесса ок.
-`calculate_spines_on_neuron` зовётся из `neuron.py:2646`.
-
-### 🧱🧱 ВТОРАЯ СТЕНА (2026-05-31): fork → deadlock. Параллелизм ОТЛОЖЕН
-
-Реализовал Путь A (fork-`Pool`, воркер возвращает spines, родитель присваивает; `cgal_folder`
-прокинут в `calculate_spines_on_branch` для изоляции CGAL temp-файлов на воркер). Прогон на
-fixture-меше:
-- **Воркеры зависли в `futex_wait_queue`, 0 CPU**, у каждого **31 поток**. Это **fork-after-threads
-  deadlock**: нейрон строится через BLAS/meshparty/CGAL (нативные пулы потоков); `fork()` копирует
-  состояние локов, но не потоки-владельцы → первый же `malloc`/BLAS в ребёнке висит вечно.
-  (Сразу после `import neurd` потоков 1 — пулы поднимаются именно при **построении** нейрона.)
-- Это та же природа, что прошлый «взрыв памяти»: `fork` прогретого многопоточного процесса небезопасен.
-
-**Замеренная развилка (оба плохи под наш критерий «не раздувать RAM»):**
-- **`fork` + задушить потоки** (`OPENBLAS_NUM_THREADS=1`/`OMP_NUM_THREADS=1` ДО импорта numpy):
-  убирает унаследованные потоки → fork безопасен, RAM низкая (COW). **Цена:** вся декомпозиция
-  теряет BLAS-параллелизм — может стать медленнее; нетто-эффект НЕ замерен.
-- **`forkserver`/`spawn` + пиклить суррогат ветки:** без deadlock, выход гарантированно идентичен.
-  **Цена:** каждый воркер заново импортит neurd (~0.3 ГБ × N) → RAM-пик ~3–3.5 ГБ (≈3× sequential).
-  Ещё нужно переинициализировать `*_global` конфиг в воркере (spawn не наследует data_type-настройку).
-
-**РЕШЕНИЕ (пользователь, 2026-05-31): ОТЛОЖИТЬ.** Параллелизм откатан, оставлен только параметр
-`cgal_folder` на `calculate_spines_on_branch` (безвреден, пригодится при возврате к теме). Дефолт —
-последовательный путь (без изменений). Замечание: целевой H01-меш одно-сомный → на committed
-fixture спайнов **0** (sequential тоже даёт 0), так что **correctness параллелизма нельзя
-провалидировать локально** — нужен спайн-несущий меш.
-
-**Если возвращаться:** наименее-рискованный замер — вариант «fork + OPENBLAS_NUM_THREADS=1»: одна
-env-переменная, COW-дешёвый по RAM, и проверить не стала ли декомпозиция медленнее (нетто).
-
-После #2–#3 (остатки meshlab на соме) пол времени = реальный compute декомпозиции (шипики #4).
+- ✅ **Починено** (`50b769f`): `_rebuild_limb_frames` после стичинга пересобирает самосогласованный
+  кадр (limb_mesh = `combine_meshes(ветки)`, contiguous `branch_face_idx`) для сломанных лимбов.
+  Только сломанные (сшитые) лимбы трогаются → нулевой риск для не-сшитых нейронов. Краш устранён,
+  нейроны сегментируются. Детали — [PIPELINE.md §2.1](PIPELINE.md) + `memory/class_a_frame_desync.md`.
+- 🔧 **Осталось копнуть (глубже, отдельный баг):** сам стичинг плодит **перекрывающиеся** ветки →
+  пересобранный лимб-меш раздувается (×1.8–12.7) и adaptive-уточнение на нём пропускается (class-B
+  guard, меш дисконнектный). Не краш, но качество: дубль-геометрия + нет 2-hop refinement. Чинить —
+  в `attach_floating_pieces_to_limb_correspondence`: перемап индексов при вставке + дедуп overlap.
+- **Диагностика:** `NEURD_IDX_TRACE=1` включает реперы N1/N2/N3 (печать + `/tmp/neurd_diag/idx_trace.log`)
+  — чистота партиции по этапам. Repro: `tests/integration/reproduce_2889815798.py`.
 
 ---
 
-## 6. GPU — честная оценка (idea пользователя, держим в уме)
+## GPU — честная оценка
 
-GPU помогает там, где **плотная параллельная численная работа**; не помогает там, где оверхед
-сабпроцесса (это лечится in-process) или граф-алгоритмы.
-
-- **Single-neuron latency — ограниченный потенциал GPU.** Когда meshlab уйдёт, пол времени —
-  скелетонизация (teasar = обход графа, плохо ложится на GPU) и mesh-topology операции. SDF уже
-  0.46s. То есть для **одного нейрона** GPU мало что даст после in-process замен.
-- **Throughput — вот где GPU реально играет.** `process_all_neurons` гоняет **много** мешей.
-  Если сократить RAM на нейрон (#5), можно батчить больше нейронов параллельно, и GPU ускорит
-  параллельно-дружелюбные куски (SDF/`ray_trace`, KMeans-сегментация) **через батч**. Поэтому
-  **GPU в паре с оптимизацией памяти даёт пропускную способность**, а не скорость одного меша.
-- **Что GPU-able по частям:** ray-casting/SDF (open3d RaycastingScene / warp / OptiX),
-  KMeans SDF-сегментации (cuML). Скелетонизация и mesh-stitching — нет.
-- **Предусловие:** CUDA-Python стек (torch/warp/cupy) не установлен; GPU есть (RTX 5060 = sm_120,
-  новая → совместимость колёс проверить). Браться за GPU **после** in-process замен и RAM,
-  когда станет ясно, latency или throughput мы упёрлись.
-
-**Итог направления для следующей сессии:** RAM-стена частично снята (live-size 458 → 78 МБ).
-Приоритеты по убыванию отдачи:
-1. ⛔ **Параллелизация шипиков — ОТЛОЖЕНА** (§5, вторая стена): `fork` → deadlock от унаследованных
-   потоков; `forkserver`/`spawn` → RAM ~3×. Блокер `br.spines` снят и контракт ясен, но дешёвой по
-   RAM безопасной реализации нет. Если возвращаться — мерить вариант «fork + OPENBLAS_NUM_THREADS=1»
-   (нетто-время) на спайн-несущем меше (на committed fixture спайнов 0).
-2. **Decimator → open3d** (§5 #2) — output-changing, −12s, судить против Neuron-baseline. **Теперь
-   это приоритет #1 из реалистичных.**
-3. **Не тратить** время на смену алгоритма скелетонизации (teasar 0.31s) и на GPU (узкое место —
-   mesh-топология/граф, не численное; GPU — только throughput после RAM-фикса).
+Для **одного нейрона** GPU мало даст (узкое место — скелет-графы/топология, не числодробление; SDF
+уже 0.46s). Реальный потенциал — **throughput**: `process_all_neurons` гоняет много мешей; после
+снижения RAM/нейрон можно батчить больше параллельно. GPU-able по частям: ray-casting/SDF (open3d
+RaycastingScene / warp / OptiX), KMeans (cuML). Скелетонизация и stitching — нет. Стек CUDA-Python
+не установлен; браться **после** in-process замен, когда ясно — в latency или throughput упёрлись.
