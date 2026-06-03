@@ -153,13 +153,23 @@ axis 0 with size N` в `nru.apply_adaptive_mesh_correspondence_to_neuron`
 
 **🔧 Что осталось для дальнейшей модификации (глубже).** Фикс делает выход *самосогласованным*, но
 не лечит причину: стичинг плодит **перекрывающиеся** ветки → пересобранный лимб-меш раздувается
-(×1.8–12.7 на тестовом нейроне), а adaptive-уточнение на нём **пропускается** (рабочий class-B guard
+(×1.8–12.7 на тестовом нейроне), а adaptive-уточнение на нём **пропускается** (рабочий guard
 в `apply_adaptive_*`, т.к. склейка веток даёт дисконнектный меш). Не краш, но качество: дубль-геометрия
 + нет 2-hop refinement. Правильное место чинить — `attach_floating_pieces_to_limb_correspondence`:
 перемапливать `branch_face_idx` в кадр лимб-меша **при вставке** и дедупить overlap, чтобы
 `_rebuild_limb_frames` стал не нужен. Диагностика — `NEURD_IDX_TRACE=1` (реперы N1/N2/N3 →
 `/tmp/neurd_diag/idx_trace.log`), repro — `tests/integration/reproduce_2889815798.py`,
 детали — `memory/class_a_frame_desync.md`.
+
+**Родственный режим — class B `missing labels was not resolved` (тоже стичинг, теперь защищён).**
+Когда стык floating-куска попадает в СЕРЕДИНУ ветки основного лимба, ветка режется и
+`correspondence_1_to_1(mesh=stitch_mesh)` заново партиционирует её на 2 куска. При вырожденном
+разрезе (одной половине не достаётся связный патч граней) `resolve_empty_conflicting_face_labels`
+кидает `missing labels was not resolved` — раньше это валило весь нейрон. **Фикс:** вызов обёрнут в
+try/except (cut-путь в `attach_floating_pieces_to_limb_correspondence`); при сбое кусок помечается
+обработанным и **пропускается** (floating best-effort), нейрон достраивается. На месте крушения
+`limb_correspondence_cp` ещё не мутирован, поэтому пропуск безопасен. ⚠️ **Глубже:** причина —
+вырожденный/мид-веточный разрез; чинить там же, где class A (correspondence при вставке).
 
 ---
 
