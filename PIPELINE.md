@@ -171,6 +171,16 @@ try/except (cut-путь в `attach_floating_pieces_to_limb_correspondence`); п
 `limb_correspondence_cp` ещё не мутирован, поэтому пропуск безопасен. ⚠️ **Глубже:** причина —
 вырожденный/мид-веточный разрез; чинить там же, где class A (correspondence при вставке).
 
+**Родственный режим — class C `too many indices for array: array is 1-dimensional` (тоже стичинг,
+теперь защищён).** При декомпозиции floating-куска (`preprocess_limb(mesh=k)` в шаге 1 attach) его
+MAP-скелетонизация (`_decompose_map_piece` → CGAL/meshparty → `mesh_subtraction_by_skeleton`) может
+оставить **вырожденный/пустой** leftover-submesh (`faces` формы `(0,)`/1-D), и trimesh падает на
+`faces[:, …]` (deep in mesh_tools, править durable нельзя). **Фикс:** вызов `preprocess_limb` в цикле
+декомпозиции floating-кусков обёрнут в try/except; кусок, который не декомпозируется, **пропускается**
+(не добавляется в `floating_limbs_correspondence` — всё ниже выводится из него, индексы консистентны).
+⚠️ **Глубже:** тот же leftover может всплыть и на MAIN-лимбе (в `_decompose_limbs`), где «пропустить»
+нельзя — там пока не защищено.
+
 ---
 
 ## 3. Применённые compat-патчи (numpy2 / trimesh4 / мёртвый meshlabserver)
