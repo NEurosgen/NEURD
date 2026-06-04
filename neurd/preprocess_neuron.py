@@ -551,14 +551,24 @@ def attach_floating_pieces_to_limb_correspondence(
                 axon_width_preprocess_limb_max=axon_width_preprocess_limb_max,
             )
 
-            curr_corr = preprocess_limb(
-                mesh=k,
-                neuron_params=neuron_params,
-                limb_params=limb_params,
-                soma_touching_vertices_dict=None,
-                return_concept_network=False,
-                error_on_no_starting_coordinates=False,
-            )
+            # CLASS-C guard: a floating piece's MAP skeletonization can leave a degenerate/empty
+            # leftover submesh deep in mesh_subtraction_by_skeleton -> trimesh "too many indices for
+            # array: array is 1-dimensional". Floating-piece stitching is best-effort, so skip a piece
+            # that won't decompose instead of crashing the whole neuron. Everything downstream derives
+            # from floating_limbs_correspondence, so not appending keeps all indices consistent.
+            try:
+                curr_corr = preprocess_limb(
+                    mesh=k,
+                    neuron_params=neuron_params,
+                    limb_params=limb_params,
+                    soma_touching_vertices_dict=None,
+                    return_concept_network=False,
+                    error_on_no_starting_coordinates=False,
+                )
+            except Exception as _float_err:
+                print(f"[stitch] floating piece {j} (faces={len(k.faces)}) failed to decompose "
+                      f"({type(_float_err).__name__}: {_float_err}); skipping it")
+                continue
                 
             floating_limbs_correspondence.append(curr_corr)
             
