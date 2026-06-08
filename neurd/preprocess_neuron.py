@@ -801,6 +801,73 @@ def attach_floating_pieces_to_limb_correspondence(
 
 
 
+def _dump_concept_network_mismatch(divided_skeletons, concept_network, soma_idx,
+                                   out_dir="/tmp/neurd_diag"):
+    """
+    Forensic capture for error 1 ("concept graph nodes != branches"). The limb has branches that
+    downsample (to 1 segment) to DUPLICATE edges; branches_to_concept_network deletes the
+    non-dominant duplicates and re-adds them, but ends with fewer nodes than branches. This records
+    WHY and prints a verdict that decides the fix:
+      * duplicate branches have NEAR-IDENTICAL full skeletons -> GENUINE redundancy -> dedup
+      * duplicate branches are DISTINCT (only share endpoints) -> the re-add is the bug
+    Dumps the branch skeletons to npz for offline analysis. Best-effort; never raises.
+    """
+    import os, time
+    import numpy as _np
+    n_br = len(divided_skeletons)
+    n_nodes = len(concept_network.nodes())
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception:
+        pass
+
+    verdict = "analysis unavailable"
+    n_dup_branches = n_zero_len = -1
+    try:
+        downs, lengths = [], []
+        for b in divided_skeletons:
+            try:
+                downs.append(_np.asarray(sk.resize_skeleton_branch(b, n_segments=1)).reshape(-1, 3))
+            except Exception:
+                downs.append(None)
+            try:
+                lengths.append(float(sk.calculate_skeleton_distance(b)))
+            except Exception:
+                lengths.append(-1.0)
+        edges = [None if d is None else
+                 tuple(sorted((tuple(_np.round(d[0], 2)), tuple(_np.round(d[-1], 2))))) for d in downs]
+        from collections import Counter
+        dup = {e: c for e, c in Counter([e for e in edges if e is not None]).items() if c > 1}
+        n_dup_branches = int(sum(dup.values()) - len(dup))
+        n_zero_len = int(sum(1 for L in lengths if 0 <= L < 1e-6))
+        if dup:
+            biggest = max(dup, key=dup.get)
+            members = [i for i, e in enumerate(edges) if e == biggest]
+            ref = _np.asarray(divided_skeletons[members[0]])
+            identical = sum(1 for m in members[1:]
+                            if _np.asarray(divided_skeletons[m]).shape == ref.shape
+                            and _np.allclose(_np.asarray(divided_skeletons[m]), ref, atol=1.0))
+            verdict = (f"biggest dup-edge group = {len(members)} branches; "
+                       f"{identical}/{len(members)-1} have a near-identical FULL skeleton -> "
+                       f"{'GENUINE REDUNDANCY (dedup)' if identical > 0 else 'DISTINCT (re-add bug)'}")
+    except Exception as e:
+        verdict = f"inline analysis failed: {e}"
+
+    print("\n" + "=" * 80)
+    print(f"[CONCEPT-MISMATCH FORENSIC] soma {soma_idx}: {n_br} branches -> {n_nodes} concept nodes")
+    print(f"  branches collapsing to a duplicate downsampled edge: {n_dup_branches}")
+    print(f"  zero-length branches: {n_zero_len}")
+    print(f"  VERDICT: {verdict}")
+    print("=" * 80 + "\n")
+    try:
+        path = os.path.join(out_dir, f"concept_mismatch_soma{soma_idx}_{int(time.time())}.npz")
+        _np.savez_compressed(path, n_nodes=n_nodes, n_branches=n_br,
+                             **{f"sk_{i}": _np.asarray(s) for i, s in enumerate(divided_skeletons)})
+        print(f"[CONCEPT-MISMATCH FORENSIC] skeletons dumped to {path}")
+    except Exception as e:
+        print(f"[CONCEPT-MISMATCH FORENSIC] npz dump failed: {e}")
+
+
 def calculate_limb_concept_networks(limb_correspondence,
                                     network_starting_info,
                                    run_concept_network_checks=True,
@@ -905,6 +972,9 @@ def calculate_limb_concept_networks(limb_correspondence,
 
                 #3.2: Check number of nodes match the number of divided skeletons
                 if len(curr_limb_concept_network.nodes()) != len(divided_skeletons):
+                    # FORENSIC (error 1): capture branch skeletons + verdict (genuine redundancy vs
+                    # re-add bug) so the dedup fix isn't designed blind. Behaviour-neutral, then raise.
+                    _dump_concept_network_mismatch(divided_skeletons, curr_limb_concept_network, soma_idx)
                     raise Exception("The number of nodes in the concept graph and number of branches passed to it did not match\n"
                                   f"len(curr_limb_concept_network.nodes())={len(curr_limb_concept_network.nodes())}, len(curr_limb_divided_skeletons)= {len(divided_skeletons)}")
 
