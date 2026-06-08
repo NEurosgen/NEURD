@@ -65,6 +65,9 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
     """
     Обработка одного меша в отдельном процессе (изоляция OOM).
     """
+    import tempfile, shutil
+    _orig_cwd = os.getcwd()
+    _work_dir = None
     try:
         from pathlib import Path
         from mesh_tools import trimesh_utils as tu
@@ -75,8 +78,15 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         # но повторим в воркере, потому что spawn-процессы не наследуют состояние
         ensure_neurd_defaults()
 
-        off_path = Path(off_path_str)
-        out_dir = Path(out_dir_str)
+        # Resolve to ABSOLUTE before chdir, then run this worker in a private temp CWD. NEURD's soma
+        # extraction creates CWD-relative temp dirs named by segment_id (./{segment_id}, plus
+        # ./Poisson_temp, ./temp). Under parallel workers segment_id collides (np.random inherited via
+        # fork) so those dirs are shared and workers rmtree each other's -> FileNotFoundError. A
+        # private CWD isolates ALL of them per worker (also CGAL temp files); cleaned up in finally.
+        off_path = Path(off_path_str).resolve()
+        out_dir = Path(out_dir_str).resolve()
+        _work_dir = tempfile.mkdtemp(prefix="neurd_work_")
+        os.chdir(_work_dir)
 
         basename = off_path.stem
         neuron_base = out_dir / basename
@@ -98,6 +108,12 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         tb = traceback.format_exc()
         conn.send((False, f"{type(e).__name__}: {e}\n{tb}"))
     finally:
+        try:
+            os.chdir(_orig_cwd)
+        except Exception:
+            pass
+        if _work_dir is not None:
+            shutil.rmtree(_work_dir, ignore_errors=True)
         try:
             conn.close()
         except Exception:
