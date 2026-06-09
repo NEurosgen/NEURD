@@ -3154,24 +3154,6 @@ def preprocess_neuron(
         mesh, soma_mesh, params
     )
 
-    # FAIL-FAST (right after the cheap segmentation, BEFORE the ~hours of decompose+stitch):
-    # stitching a very large number of significant floating pieces almost always yields a limb whose
-    # stitched branches don't all connect to the soma -> concept-network "nodes != branches" crash —
-    # but only at the very end of a multi-hour run. The float count is known here, so a pathological
-    # mesh can be rejected in minutes instead of ~2h. Heuristic + tunable: the count is printed for
-    # every neuron (calibrate from it); raises only above NEURD_MAX_FLOATING_PIECES (0 disables).
-    import os as _os
-    _fp_thresh = parameters.params.floating_piece_face_threshold
-    _n_sig_float = sum(1 for m in floating_meshes if len(m.faces) > _fp_thresh)
-    print(f"[fail-fast] {_n_sig_float} significant floating pieces (> {_fp_thresh} faces)")
-    _max_float = int(_os.environ.get("NEURD_MAX_FLOATING_PIECES", "100"))
-    if _max_float > 0 and _n_sig_float > _max_float:
-        raise Exception(
-            f"Neuron has {_n_sig_float} significant floating pieces (> NEURD_MAX_FLOATING_PIECES="
-            f"{_max_float}). Stitching this many almost always produces a disconnected limb and a "
-            f"concept-network 'nodes != branches' crash, only after a very long run -> failing fast "
-            f"after segmentation. Tune/disable via NEURD_MAX_FLOATING_PIECES (0 = off).")
-
     # Segmenting the full neuron mesh built its heaviest trimesh caches — on the big H01
     # neuron `vertex_adjacency_graph` alone is ~1.6 GB and `vertex_faces` ~0.9 GB (split_by_
     # vertices populates them). The full mesh is NOT used past this point (the rest of
