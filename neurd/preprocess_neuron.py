@@ -2219,6 +2219,515 @@ def _decompose_map_sublimbs(
     return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
 
 
+def _stitch_map_and_mp(
+    limb_correspondence_MAP,
+    limb_correspondence_MP,
+    limb_mesh_mparty,
+    total_keep_endpoints,
+    *,
+    move_MAP_stitch_to_end_or_branch,
+    distance_to_move_point_threshold,
+    meshparty_segment_size,
+    check_correspondence_branches,
+    prevent_MP_starter_branch_stitches,
+):
+    """Parts 11-16: stitch each MP<->MAP connection, mutating limb_correspondence_MAP /
+    limb_correspondence_MP in place (branches re-cut / re-corresponded at the join), and
+    return them. Callers guard with `len(MAP)>0 and len(MP)>0` -- this assumes both are
+    non-empty. Behavior identical to the inline Part 11-16 block it replaces.
+    """
+    # -------------- Part 11: Getting Sublimb Mesh and Skeletons and Gets connectivitiy by Mesh -------#
+    # -------------(filtering connections to only MP to MAP edges)--------------- #
+
+    # ---- Doing the mesh connectivity ---------#
+    sublimb_meshes_MP = []
+    sublimb_skeletons_MP = []
+
+    for sublimb_key,sublimb_v in limb_correspondence_MP.items():
+        sublimb_meshes_MP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
+        sublimb_skeletons_MP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
+
+
+
+    sublimb_meshes_MAP = []
+    sublimb_skeletons_MAP = []
+
+
+    for sublimb_key,sublimb_v in limb_correspondence_MAP.items():
+        sublimb_meshes_MAP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
+        sublimb_skeletons_MAP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
+
+    mesh_conn, mesh_conn_vertex_groups, connectivity_type = _resolve_mesh_connectivity(
+        sublimb_meshes_MP,
+        sublimb_meshes_MAP,
+        limb_mesh_mparty,
+        sublimb_skeletons_MP,
+        sublimb_skeletons_MAP,
+        connectivity_type="edges",
+    )
+
+    #adjust the connection indices for MP and MAP indices
+    mesh_conn_adjusted = np.vstack([mesh_conn[:,0],mesh_conn[:,1]-len(sublimb_meshes_MP)]).T
+
+
+
+
+
+
+    """
+    Pseudocode:
+    For each connection edge:
+        For each vertex connection group:
+            1) Get the endpoint vertices of the MP skeleton
+            2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
+            3) Find the closest skeletal point on MAP pairing (MAP stitch) 
+            4) Find the branches that have that MAP stitch point:
+            5A) If the number of branches corresponding to stitch point is multipled
+                --> then we are stitching at a branching oint
+                i) Just add the skeletal segment from MP_stitch to MAP stitch to the MP skeletal segment
+                ii) 
+
+    """
+
+
+
+    # -------------- STITCHING PHASE -------#
+    stitch_counter = 0
+    all_map_stitch_points = []
+    for (MP_idx,MAP_idx),v_g in zip(mesh_conn_adjusted,mesh_conn_vertex_groups):
+        print(f"\n---- Working on {(MP_idx,MAP_idx)} connection-----")
+
+        curr_skeleton_MAP = sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in limb_correspondence_MAP[MAP_idx].values()])
+
+
+        av_vert = np.mean(v_g,axis=0)
+
+        # ---------------- Doing the MAP part first -------------- #
+        # -------------- 11/9 NEW METHOD FOR FINDING MAP STITCH POINT ------------ #
+        # (finds a MAP stitch point whose branch mesh actually touches the border vertices)
+        o_keys = np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))
+        curr_MAP_branch_meshes = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_mesh"]
+                                         for k in o_keys])
+        curr_MAP_branch_skeletons = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"]
+                                         for k in o_keys])
+
+        MAP_pieces_idx_touching_border = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MAP_branch_meshes,
+                                       nullifying_points=v_g,
+                                        filter_away=False,
+                                       distance_threshold=min_distance_threshold,
+                                       return_indices=True)
+
+        MAP_branches_considered = curr_MAP_branch_skeletons[MAP_pieces_idx_touching_border]
+        curr_skeleton_MAP_for_stitch = sk.stack_skeletons(MAP_branches_considered)
+
+        #3) Find the closest skeletal point on MAP pairing (MAP stitch)
+        MAP_skeleton_coords = np.unique(curr_skeleton_MAP_for_stitch.reshape(-1,3),axis=0)
+
+
+        MAP_stitch_point = MAP_skeleton_coords[np.argmin(np.linalg.norm(MAP_skeleton_coords-av_vert,axis=1))]
+
+        # --------- 11/13: Making so could possibly stitch to another point that was already stitched to
+        curr_br_endpts = np.array([sk.find_branch_endpoints(k) for k in MAP_branches_considered]).reshape(-1,3)
+        curr_br_endpts_unique = np.unique(curr_br_endpts,axis=0)
+
+
+
+        #3b) Consider if the stitch point is close enough to end or branch node in skeleton:
+        # and if so then reassign
+        if move_MAP_stitch_to_end_or_branch:
+            MAP_stitch_point_new,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
+                                                    skeleton=curr_skeleton_MAP,
+                                                    coordinate=MAP_stitch_point,
+                                                    distance_to_move_point_threshold = distance_to_move_point_threshold,
+                                                    verbose=False,
+                                                    possible_node_coordinates=curr_br_endpts_unique,
+                                                    excluded_node_coordinates=total_keep_endpoints,
+                                                    )
+            MAP_stitch_point=MAP_stitch_point_new
+
+
+        #4) Find the branches that have that MAP stitch point:
+
+        MAP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
+            divded_skeleton=curr_MAP_branch_skeletons,
+            current_coordinate = MAP_stitch_point
+        )
+
+
+
+        MAP_stitch_point_on_end_or_branch = False
+        if len(MAP_branches_with_stitch_point)>1:
+            MAP_stitch_point_on_end_or_branch = True
+        elif len(MAP_branches_with_stitch_point)==1:
+            if len(nu.matching_rows(sk.find_branch_endpoints(curr_MAP_branch_skeletons[MAP_branches_with_stitch_point[0]]),
+                                    MAP_stitch_point))>0:
+                MAP_stitch_point_on_end_or_branch=True
+        else:
+            raise Exception("No matching MAP values")
+
+        #add the map stitch point to the history
+        all_map_stitch_points.append(MAP_stitch_point)
+
+        # ---------------- Doing the MP Part --------------------- #
+
+
+
+        ord_keys = np.sort(list(limb_correspondence_MP[MP_idx].keys()))
+        curr_MP_branch_meshes = [limb_correspondence_MP[MP_idx][k]["branch_mesh"] for k in ord_keys]
+
+
+
+
+        # 11/9 Addition: New way that filters meshes by their touching of the vertex connection group (this could possibly be an empty group)
+        conn = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MP_branch_meshes,
+                                       nullifying_points=v_g,
+                                        filter_away=False,
+                                       distance_threshold=min_distance_threshold,
+                                       return_indices=True)
+
+        if len(conn) == 0:
+            print("Connectivity was 0 for the MP mesh groups touching the vertex group so not restricting by that anymore")
+            sk_conn = np.arange(0,len(curr_MP_branch_meshes))
+        else:
+            sk_conn = conn
+
+        print(f"sk_conn = {sk_conn}")
+        print(f"conn = {conn}")
+
+
+        #1) Get the endpoint vertices of the MP skeleton branches (so every endpoint or high degree node)
+        #(needs to be inside loop because limb correspondence will change)
+        curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in sk_conn]
+        endpoint_nodes_coordinates = np.array([sk.find_branch_endpoints(k) for k in curr_MP_branch_skeletons])
+        endpoint_nodes_coordinates = np.unique(endpoint_nodes_coordinates.reshape(-1,3),axis=0)
+
+        """ ---------- 1 /5: Take out the possible endpoints --------------------"""
+        if prevent_MP_starter_branch_stitches:
+            endpoint_nodes_coordinates = nu.setdiff2d(endpoint_nodes_coordinates,total_keep_endpoints)
+
+
+        #2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
+
+        winning_vertex = endpoint_nodes_coordinates[np.argmin(np.linalg.norm(endpoint_nodes_coordinates-av_vert,axis=1))]
+        print(f"winning_vertex = {winning_vertex}")
+
+
+        #2b) Find the branch points where the winning vertex is located
+        curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in np.sort(list(limb_correspondence_MP[MP_idx].keys()))]
+        MP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
+            divded_skeleton=curr_MP_branch_skeletons,
+            current_coordinate = winning_vertex
+        )
+        print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
+
+
+
+        print(f"MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
+        print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
+
+
+        # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
+        if len(nu.matching_rows(np.array(all_map_stitch_points),winning_vertex)) > 0:
+            keep_MP_stitch_static = True
+        else:
+            keep_MP_stitch_static = False
+
+
+
+
+
+
+
+        # -------------- Part 13: Will Adjust the MP branches that have the stitch point so extends to the MAP stitch point -------#
+        curr_MP_sk = []
+        for b_idx in MP_branches_with_stitch_point:
+            if not keep_MP_stitch_static:
+                #a) Get neighbor coordinates to MP stitch points
+                MP_stitch_branch_graph = sk.convert_skeleton_to_graph(curr_MP_branch_skeletons[b_idx])
+                stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=winning_vertex))[0]
+                stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
+
+                if len(stitch_neighbors) != 1:
+                    raise Exception("Not just one neighbor for stitch point of MP branch")
+                keep_neighbor = stitch_neighbors[0]  
+                keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
+
+                #b) Delete the MP Stitch points on each 
+                MP_stitch_branch_graph.remove_node(stitch_node)
+
+                try:
+                    if len(MP_stitch_branch_graph)>1:
+                        new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
+                                                        skeleton_stitch_point=keep_neighbor_coordinates,
+                                                         new_stitch_point=MAP_stitch_point)
+                    else:
+                        print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
+                        new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
+                except:
+                    su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
+                    su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
+                    su.compressed_pickle(MAP_stitch_point,"MAP_stitch_point")
+
+
+                    raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
+
+
+
+
+
+                #smooth over the new skeleton
+                new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
+                                                                  segment_width=meshparty_segment_size)
+
+                curr_MP_sk.append(new_MP_skeleton_smooth)
+            else:
+                print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
+                curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
+
+
+
+        #2) Get skeletons and meshes from MP and MAP pieces
+        curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_branches_with_stitch_point]
+
+        #2.1) Going to break up the MAP skeleton if need be
+        """
+        Pseudocode:
+        a) check to see if it needs to be broken up
+        If it does:
+        b) Convert the skeleton into a graph
+        c) Find the node of the MAP stitch point (where need to do the breaking)
+        d) Find the degree one nodes
+        e) For each degree one node:
+        - Find shortest path from stitch node to end node
+        - get a subgraph from that path
+        - convert graph to a skeleton and save as new skeletons
+
+        """
+        # -------------- Part 14: Breaks Up MAP skeleton into 2 pieces if Needs (because MAP stitch point not on endpoint or branch point)  -------#
+
+        #a) check to see if it needs to be broken up
+        cut_flag = False
+        if not MAP_stitch_point_on_end_or_branch:
+            if len(curr_MAP_sk) > 1:
+                raise Exception(f"There was more than one skeleton for MAP skeletons even though MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
+
+
+            skeleton_to_cut = curr_MAP_sk[0]
+            curr_MAP_sk = sk.cut_skeleton_at_coordinate(skeleton=skeleton_to_cut,
+                                                        cut_coordinate=MAP_stitch_point)
+            cut_flag=True
+
+
+        # ------ 11/13 Addition: need to adjust the MAP points if have to keep MP static
+        if keep_MP_stitch_static:
+            curr_MAP_sk_final = []
+            for map_skel in curr_MAP_sk:
+                #a) Get neighbor coordinates to MP stitch points
+                MP_stitch_branch_graph = sk.convert_skeleton_to_graph(map_skel)
+                stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=MAP_stitch_point))[0]
+                stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
+
+                if len(stitch_neighbors) != 1:
+                    raise Exception("Not just one neighbor for stitch point of MP branch")
+                keep_neighbor = stitch_neighbors[0]  
+                keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
+
+                #b) Delete the MP Stitch points on each 
+                MP_stitch_branch_graph.remove_node(stitch_node)
+
+                try:
+                    if len(MP_stitch_branch_graph)>1:
+                        new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
+                                                        skeleton_stitch_point=keep_neighbor_coordinates,
+                                                         new_stitch_point=winning_vertex)
+                    else:
+                        print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
+                        new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
+                except:
+                    su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
+                    su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
+                    su.compressed_pickle(winning_vertex,"winning_vertex")
+
+
+                    raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
+
+
+
+
+
+                #smooth over the new skeleton
+                new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
+                                                                  segment_width=meshparty_segment_size)
+
+                curr_MAP_sk_final.append(new_MP_skeleton_smooth)
+            curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
+
+
+
+        # -------------- Part 15: Gets all of the skeletons and Mesh to divide u and does mesh correspondence -------#
+        # ------------- revise IDX so still references the whole limb mesh -----------#
+
+        # -------------- 11/10 Addition accounting for not all MAP pieces always touching each other --------------------#
+        if len(MAP_branches_with_stitch_point) > 1:
+            print("\nRevising the MAP pieces index:")
+            print(f"MAP_pieces_idx_touching_border = {MAP_pieces_idx_touching_border}, MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
+            MAP_pieces_for_correspondence = nu.intersect1d(MAP_pieces_idx_touching_border,MAP_branches_with_stitch_point)
+            print(f"MAP_pieces_for_correspondence = {MAP_pieces_for_correspondence}")
+            curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_pieces_for_correspondence]
+        else:
+            MAP_pieces_for_correspondence = MAP_branches_with_stitch_point
+
+        curr_MAP_meshes_idx = [limb_correspondence_MAP[MAP_idx][k]["branch_face_idx"] for k in MAP_pieces_for_correspondence]
+
+        # Have to adjust based on if the skeleton were split
+
+        if cut_flag:
+            #Then it was cut and have to do mesh correspondence to find what label to cut
+            if len(curr_MAP_meshes_idx) > 1:
+                raise Exception("MAP_pieces_for_correspondence was longer than 1 and cut flag was set")
+            pre_stitch_mesh_idx = curr_MAP_meshes_idx[0]
+            pre_stitch_mesh = limb_mesh_mparty.submesh([pre_stitch_mesh_idx],append=True,repair=False)
+            local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=pre_stitch_mesh,
+                                      skeleton_branches=curr_MAP_sk)
+            local_correspondence_stitch_revised_MAP = correspondence_1_to_1(mesh=pre_stitch_mesh,
+                                                        local_correspondence=local_correspondnece_stitch,
+                                                        curr_limb_endpoints_must_keep=None,
+                                                        curr_soma_to_piece_touching_vertices=None)
+
+            #Need to readjust the mesh correspondence idx
+            for k,v in local_correspondence_stitch_revised_MAP.items():
+                local_correspondence_stitch_revised_MAP[k]["branch_face_idx"] = pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[k]["branch_face_idx"]]
+
+            curr_MAP_meshes_idx = [v["branch_face_idx"] for v in local_correspondence_stitch_revised_MAP.values()]
+        else:
+            local_correspondence_stitch_revised_MAP = dict([(gg,limb_correspondence_MAP[MAP_idx][kk]) for gg,kk in enumerate(MAP_pieces_for_correspondence)])
+
+            for gg,kk in enumerate(MAP_pieces_for_correspondence):
+                local_correspondence_stitch_revised_MAP[gg]["branch_skeleton"] = curr_MAP_sk[gg]
+
+
+
+        #To make sure that the MAP never gives up ground on the labels
+        must_keep_labels_MAP = dict()
+        must_keep_counter = 0
+        for kk,b_idx in enumerate(curr_MAP_meshes_idx):
+            #must_keep_labels_MAP.update(dict([(ii,kk) for ii in range(must_keep_counter,must_keep_counter+len(b_idx))]))
+            must_keep_labels_MAP[kk] = np.arange(must_keep_counter,must_keep_counter+len(b_idx))
+            must_keep_counter += len(b_idx)
+
+
+
+        #this is where should send only the MP that apply
+        MP_branches_for_correspondence,conn_idx,MP_branches_with_stitch_point_idx = nu.intersect1d(conn,MP_branches_with_stitch_point,return_indices=True)
+
+        curr_MP_meshes_idx = [limb_correspondence_MP[MP_idx][k]["branch_face_idx"] for k in MP_branches_for_correspondence]
+        curr_MP_sk_for_correspondence = [curr_MP_sk[zz] for zz in MP_branches_with_stitch_point_idx]
+
+        stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
+        stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
+        stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk_for_correspondence
+        """
+
+        ****** NEED TO GET THE RIGHT MESH TO RUN HE IDX ON SO GETS A GOOD MESH (CAN'T BE LIMB_MESH_MPARTY)
+        BUT MUST BE THE ORIGINAL MAP MESH
+
+        mesh_pieces_for_MAP
+        sublimb_meshes_MP
+
+        mesh_pieces_for_MAP_face_idx
+        sublimb_meshes_MP_face_idx
+
+        stitching_mesh = tu.combine_meshes(curr_MAP_meshes + curr_MP_meshes)
+        stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk
+
+        """
+
+        # ******************************** this is where should do thing about no mesh correspondence ***************** #
+
+        # -------- 12/22: Trying to do the re-correspondence but if doesn't work then just resort to old one --------- #
+
+        try:
+
+            #3) Run mesh correspondence to get new meshes and mesh_idx and widths
+            local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=stitching_mesh,
+                                          skeleton_branches=stitching_skeleton_branches)
+
+            local_correspondence_stitch_revised = correspondence_1_to_1(mesh=stitching_mesh,
+                                                        local_correspondence=local_correspondnece_stitch,
+                                                        curr_limb_endpoints_must_keep=None,
+                                                        curr_soma_to_piece_touching_vertices=None,
+                                                        must_keep_labels=must_keep_labels_MAP)
+
+            #Need to readjust the mesh correspondence idx
+            for k,v in local_correspondence_stitch_revised.items():
+                local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
+        except:
+            print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
+            # Setting the correspondence manually because the adaptive way did not work
+            local_counter = 0
+            local_correspondence_stitch_revised = dict()
+
+            # setting the MAP parts (the new skeletons have already been adjusted)
+            for k in local_correspondence_stitch_revised_MAP:
+                local_correspondence_stitch_revised[local_counter] = local_correspondence_stitch_revised_MAP[k]
+                local_counter += 1
+
+            # setting the MP parts (the new skeletons have not been adjusted yet so adjusting them here)
+            for mp_idx, k in enumerate(MP_branches_for_correspondence):
+                local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
+                local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk[mp_idx]
+                local_counter += 1
+
+        # -------------- Part 16: Overwrite old branch entries (and add on one new to MAP if required a split) -------#
+
+
+        #4a) If MAP_stitch_point_on_end_or_branch is False
+        #- Delete the old MAP branch parts and replace with new MAP ones
+        if not MAP_stitch_point_on_end_or_branch:
+            print("Deleting branches from dictionary")
+            del limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]]
+            #adding the two new branches created from the stitching
+            limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]] = local_correspondence_stitch_revised[0]
+            limb_correspondence_MAP[MAP_idx][np.max(list(limb_correspondence_MAP[MAP_idx].keys()))+1] = local_correspondence_stitch_revised[1]
+
+            #have to reorder the keys
+            #limb_correspondence_MAP[MAP_idx] = dict([(k,limb_correspondence_MAP[MAP_idx][k]) for k in np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))])
+            limb_correspondence_MAP[MAP_idx] = gu.order_dict_by_keys(limb_correspondence_MAP[MAP_idx])
+
+        else: #4b) Revise the meshes,  mesh_idx, and widths of the MAP pieces if weren't broken up
+            for j,curr_MAP_idx_fixed in enumerate(MAP_pieces_for_correspondence): 
+                limb_correspondence_MAP[MAP_idx][curr_MAP_idx_fixed] = local_correspondence_stitch_revised[j]
+            #want to update all of the skeletons just in case was altered by keep_MP_stitch_static and not included in correspondence
+            if keep_MP_stitch_static:
+                if len(MAP_branches_with_stitch_point) != len(curr_MAP_sk_final):
+                    raise Exception("MAP_branches_with_stitch_point not same size as curr_MAP_sk_final")
+                for gg,map_idx_curr in enumerate(MAP_branches_with_stitch_point):
+                    limb_correspondence_MAP[MAP_idx][map_idx_curr]["branch_skeleton"] = curr_MAP_sk_final[gg]
+
+
+        for j,curr_MP_idx_fixed in enumerate(MP_branches_for_correspondence): #************** right here just need to make only the ones that applied
+            limb_correspondence_MP[MP_idx][curr_MP_idx_fixed] = local_correspondence_stitch_revised[j+len(curr_MAP_sk)]
+
+
+        #5b) Fixing the branch skeletons that were not included in the correspondence
+        MP_leftover,MP_leftover_idx = nu.setdiff1d(MP_branches_with_stitch_point,MP_branches_for_correspondence)
+        print(f"MP_branches_with_stitch_point= {MP_branches_with_stitch_point}")
+        print(f"MP_branches_for_correspondence = {MP_branches_for_correspondence}")
+        print(f"MP_leftover = {MP_leftover}, MP_leftover_idx = {MP_leftover_idx}")
+
+        for curr_MP_leftover,curr_MP_leftover_idx in zip(MP_leftover,MP_leftover_idx):
+            limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
+
+
+        print(f" Finished with {(MP_idx,MAP_idx)} \n\n\n")
+        stitch_counter += 1
+
+        if check_correspondence_branches:
+            sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP[MAP_idx])
+            sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MP[MP_idx])
+    return limb_correspondence_MAP, limb_correspondence_MP
+
+
 def preprocess_limb(
     mesh,
     neuron_params,
@@ -2391,498 +2900,14 @@ def preprocess_limb(
     
     # Only want to perform this step if both MP and MAP pieces
     if len(limb_correspondence_MAP)>0 and len(limb_correspondence_MP)>0:
-
-        # -------------- Part 11: Getting Sublimb Mesh and Skeletons and Gets connectivitiy by Mesh -------#
-        # -------------(filtering connections to only MP to MAP edges)--------------- #
-
-        # ---- Doing the mesh connectivity ---------#
-        sublimb_meshes_MP = []
-        sublimb_skeletons_MP = []
-
-        for sublimb_key,sublimb_v in limb_correspondence_MP.items():
-            sublimb_meshes_MP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
-            sublimb_skeletons_MP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
-
-
-
-        sublimb_meshes_MAP = []
-        sublimb_skeletons_MAP = []
-
-
-        for sublimb_key,sublimb_v in limb_correspondence_MAP.items():
-            sublimb_meshes_MAP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
-            sublimb_skeletons_MAP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
-
-        mesh_conn, mesh_conn_vertex_groups, connectivity_type = _resolve_mesh_connectivity(
-            sublimb_meshes_MP,
-            sublimb_meshes_MAP,
-            limb_mesh_mparty,
-            sublimb_skeletons_MP,
-            sublimb_skeletons_MAP,
-            connectivity_type="edges",
+        limb_correspondence_MAP, limb_correspondence_MP = _stitch_map_and_mp(
+            limb_correspondence_MAP, limb_correspondence_MP, limb_mesh_mparty, total_keep_endpoints,
+            move_MAP_stitch_to_end_or_branch=move_MAP_stitch_to_end_or_branch,
+            distance_to_move_point_threshold=distance_to_move_point_threshold,
+            meshparty_segment_size=meshparty_segment_size,
+            check_correspondence_branches=check_correspondence_branches,
+            prevent_MP_starter_branch_stitches=prevent_MP_starter_branch_stitches,
         )
-
-        #adjust the connection indices for MP and MAP indices
-        mesh_conn_adjusted = np.vstack([mesh_conn[:,0],mesh_conn[:,1]-len(sublimb_meshes_MP)]).T
-
-
-
-
-
-
-        """
-        Pseudocode:
-        For each connection edge:
-            For each vertex connection group:
-                1) Get the endpoint vertices of the MP skeleton
-                2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
-                3) Find the closest skeletal point on MAP pairing (MAP stitch) 
-                4) Find the branches that have that MAP stitch point:
-                5A) If the number of branches corresponding to stitch point is multipled
-                    --> then we are stitching at a branching oint
-                    i) Just add the skeletal segment from MP_stitch to MAP stitch to the MP skeletal segment
-                    ii) 
-
-        """
-
-
-
-        # -------------- STITCHING PHASE -------#
-        stitch_counter = 0
-        all_map_stitch_points = []
-        for (MP_idx,MAP_idx),v_g in zip(mesh_conn_adjusted,mesh_conn_vertex_groups):
-            print(f"\n---- Working on {(MP_idx,MAP_idx)} connection-----")
-
-            curr_skeleton_MAP = sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in limb_correspondence_MAP[MAP_idx].values()])
-
-
-            av_vert = np.mean(v_g,axis=0)
-
-            # ---------------- Doing the MAP part first -------------- #
-            # -------------- 11/9 NEW METHOD FOR FINDING MAP STITCH POINT ------------ #
-            # (finds a MAP stitch point whose branch mesh actually touches the border vertices)
-            o_keys = np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))
-            curr_MAP_branch_meshes = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_mesh"]
-                                             for k in o_keys])
-            curr_MAP_branch_skeletons = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"]
-                                             for k in o_keys])
-
-            MAP_pieces_idx_touching_border = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MAP_branch_meshes,
-                                           nullifying_points=v_g,
-                                            filter_away=False,
-                                           distance_threshold=min_distance_threshold,
-                                           return_indices=True)
-
-            MAP_branches_considered = curr_MAP_branch_skeletons[MAP_pieces_idx_touching_border]
-            curr_skeleton_MAP_for_stitch = sk.stack_skeletons(MAP_branches_considered)
-
-            #3) Find the closest skeletal point on MAP pairing (MAP stitch)
-            MAP_skeleton_coords = np.unique(curr_skeleton_MAP_for_stitch.reshape(-1,3),axis=0)
-
-
-            MAP_stitch_point = MAP_skeleton_coords[np.argmin(np.linalg.norm(MAP_skeleton_coords-av_vert,axis=1))]
-
-            # --------- 11/13: Making so could possibly stitch to another point that was already stitched to
-            curr_br_endpts = np.array([sk.find_branch_endpoints(k) for k in MAP_branches_considered]).reshape(-1,3)
-            curr_br_endpts_unique = np.unique(curr_br_endpts,axis=0)
-
-
-
-            #3b) Consider if the stitch point is close enough to end or branch node in skeleton:
-            # and if so then reassign
-            if move_MAP_stitch_to_end_or_branch:
-                MAP_stitch_point_new,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
-                                                        skeleton=curr_skeleton_MAP,
-                                                        coordinate=MAP_stitch_point,
-                                                        distance_to_move_point_threshold = distance_to_move_point_threshold,
-                                                        verbose=False,
-                                                        possible_node_coordinates=curr_br_endpts_unique,
-                                                        excluded_node_coordinates=total_keep_endpoints,
-                                                        )
-                MAP_stitch_point=MAP_stitch_point_new
-
-
-            #4) Find the branches that have that MAP stitch point:
-
-            MAP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
-                divded_skeleton=curr_MAP_branch_skeletons,
-                current_coordinate = MAP_stitch_point
-            )
-
-
-
-            MAP_stitch_point_on_end_or_branch = False
-            if len(MAP_branches_with_stitch_point)>1:
-                MAP_stitch_point_on_end_or_branch = True
-            elif len(MAP_branches_with_stitch_point)==1:
-                if len(nu.matching_rows(sk.find_branch_endpoints(curr_MAP_branch_skeletons[MAP_branches_with_stitch_point[0]]),
-                                        MAP_stitch_point))>0:
-                    MAP_stitch_point_on_end_or_branch=True
-            else:
-                raise Exception("No matching MAP values")
-
-            #add the map stitch point to the history
-            all_map_stitch_points.append(MAP_stitch_point)
-
-            # ---------------- Doing the MP Part --------------------- #
-
-
-
-            ord_keys = np.sort(list(limb_correspondence_MP[MP_idx].keys()))
-            curr_MP_branch_meshes = [limb_correspondence_MP[MP_idx][k]["branch_mesh"] for k in ord_keys]
-
-
-
-           
-            # 11/9 Addition: New way that filters meshes by their touching of the vertex connection group (this could possibly be an empty group)
-            conn = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MP_branch_meshes,
-                                           nullifying_points=v_g,
-                                            filter_away=False,
-                                           distance_threshold=min_distance_threshold,
-                                           return_indices=True)
-
-            if len(conn) == 0:
-                print("Connectivity was 0 for the MP mesh groups touching the vertex group so not restricting by that anymore")
-                sk_conn = np.arange(0,len(curr_MP_branch_meshes))
-            else:
-                sk_conn = conn
-
-            print(f"sk_conn = {sk_conn}")
-            print(f"conn = {conn}")
-
-
-            #1) Get the endpoint vertices of the MP skeleton branches (so every endpoint or high degree node)
-            #(needs to be inside loop because limb correspondence will change)
-            curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in sk_conn]
-            endpoint_nodes_coordinates = np.array([sk.find_branch_endpoints(k) for k in curr_MP_branch_skeletons])
-            endpoint_nodes_coordinates = np.unique(endpoint_nodes_coordinates.reshape(-1,3),axis=0)
-            
-            """ ---------- 1 /5: Take out the possible endpoints --------------------"""
-            if prevent_MP_starter_branch_stitches:
-                endpoint_nodes_coordinates = nu.setdiff2d(endpoint_nodes_coordinates,total_keep_endpoints)
-
-
-            #2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
-
-            winning_vertex = endpoint_nodes_coordinates[np.argmin(np.linalg.norm(endpoint_nodes_coordinates-av_vert,axis=1))]
-            print(f"winning_vertex = {winning_vertex}")
-
-
-            #2b) Find the branch points where the winning vertex is located
-            curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in np.sort(list(limb_correspondence_MP[MP_idx].keys()))]
-            MP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
-                divded_skeleton=curr_MP_branch_skeletons,
-                current_coordinate = winning_vertex
-            )
-            print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
-
-
-
-            print(f"MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
-            print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
-
-
-            # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
-            if len(nu.matching_rows(np.array(all_map_stitch_points),winning_vertex)) > 0:
-                keep_MP_stitch_static = True
-            else:
-                keep_MP_stitch_static = False
-
-
-
-
-
-            
-
-            # -------------- Part 13: Will Adjust the MP branches that have the stitch point so extends to the MAP stitch point -------#
-            curr_MP_sk = []
-            for b_idx in MP_branches_with_stitch_point:
-                if not keep_MP_stitch_static:
-                    #a) Get neighbor coordinates to MP stitch points
-                    MP_stitch_branch_graph = sk.convert_skeleton_to_graph(curr_MP_branch_skeletons[b_idx])
-                    stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=winning_vertex))[0]
-                    stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
-
-                    if len(stitch_neighbors) != 1:
-                        raise Exception("Not just one neighbor for stitch point of MP branch")
-                    keep_neighbor = stitch_neighbors[0]  
-                    keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
-
-                    #b) Delete the MP Stitch points on each 
-                    MP_stitch_branch_graph.remove_node(stitch_node)
-
-                    try:
-                        if len(MP_stitch_branch_graph)>1:
-                            new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
-                                                            skeleton_stitch_point=keep_neighbor_coordinates,
-                                                             new_stitch_point=MAP_stitch_point)
-                        else:
-                            print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
-                            new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
-                    except:
-                        su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
-                        su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
-                        su.compressed_pickle(MAP_stitch_point,"MAP_stitch_point")
-
-
-                        raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
-
-
-
-
-
-                    #smooth over the new skeleton
-                    new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
-                                                                      segment_width=meshparty_segment_size)
-
-                    curr_MP_sk.append(new_MP_skeleton_smooth)
-                else:
-                    print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
-                    curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
-
-
-
-            #2) Get skeletons and meshes from MP and MAP pieces
-            curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_branches_with_stitch_point]
-
-            #2.1) Going to break up the MAP skeleton if need be
-            """
-            Pseudocode:
-            a) check to see if it needs to be broken up
-            If it does:
-            b) Convert the skeleton into a graph
-            c) Find the node of the MAP stitch point (where need to do the breaking)
-            d) Find the degree one nodes
-            e) For each degree one node:
-            - Find shortest path from stitch node to end node
-            - get a subgraph from that path
-            - convert graph to a skeleton and save as new skeletons
-
-            """
-            # -------------- Part 14: Breaks Up MAP skeleton into 2 pieces if Needs (because MAP stitch point not on endpoint or branch point)  -------#
-
-            #a) check to see if it needs to be broken up
-            cut_flag = False
-            if not MAP_stitch_point_on_end_or_branch:
-                if len(curr_MAP_sk) > 1:
-                    raise Exception(f"There was more than one skeleton for MAP skeletons even though MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
-
-
-                skeleton_to_cut = curr_MAP_sk[0]
-                curr_MAP_sk = sk.cut_skeleton_at_coordinate(skeleton=skeleton_to_cut,
-                                                            cut_coordinate=MAP_stitch_point)
-                cut_flag=True
-
-
-            # ------ 11/13 Addition: need to adjust the MAP points if have to keep MP static
-            if keep_MP_stitch_static:
-                curr_MAP_sk_final = []
-                for map_skel in curr_MAP_sk:
-                    #a) Get neighbor coordinates to MP stitch points
-                    MP_stitch_branch_graph = sk.convert_skeleton_to_graph(map_skel)
-                    stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=MAP_stitch_point))[0]
-                    stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
-
-                    if len(stitch_neighbors) != 1:
-                        raise Exception("Not just one neighbor for stitch point of MP branch")
-                    keep_neighbor = stitch_neighbors[0]  
-                    keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
-
-                    #b) Delete the MP Stitch points on each 
-                    MP_stitch_branch_graph.remove_node(stitch_node)
-
-                    try:
-                        if len(MP_stitch_branch_graph)>1:
-                            new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
-                                                            skeleton_stitch_point=keep_neighbor_coordinates,
-                                                             new_stitch_point=winning_vertex)
-                        else:
-                            print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
-                            new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
-                    except:
-                        su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
-                        su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
-                        su.compressed_pickle(winning_vertex,"winning_vertex")
-
-
-                        raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
-
-
-
-
-
-                    #smooth over the new skeleton
-                    new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
-                                                                      segment_width=meshparty_segment_size)
-
-                    curr_MAP_sk_final.append(new_MP_skeleton_smooth)
-                curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
-
-
-
-            # -------------- Part 15: Gets all of the skeletons and Mesh to divide u and does mesh correspondence -------#
-            # ------------- revise IDX so still references the whole limb mesh -----------#
-
-            # -------------- 11/10 Addition accounting for not all MAP pieces always touching each other --------------------#
-            if len(MAP_branches_with_stitch_point) > 1:
-                print("\nRevising the MAP pieces index:")
-                print(f"MAP_pieces_idx_touching_border = {MAP_pieces_idx_touching_border}, MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
-                MAP_pieces_for_correspondence = nu.intersect1d(MAP_pieces_idx_touching_border,MAP_branches_with_stitch_point)
-                print(f"MAP_pieces_for_correspondence = {MAP_pieces_for_correspondence}")
-                curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_pieces_for_correspondence]
-            else:
-                MAP_pieces_for_correspondence = MAP_branches_with_stitch_point
-
-            curr_MAP_meshes_idx = [limb_correspondence_MAP[MAP_idx][k]["branch_face_idx"] for k in MAP_pieces_for_correspondence]
-
-            # Have to adjust based on if the skeleton were split
-
-            if cut_flag:
-                #Then it was cut and have to do mesh correspondence to find what label to cut
-                if len(curr_MAP_meshes_idx) > 1:
-                    raise Exception("MAP_pieces_for_correspondence was longer than 1 and cut flag was set")
-                pre_stitch_mesh_idx = curr_MAP_meshes_idx[0]
-                pre_stitch_mesh = limb_mesh_mparty.submesh([pre_stitch_mesh_idx],append=True,repair=False)
-                local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=pre_stitch_mesh,
-                                          skeleton_branches=curr_MAP_sk)
-                local_correspondence_stitch_revised_MAP = correspondence_1_to_1(mesh=pre_stitch_mesh,
-                                                            local_correspondence=local_correspondnece_stitch,
-                                                            curr_limb_endpoints_must_keep=None,
-                                                            curr_soma_to_piece_touching_vertices=None)
-
-                #Need to readjust the mesh correspondence idx
-                for k,v in local_correspondence_stitch_revised_MAP.items():
-                    local_correspondence_stitch_revised_MAP[k]["branch_face_idx"] = pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[k]["branch_face_idx"]]
-                    
-                curr_MAP_meshes_idx = [v["branch_face_idx"] for v in local_correspondence_stitch_revised_MAP.values()]
-            else:
-                local_correspondence_stitch_revised_MAP = dict([(gg,limb_correspondence_MAP[MAP_idx][kk]) for gg,kk in enumerate(MAP_pieces_for_correspondence)])
-                
-                for gg,kk in enumerate(MAP_pieces_for_correspondence):
-                    local_correspondence_stitch_revised_MAP[gg]["branch_skeleton"] = curr_MAP_sk[gg]
-                    
-
-
-            #To make sure that the MAP never gives up ground on the labels
-            must_keep_labels_MAP = dict()
-            must_keep_counter = 0
-            for kk,b_idx in enumerate(curr_MAP_meshes_idx):
-                #must_keep_labels_MAP.update(dict([(ii,kk) for ii in range(must_keep_counter,must_keep_counter+len(b_idx))]))
-                must_keep_labels_MAP[kk] = np.arange(must_keep_counter,must_keep_counter+len(b_idx))
-                must_keep_counter += len(b_idx)
-
-
-
-            #this is where should send only the MP that apply
-            MP_branches_for_correspondence,conn_idx,MP_branches_with_stitch_point_idx = nu.intersect1d(conn,MP_branches_with_stitch_point,return_indices=True)
-
-            curr_MP_meshes_idx = [limb_correspondence_MP[MP_idx][k]["branch_face_idx"] for k in MP_branches_for_correspondence]
-            curr_MP_sk_for_correspondence = [curr_MP_sk[zz] for zz in MP_branches_with_stitch_point_idx]
-
-            stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
-            stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
-            stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk_for_correspondence
-            """
-
-            ****** NEED TO GET THE RIGHT MESH TO RUN HE IDX ON SO GETS A GOOD MESH (CAN'T BE LIMB_MESH_MPARTY)
-            BUT MUST BE THE ORIGINAL MAP MESH
-
-            mesh_pieces_for_MAP
-            sublimb_meshes_MP
-
-            mesh_pieces_for_MAP_face_idx
-            sublimb_meshes_MP_face_idx
-
-            stitching_mesh = tu.combine_meshes(curr_MAP_meshes + curr_MP_meshes)
-            stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk
-
-            """
-            
-            # ******************************** this is where should do thing about no mesh correspondence ***************** #
-
-            # -------- 12/22: Trying to do the re-correspondence but if doesn't work then just resort to old one --------- #
-
-            try:
-                
-                #3) Run mesh correspondence to get new meshes and mesh_idx and widths
-                local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=stitching_mesh,
-                                              skeleton_branches=stitching_skeleton_branches)
-
-                local_correspondence_stitch_revised = correspondence_1_to_1(mesh=stitching_mesh,
-                                                            local_correspondence=local_correspondnece_stitch,
-                                                            curr_limb_endpoints_must_keep=None,
-                                                            curr_soma_to_piece_touching_vertices=None,
-                                                            must_keep_labels=must_keep_labels_MAP)
-                
-                #Need to readjust the mesh correspondence idx
-                for k,v in local_correspondence_stitch_revised.items():
-                    local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
-            except:
-                print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
-                # Setting the correspondence manually because the adaptive way did not work
-                local_counter = 0
-                local_correspondence_stitch_revised = dict()
-                
-                # setting the MAP parts (the new skeletons have already been adjusted)
-                for k in local_correspondence_stitch_revised_MAP:
-                    local_correspondence_stitch_revised[local_counter] = local_correspondence_stitch_revised_MAP[k]
-                    local_counter += 1
-
-                # setting the MP parts (the new skeletons have not been adjusted yet so adjusting them here)
-                for mp_idx, k in enumerate(MP_branches_for_correspondence):
-                    local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
-                    local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk[mp_idx]
-                    local_counter += 1
-   
-            # -------------- Part 16: Overwrite old branch entries (and add on one new to MAP if required a split) -------#
-
-
-            #4a) If MAP_stitch_point_on_end_or_branch is False
-            #- Delete the old MAP branch parts and replace with new MAP ones
-            if not MAP_stitch_point_on_end_or_branch:
-                print("Deleting branches from dictionary")
-                del limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]]
-                #adding the two new branches created from the stitching
-                limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]] = local_correspondence_stitch_revised[0]
-                limb_correspondence_MAP[MAP_idx][np.max(list(limb_correspondence_MAP[MAP_idx].keys()))+1] = local_correspondence_stitch_revised[1]
-
-                #have to reorder the keys
-                #limb_correspondence_MAP[MAP_idx] = dict([(k,limb_correspondence_MAP[MAP_idx][k]) for k in np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))])
-                limb_correspondence_MAP[MAP_idx] = gu.order_dict_by_keys(limb_correspondence_MAP[MAP_idx])
-
-            else: #4b) Revise the meshes,  mesh_idx, and widths of the MAP pieces if weren't broken up
-                for j,curr_MAP_idx_fixed in enumerate(MAP_pieces_for_correspondence): 
-                    limb_correspondence_MAP[MAP_idx][curr_MAP_idx_fixed] = local_correspondence_stitch_revised[j]
-                #want to update all of the skeletons just in case was altered by keep_MP_stitch_static and not included in correspondence
-                if keep_MP_stitch_static:
-                    if len(MAP_branches_with_stitch_point) != len(curr_MAP_sk_final):
-                        raise Exception("MAP_branches_with_stitch_point not same size as curr_MAP_sk_final")
-                    for gg,map_idx_curr in enumerate(MAP_branches_with_stitch_point):
-                        limb_correspondence_MAP[MAP_idx][map_idx_curr]["branch_skeleton"] = curr_MAP_sk_final[gg]
-
-
-            for j,curr_MP_idx_fixed in enumerate(MP_branches_for_correspondence): #************** right here just need to make only the ones that applied
-                limb_correspondence_MP[MP_idx][curr_MP_idx_fixed] = local_correspondence_stitch_revised[j+len(curr_MAP_sk)]
-
-
-            #5b) Fixing the branch skeletons that were not included in the correspondence
-            MP_leftover,MP_leftover_idx = nu.setdiff1d(MP_branches_with_stitch_point,MP_branches_for_correspondence)
-            print(f"MP_branches_with_stitch_point= {MP_branches_with_stitch_point}")
-            print(f"MP_branches_for_correspondence = {MP_branches_for_correspondence}")
-            print(f"MP_leftover = {MP_leftover}, MP_leftover_idx = {MP_leftover_idx}")
-
-            for curr_MP_leftover,curr_MP_leftover_idx in zip(MP_leftover,MP_leftover_idx):
-                limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
-
-
-            print(f" Finished with {(MP_idx,MAP_idx)} \n\n\n")
-            stitch_counter += 1
-
-            if check_correspondence_branches:
-                sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP[MAP_idx])
-                sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MP[MP_idx])
-
-
     else:
         print("There were not both MAP and MP pieces so skipping the stitch resolving phase")
 
