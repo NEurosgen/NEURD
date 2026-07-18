@@ -1,6 +1,7 @@
 
 import copy
 from copy import deepcopy
+from dataclasses import dataclass
 import itertools
 import matplotlib.pyplot as plt
 
@@ -1898,6 +1899,326 @@ def _trace_branch_face_idx(face_idx_arrays, frame_n_faces, label,
         pass
 
 
+@dataclass
+class _SublimbGrouping:
+    """Parts 4-8 output: one limb's meshparty decomposition split into MAP and MP sublimbs.
+
+    MAP sublimbs (`mesh_pieces_for_MAP*`) are wide branches that need CGAL re-skeletonization,
+    grouped by mesh+skeleton connectivity. MP sublimbs (`sublimb_*`) are everything else. When
+    no MAP candidates survive, there is a single whole-limb MP sublimb and `MAP_flag` is False.
+    """
+    mesh_pieces_for_MAP: list
+    mesh_pieces_for_MAP_face_idx: list
+    sublimb_meshes_MP: list
+    sublimb_mesh_branches_MP: list
+    sublimb_mesh_idx_branches_MP: list
+    sublimb_skeleton_branches: list
+    widths_MP: list
+    MAP_flag: bool
+
+
+def _group_into_map_mp_sublimbs(
+    segment_branches,
+    divided_submeshes,
+    divided_submeshes_idx,
+    segment_widths_median,
+    limb_mesh_mparty,
+    use_meshafterparty,
+    width_threshold_MAP,
+    size_threshold_MAP,
+):
+    """Parts 4-8: from the meshparty decomposition, find the wide branches that warrant MAP
+    (CGAL) re-skeletonization, group them into connected MAP sublimbs, and put the rest into
+    MP sublimbs; fall back to a single whole-limb MP sublimb when no MAP candidates survive.
+
+    Returns a `_SublimbGrouping`. Behavior identical to the inline Part 4-8 block.
+    """
+    if use_meshafterparty:
+        print("Attempting to use MeshAfterParty Skeletonization and Mesh Correspondence")
+        # --------------- Part 4: Find Individual Branches that could be MAP processed because of width ------------- #
+        #gettin the branches that should be passed through MAP skeletonization
+        pieces_above_threshold = np.where(segment_widths_median>width_threshold_MAP)[0]
+
+        mesh_large_idx = [divided_submeshes_idx[k] for k in pieces_above_threshold]
+    else:
+        print("Only Using MeshParty Skeletonization and Mesh Correspondence")
+        mesh_large_idx = []
+
+
+    print("Another print")
+    mesh_pieces_for_MAP = []
+    mesh_pieces_for_MAP_face_idx = []
+
+
+    if len(mesh_large_idx) > 0: #will only continue processing if found MAP candidates
+
+        # --------------- Part 5: Find mesh connectivity and group MAP branch candidates into MAP sublimbs ------------- #
+        print(f"Found len(mesh_large_idx) MAP candidates: {[len(k) for k in mesh_large_idx]}")
+
+        #finds the connectivity edges of all the MAP candidates
+        mesh_large_connectivity = tu.mesh_list_connectivity(meshes = mesh_large_idx,
+                                                            connectivity="edges",
+                                main_mesh = limb_mesh_mparty,
+                                print_flag = False)
+
+        """ 1/3/21s
+        Big Conclusion from debugging: the large mesh pieces themselves (before combining into map pieces)
+        themselves aren't totally connected by edges (can be split)
+
+        - so even if large pieces do have a shared edge and you combine them together,
+        they can still be split by the edges into multiple pieces because the original pieces
+        could be split into multiple pieces
+
+
+
+        """
+
+
+        G = nx.Graph()
+        G.add_nodes_from(np.arange(len(mesh_large_idx)))
+        G.add_edges_from(mesh_large_connectivity)
+        conn_comp = list(nx.connected_components(G))
+
+        filtered_pieces = []
+
+        for cc in conn_comp:
+            total_cc_size = np.sum([len(mesh_large_idx[k]) for k in cc])
+            if total_cc_size>size_threshold_MAP:
+                #print(f"cc ({cc}) passed the size threshold because size was {total_cc_size}")
+                filtered_pieces.append(pieces_above_threshold[list(cc)])
+
+
+
+        if len(filtered_pieces) > 0:
+            # --------------- Part 6: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
+            print(f"len(filtered_pieces) = {len(filtered_pieces)}")
+            #all the pieces that will require MAP mesh correspondence and skeletonization
+            #(already organized into their components)
+            mesh_pieces_for_MAP = [limb_mesh_mparty.submesh([np.concatenate(divided_submeshes_idx[k])],append=True,repair=False) for k in filtered_pieces]
+            mesh_pieces_for_MAP_face_idx = [np.concatenate(divided_submeshes_idx[k]) for k in filtered_pieces]
+
+
+
+            # --------------- Part 7: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
+            # ********* if there are no pieces leftover then will automatically make all the lists below just empty (don't need to if.. else.. the case)****
+            pieces_idx_MP = np.delete(np.arange(len(divided_submeshes_idx)),np.concatenate(filtered_pieces))
+
+            skeleton_MP = [segment_branches[k] for k in pieces_idx_MP]
+            skeleton_connectivity_MP = sk.skeleton_list_connectivity(
+                                            skeletons=skeleton_MP
+                                            )
+
+            G = nx.Graph()
+            G.add_nodes_from(np.arange(len(skeleton_MP)))
+            G.add_edges_from(skeleton_connectivity_MP)
+            sublimbs_MP = list(nx.connected_components(G))
+            sublimbs_MP_orig_idx = [pieces_idx_MP[list(k)] for k in sublimbs_MP]
+
+
+            #concatenate into sublimbs the skeletons and meshes
+            sublimb_mesh_idx_branches_MP = [divided_submeshes_idx[k] for k in sublimbs_MP_orig_idx]
+            sublimb_mesh_branches_MP = [[limb_mesh_mparty.submesh([ki],append=True,repair=False)
+                                        for ki in k] for k in sublimb_mesh_idx_branches_MP]
+            sublimb_meshes_MP = [limb_mesh_mparty.submesh([np.concatenate(k)],append=True,repair=False)
+                                                         for k in sublimb_mesh_idx_branches_MP]
+
+            sublimb_skeleton_branches = [segment_branches[k] for k in sublimbs_MP_orig_idx]
+            widths_MP = [segment_widths_median[k] for k in sublimbs_MP_orig_idx]
+
+
+
+
+    # --------------- Part 8: If No MAP sublimbs found, set the MP sublimb lists to just the whole MP branch decomposition ------------- #
+
+    #if no sublimbs need to be decomposed with MAP then just reassign all of the previous MP processing to the sublimb_MPs
+
+
+
+    if len(mesh_pieces_for_MAP) == 0:
+        print('no MAP pieces')
+        sublimb_meshes_MP = [limb_mesh_mparty] #trimesh pieces that have already been passed through MP skeletonization (may not need)
+        # -- the decomposition information ---
+        sublimb_mesh_branches_MP = [divided_submeshes] #the mesh branches for all the disconnected sublimbs
+        sublimb_mesh_idx_branches_MP = [divided_submeshes_idx] #The mesh branches idx that have already passed through MP skeletonization
+        sublimb_skeleton_branches = [segment_branches]#the skeleton bnraches for all the sublimbs
+        widths_MP = [segment_widths_median] #the mesh branches widths for all the disconnected groups
+
+        MAP_flag = False
+    else:
+        MAP_flag = True
+
+    return _SublimbGrouping(
+        mesh_pieces_for_MAP=mesh_pieces_for_MAP,
+        mesh_pieces_for_MAP_face_idx=mesh_pieces_for_MAP_face_idx,
+        sublimb_meshes_MP=sublimb_meshes_MP,
+        sublimb_mesh_branches_MP=sublimb_mesh_branches_MP,
+        sublimb_mesh_idx_branches_MP=sublimb_mesh_idx_branches_MP,
+        sublimb_skeleton_branches=sublimb_skeleton_branches,
+        widths_MP=widths_MP,
+        MAP_flag=MAP_flag,
+    )
+
+
+def _decompose_mp_sublimbs(
+    sublimb_meshes_MP,
+    sublimb_skeleton_branches,
+    sublimb_mesh_branches_MP,
+    sublimb_mesh_idx_branches_MP,
+    widths_MP,
+    MAP_flag,
+    soma_touching_vertices_dict,
+    limb_mesh_mparty,
+    *,
+    print_fusion_steps,
+    fusion_time,
+):
+    """Part 10: run each MP sublimb through `_fix_mp_soma_extension` and build its correspondence.
+
+    Returns `(limb_correspondence_MP, endpoints_additions, soma_touching_additions)`:
+    the per-sublimb correspondence dict, plus the soma-extension must-keep endpoints /
+    soma-touching vertices for the caller to append (in order) to the limb-level
+    accumulators. `fusion_time` is consumed only for the diagnostic timing prints (not
+    returned — the caller does not read it after Part 10). Behavior identical to the
+    inline Part-10 loop.
+    """
+    limb_correspondence_MP = dict()
+    endpoints_additions = []
+    soma_touching_additions = []
+
+    for sublimb_idx, mesh in enumerate(sublimb_meshes_MP):
+        print(f"---- Working on MP Decomposition #{sublimb_idx} ----")
+        mesh_start_time = time.time()
+
+        if len(sublimb_meshes_MP) == 1 and MAP_flag == False:
+            print("Using Quicker soma_to_piece_touching_vertices because no MAP and only one sublimb_mesh piece ")
+            curr_soma_to_piece_touching_vertices = soma_touching_vertices_dict
+        else:
+            if not soma_touching_vertices_dict is None:
+                print("Computing the current soma touching verts dict manually")
+                curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
+                                                    mesh = mesh,
+                                                    curr_piece_to_soma_touching_vertices = soma_touching_vertices_dict
+                                                    )
+            else:
+                curr_soma_to_piece_touching_vertices = None
+
+        if print_fusion_steps:
+            print(f"MP filtering soma verts: {time.time() - fusion_time }")
+            fusion_time = time.time()
+
+        #creating all of the sublimb groups
+        segment_branches = np.array(sublimb_skeleton_branches[sublimb_idx])
+
+        branch = mesh
+        divided_submeshes = np.array(sublimb_mesh_branches_MP[sublimb_idx])
+        divided_submeshes_idx = sublimb_mesh_idx_branches_MP[sublimb_idx]
+        segment_widths_median = widths_MP[sublimb_idx]
+
+
+        if curr_soma_to_piece_touching_vertices is None:
+            print(f"Do Not Need to Fix MP Decomposition {sublimb_idx} so just continuing")
+
+        else:
+            # 11/9 addition: build soma-extending branches where the MP mesh touches a soma border
+            print(f"Fixing Possible Soma Extension Branch for Sublimb {sublimb_idx}")
+            (
+                segment_branches,
+                divided_submeshes,
+                divided_submeshes_idx,
+                segment_widths_median,
+                endpts_total,
+                curr_soma_to_piece_touching_vertices_total,
+                no_soma_extension_add,
+            ) = _fix_mp_soma_extension(
+                segment_branches,
+                divided_submeshes,
+                divided_submeshes_idx,
+                segment_widths_median,
+                curr_soma_to_piece_touching_vertices,
+                limb_mesh_mparty,
+            )
+
+            endpoints_additions.append(endpts_total)
+            soma_touching_additions.append(curr_soma_to_piece_touching_vertices_total)
+
+            if no_soma_extension_add:
+                print("No soma extending branch was added for this sublimb even though it had a soma border (means they already existed)")
+
+
+        #building the limb correspondence
+        limb_correspondence_MP[sublimb_idx] = dict()
+
+        for zz,b_sk in enumerate(segment_branches):
+            limb_correspondence_MP[sublimb_idx][zz] = dict(
+                branch_skeleton = b_sk,
+                width_from_skeleton = segment_widths_median[zz],
+                branch_mesh = divided_submeshes[zz],
+                branch_face_idx = divided_submeshes_idx[zz]
+                )
+
+    return limb_correspondence_MP, endpoints_additions, soma_touching_additions
+
+
+def _decompose_map_sublimbs(
+    mesh_pieces_for_MAP,
+    mesh_pieces_for_MAP_face_idx,
+    soma_touching_vertices_dict,
+    *,
+    filter_end_node_length,
+    perform_cleaning_checks,
+    combine_close_skeleton_nodes,
+    combine_close_skeleton_nodes_threshold,
+    use_surface_after_CGAL,
+    surface_reconstruction_size,
+    remove_mesh_interior_face_threshold,
+    error_on_bad_cgal_return,
+    max_stitch_distance_CGAL,
+    distance_by_mesh_center,
+):
+    """Part 9: run each MAP sublimb mesh through `_decompose_map_piece` (CGAL skeleton).
+
+    Returns `(limb_correspondence_MAP, endpoints_additions, soma_touching_additions)`:
+    the per-sublimb correspondence dict keyed by sublimb index, plus the must-keep
+    endpoints / soma-touching-vertices that the caller appends (in order) to the
+    limb-level accumulator lists. Behavior identical to the inline Part-9 loop.
+    """
+    limb_correspondence_MAP = dict()
+    endpoints_additions = []
+    soma_touching_additions = []
+    global_start_time = time.time()
+
+    for sublimb_idx, (mesh, mesh_idx) in enumerate(zip(mesh_pieces_for_MAP, mesh_pieces_for_MAP_face_idx)):
+        (
+            local_correspondence_revised,
+            curr_limb_endpoints_must_keep,
+            curr_soma_to_piece_touching_vertices,
+        ) = _decompose_map_piece(
+            mesh=mesh,
+            mesh_idx=mesh_idx,
+            sublimb_idx=sublimb_idx,
+            soma_touching_vertices_dict=soma_touching_vertices_dict,
+            filter_end_node_length=filter_end_node_length,
+            perform_cleaning_checks=perform_cleaning_checks,
+            combine_close_skeleton_nodes=combine_close_skeleton_nodes,
+            combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
+            use_surface_after_CGAL=use_surface_after_CGAL,
+            surface_reconstruction_size=surface_reconstruction_size,
+            remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
+            error_on_bad_cgal_return=error_on_bad_cgal_return,
+            max_stitch_distance_CGAL=max_stitch_distance_CGAL,
+            distance_by_mesh_center=distance_by_mesh_center,
+        )
+
+        if curr_limb_endpoints_must_keep is not None:
+            endpoints_additions.append(curr_limb_endpoints_must_keep)
+            soma_touching_additions.append(curr_soma_to_piece_touching_vertices)
+
+        limb_correspondence_MAP[sublimb_idx] = local_correspondence_revised
+
+    print(f"Total time for MAP sublimb processing {time.time() - global_start_time}")
+    return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
+
+
 def preprocess_limb(
     mesh,
     neuron_params,
@@ -1989,280 +2310,65 @@ def preprocess_limb(
 
 
 
-    if limb_params['use_meshafterparty']:
-        print("Attempting to use MeshAfterParty Skeletonization and Mesh Correspondence")
-        # --------------- Part 4: Find Individual Branches that could be MAP processed because of width ------------- #
-        #gettin the branches that should be passed through MAP skeletonization
-        pieces_above_threshold = np.where(segment_widths_median>width_threshold_MAP)[0]
-
-        mesh_large_idx = [divided_submeshes_idx[k] for k in pieces_above_threshold]
-    else:
-        print("Only Using MeshParty Skeletonization and Mesh Correspondence")
-        mesh_large_idx = []
-
-
-    print("Another print")
-    mesh_pieces_for_MAP = []
-    mesh_pieces_for_MAP_face_idx = []
-
-
-    if len(mesh_large_idx) > 0: #will only continue processing if found MAP candidates
-
-        # --------------- Part 5: Find mesh connectivity and group MAP branch candidates into MAP sublimbs ------------- #
-        print(f"Found len(mesh_large_idx) MAP candidates: {[len(k) for k in mesh_large_idx]}")
-
-        #finds the connectivity edges of all the MAP candidates
-        mesh_large_connectivity = tu.mesh_list_connectivity(meshes = mesh_large_idx,
-                                                            connectivity="edges",
-                                main_mesh = limb_mesh_mparty,
-                                print_flag = False)
-        
-        """ 1/3/21s
-        Big Conclusion from debugging: the large mesh pieces themselves (before combining into map pieces)
-        themselves aren't totally connected by edges (can be split)
-
-        - so even if large pieces do have a shared edge and you combine them together,
-        they can still be split by the edges into multiple pieces because the original pieces
-        could be split into multiple pieces
-
-        
-
-        """
-        
-    
-        G = nx.Graph()
-        G.add_nodes_from(np.arange(len(mesh_large_idx)))
-        G.add_edges_from(mesh_large_connectivity)
-        conn_comp = list(nx.connected_components(G))
-
-        filtered_pieces = []
-
-        for cc in conn_comp:
-            total_cc_size = np.sum([len(mesh_large_idx[k]) for k in cc])
-            if total_cc_size>size_threshold_MAP:
-                #print(f"cc ({cc}) passed the size threshold because size was {total_cc_size}")
-                filtered_pieces.append(pieces_above_threshold[list(cc)])
-
-
-
-        if len(filtered_pieces) > 0:
-            # --------------- Part 6: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
-            print(f"len(filtered_pieces) = {len(filtered_pieces)}")
-            #all the pieces that will require MAP mesh correspondence and skeletonization
-            #(already organized into their components)
-            mesh_pieces_for_MAP = [limb_mesh_mparty.submesh([np.concatenate(divided_submeshes_idx[k])],append=True,repair=False) for k in filtered_pieces]
-            mesh_pieces_for_MAP_face_idx = [np.concatenate(divided_submeshes_idx[k]) for k in filtered_pieces]
-
-
-
-            """
-            Old Way: Finding connectivity of pieces through
-            mesh_idx_MP = [divided_submeshes_idx[k] for k in pieces_idx_MP]
-
-            mesh_large_connectivity_MP = tu.mesh_list_connectivity(meshes = mesh_idx_MP,
-                                    main_mesh = limb_mesh_mparty,
-                                    print_flag = False)
-
-            New Way: going to use skeleton connectivity to determine
-            connectivity of pieces
-
-            Pseudocode: 
-            1)
-
-            """
-            # --------------- Part 7: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
-            # ********* if there are no pieces leftover then will automatically make all the lists below just empty (don't need to if.. else.. the case)****
-            pieces_idx_MP = np.delete(np.arange(len(divided_submeshes_idx)),np.concatenate(filtered_pieces))
-
-            skeleton_MP = [segment_branches[k] for k in pieces_idx_MP]
-            skeleton_connectivity_MP = sk.skeleton_list_connectivity(
-                                            skeletons=skeleton_MP
-                                            )
- 
-            G = nx.Graph()
-            G.add_nodes_from(np.arange(len(skeleton_MP)))
-            G.add_edges_from(skeleton_connectivity_MP)
-            sublimbs_MP = list(nx.connected_components(G))
-            sublimbs_MP_orig_idx = [pieces_idx_MP[list(k)] for k in sublimbs_MP]
-
-
-            #concatenate into sublimbs the skeletons and meshes
-            sublimb_mesh_idx_branches_MP = [divided_submeshes_idx[k] for k in sublimbs_MP_orig_idx]
-            sublimb_mesh_branches_MP = [[limb_mesh_mparty.submesh([ki],append=True,repair=False)
-                                        for ki in k] for k in sublimb_mesh_idx_branches_MP]
-            sublimb_meshes_MP = [limb_mesh_mparty.submesh([np.concatenate(k)],append=True,repair=False)
-                                                         for k in sublimb_mesh_idx_branches_MP]
-
-            sublimb_skeleton_branches = [segment_branches[k] for k in sublimbs_MP_orig_idx]
-            widths_MP = [segment_widths_median[k] for k in sublimbs_MP_orig_idx]
-
-
-
-
-    # --------------- Part 8: If No MAP sublimbs found, set the MP sublimb lists to just the whole MP branch decomposition ------------- #
-
-    #if no sublimbs need to be decomposed with MAP then just reassign all of the previous MP processing to the sublimb_MPs
-    
-    
-    
-    if len(mesh_pieces_for_MAP) == 0:
-        print('no MAP pieces')
-        sublimb_meshes_MP = [limb_mesh_mparty] #trimesh pieces that have already been passed through MP skeletonization (may not need)
-        # -- the decomposition information ---
-        sublimb_mesh_branches_MP = [divided_submeshes] #the mesh branches for all the disconnected sublimbs
-        sublimb_mesh_idx_branches_MP = [divided_submeshes_idx] #The mesh branches idx that have already passed through MP skeletonization
-        sublimb_skeleton_branches = [segment_branches]#the skeleton bnraches for all the sublimbs
-        widths_MP = [segment_widths_median] #the mesh branches widths for all the disconnected groups
-
-        MAP_flag = False
-    else:
-        MAP_flag = True
-
-
-
-    mesh_pieces_for_MAP #trimesh pieces that should go through CGAL skeletonization
-    sublimb_meshes_MP #trimesh pieces that have already been passed through MP skeletonization (may not need)
-    
-
-    # -- the decomposition information ---
-    sublimb_mesh_branches_MP #the mesh branches for all the disconnected sublimbs
-    sublimb_mesh_idx_branches_MP #The mesh branches idx that have already passed through MP skeletonization
-    sublimb_skeleton_branches #the skeleton bnraches for all the sublimbs
-    widths_MP #the mesh branches widths for all the disconnected groups
-
-
-
+    # --------------- Parts 4-8: split the meshparty decomposition into MAP / MP sublimbs ------------- #
+    _grp = _group_into_map_mp_sublimbs(
+        segment_branches,
+        divided_submeshes,
+        divided_submeshes_idx,
+        segment_widths_median,
+        limb_mesh_mparty,
+        limb_params['use_meshafterparty'],
+        width_threshold_MAP,
+        size_threshold_MAP,
+    )
+    mesh_pieces_for_MAP = _grp.mesh_pieces_for_MAP
+    mesh_pieces_for_MAP_face_idx = _grp.mesh_pieces_for_MAP_face_idx
+    sublimb_meshes_MP = _grp.sublimb_meshes_MP
+    sublimb_mesh_branches_MP = _grp.sublimb_mesh_branches_MP
+    sublimb_mesh_idx_branches_MP = _grp.sublimb_mesh_idx_branches_MP
+    sublimb_skeleton_branches = _grp.sublimb_skeleton_branches
+    widths_MP = _grp.widths_MP
+    MAP_flag = _grp.MAP_flag
 
     # ------------------- At this point have the correct division between MAP and MP ------------------------
 
     # -------------- Part 9: Doing the MAP decomposition ------------------ #
-    global_start_time = time.time()
-
-    limb_correspondence_MAP = dict()
-
-    for sublimb_idx,(mesh,mesh_idx) in enumerate(zip(mesh_pieces_for_MAP,mesh_pieces_for_MAP_face_idx)):
-        (
-            local_correspondence_revised,
-            curr_limb_endpoints_must_keep,
-            curr_soma_to_piece_touching_vertices,
-        ) = _decompose_map_piece(
-            mesh=mesh,
-            mesh_idx=mesh_idx,
-            sublimb_idx=sublimb_idx,
-            soma_touching_vertices_dict=soma_touching_vertices_dict,
-            filter_end_node_length=filter_end_node_length,
-            perform_cleaning_checks=perform_cleaning_checks,
-            combine_close_skeleton_nodes=combine_close_skeleton_nodes,
-            combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
-            use_surface_after_CGAL=use_surface_after_CGAL,
-            surface_reconstruction_size=surface_reconstruction_size,
-            remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
-            error_on_bad_cgal_return=error_on_bad_cgal_return,
-            max_stitch_distance_CGAL=max_stitch_distance_CGAL,
-            distance_by_mesh_center=distance_by_mesh_center,
-        )
-
-        if curr_limb_endpoints_must_keep is not None:
-            limb_to_endpoints_must_keep_list.append(curr_limb_endpoints_must_keep)
-            limb_to_soma_touching_vertices_list.append(curr_soma_to_piece_touching_vertices)
-
-        limb_correspondence_MAP[sublimb_idx] = local_correspondence_revised
-
-    print(f"Total time for MAP sublimb processing {time.time() - global_start_time}")
-
-
-
+    limb_correspondence_MAP, _map_endpoints_add, _map_soma_touching_add = _decompose_map_sublimbs(
+        mesh_pieces_for_MAP,
+        mesh_pieces_for_MAP_face_idx,
+        soma_touching_vertices_dict,
+        filter_end_node_length=filter_end_node_length,
+        perform_cleaning_checks=perform_cleaning_checks,
+        combine_close_skeleton_nodes=combine_close_skeleton_nodes,
+        combine_close_skeleton_nodes_threshold=combine_close_skeleton_nodes_threshold,
+        use_surface_after_CGAL=use_surface_after_CGAL,
+        surface_reconstruction_size=surface_reconstruction_size,
+        remove_mesh_interior_face_threshold=remove_mesh_interior_face_threshold,
+        error_on_bad_cgal_return=error_on_bad_cgal_return,
+        max_stitch_distance_CGAL=max_stitch_distance_CGAL,
+        distance_by_mesh_center=distance_by_mesh_center,
+    )
+    limb_to_endpoints_must_keep_list.extend(_map_endpoints_add)
+    limb_to_soma_touching_vertices_list.extend(_map_soma_touching_add)
 
 
     # ----------------- Part 10: Doing the MP Decomposition ---------------------- #
+    limb_correspondence_MP, _mp_endpoints_add, _mp_soma_touching_add = _decompose_mp_sublimbs(
+        sublimb_meshes_MP,
+        sublimb_skeleton_branches,
+        sublimb_mesh_branches_MP,
+        sublimb_mesh_idx_branches_MP,
+        widths_MP,
+        MAP_flag,
+        soma_touching_vertices_dict,
+        limb_mesh_mparty,
+        print_fusion_steps=print_fusion_steps,
+        fusion_time=fusion_time,
+    )
+    limb_to_endpoints_must_keep_list.extend(_mp_endpoints_add)
+    limb_to_soma_touching_vertices_list.extend(_mp_soma_touching_add)
 
 
-
-
-    sublimb_meshes_MP #trimesh pieces that have already been passed through MP skeletonization (may not need)
-    # -- the decomposition information ---
-    sublimb_mesh_branches_MP #the mesh branches for all the disconnected sublimbs
-    sublimb_mesh_idx_branches_MP #The mesh branches idx that have already passed through MP skeletonization
-    sublimb_skeleton_branches #the skeleton bnraches for all the sublimbs
-    widths_MP #the mesh branches widths for all the disconnected groups
-
-    limb_correspondence_MP = dict()
-
-    for sublimb_idx,mesh in enumerate(sublimb_meshes_MP):
-        print(f"---- Working on MP Decomposition #{sublimb_idx} ----")
-        mesh_start_time = time.time()
-
-        if len(sublimb_meshes_MP) == 1 and MAP_flag == False:
-            print("Using Quicker soma_to_piece_touching_vertices because no MAP and only one sublimb_mesh piece ")
-            curr_soma_to_piece_touching_vertices = soma_touching_vertices_dict
-        else:
-            if not soma_touching_vertices_dict is None:
-                print("Computing the current soma touching verts dict manually")
-                curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
-                                                    mesh = mesh,
-                                                    curr_piece_to_soma_touching_vertices = soma_touching_vertices_dict
-                                                    )
-            else:
-                curr_soma_to_piece_touching_vertices = None
-
-        if print_fusion_steps:
-            print(f"MP filtering soma verts: {time.time() - fusion_time }")
-            fusion_time = time.time()
-
-        #creating all of the sublimb groups
-        segment_branches = np.array(sublimb_skeleton_branches[sublimb_idx])
-
-        branch = mesh
-        divided_submeshes = np.array(sublimb_mesh_branches_MP[sublimb_idx])
-        divided_submeshes_idx = sublimb_mesh_idx_branches_MP[sublimb_idx]
-        segment_widths_median = widths_MP[sublimb_idx]
-
-
-        if curr_soma_to_piece_touching_vertices is None:
-            print(f"Do Not Need to Fix MP Decomposition {sublimb_idx} so just continuing")
-
-        else:
-            # 11/9 addition: build soma-extending branches where the MP mesh touches a soma border
-            print(f"Fixing Possible Soma Extension Branch for Sublimb {sublimb_idx}")
-            (
-                segment_branches,
-                divided_submeshes,
-                divided_submeshes_idx,
-                segment_widths_median,
-                endpts_total,
-                curr_soma_to_piece_touching_vertices_total,
-                no_soma_extension_add,
-            ) = _fix_mp_soma_extension(
-                segment_branches,
-                divided_submeshes,
-                divided_submeshes_idx,
-                segment_widths_median,
-                curr_soma_to_piece_touching_vertices,
-                limb_mesh_mparty,
-            )
-
-            limb_to_endpoints_must_keep_list.append(endpts_total)
-            limb_to_soma_touching_vertices_list.append(curr_soma_to_piece_touching_vertices_total)
-
-            if no_soma_extension_add:
-                print("No soma extending branch was added for this sublimb even though it had a soma border (means they already existed)")
-
-
-        #building the limb correspondence
-        limb_correspondence_MP[sublimb_idx] = dict()
-
-        for zz,b_sk in enumerate(segment_branches):
-            limb_correspondence_MP[sublimb_idx][zz] = dict(
-                branch_skeleton = b_sk,
-                width_from_skeleton = segment_widths_median[zz],
-                branch_mesh = divided_submeshes[zz],
-                branch_face_idx = divided_submeshes_idx[zz]
-                )
-
-
-
-
-    
     # IDX-TRACE P1: MP and MAP sub-decompositions vs the limb frame (limb_mesh_mparty == input mesh)
     _trace_branch_face_idx([d.get("branch_face_idx") for sub in limb_correspondence_MP.values() for d in sub.values()],
                            len(limb_mesh_mparty.faces), "P1 MP-build vs limb_mesh_mparty")
@@ -2273,7 +2379,6 @@ def preprocess_limb(
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP)
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MP)
         
-    #total_keep_endpoints = np.concatenate([np.array(list(v.values())).reshape(-1,3) for v in limb_to_endpoints_must_keep_list])
     total_keep_endpoints = []
     for entry in limb_to_endpoints_must_keep_list:
         for k,v in entry.items():
@@ -2354,17 +2459,8 @@ def preprocess_limb(
             av_vert = np.mean(v_g,axis=0)
 
             # ---------------- Doing the MAP part first -------------- #
-            """
-            The previous way did not ensure that the MAP point found will have a branch mesh that is touching the border vertices
-
-            #3) Find the closest skeletal point on MAP pairing (MAP stitch)
-            MAP_skeleton_coords = np.unique(curr_skeleton_MAP.reshape(-1,3),axis=0)
-
-            #this does not guarentee that the MAP branch associated with the MAP stitch point is touching the border group
-            MAP_stitch_point = MAP_skeleton_coords[np.argmin(np.linalg.norm(MAP_skeleton_coords-av_vert,axis=1))]
-            """
-
             # -------------- 11/9 NEW METHOD FOR FINDING MAP STITCH POINT ------------ #
+            # (finds a MAP stitch point whose branch mesh actually touches the border vertices)
             o_keys = np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))
             curr_MAP_branch_meshes = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_mesh"]
                                              for k in o_keys])
@@ -2515,17 +2611,6 @@ def preprocess_limb(
                     #b) Delete the MP Stitch points on each 
                     MP_stitch_branch_graph.remove_node(stitch_node)
 
-                    """ Old way that does not do smoothing
-
-                    #c) Add skeleton segment from neighbor to MAP stitch point
-                    new_node_name = np.max(MP_stitch_branch_graph.nodes())+1
-
-                    MP_stitch_branch_graph.add_nodes_from([(int(new_node_name),{"coordinates":MAP_stitch_point})])
-                    MP_stitch_branch_graph.add_weighted_edges_from([(keep_neighbor,new_node_name,np.linalg.norm(MAP_stitch_point - keep_neighbor_coordinates))])
-
-                    new_MP_skeleton = sk.convert_graph_to_skeleton(MP_stitch_branch_graph)
-
-                    """
                     try:
                         if len(MP_stitch_branch_graph)>1:
                             new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
@@ -2606,17 +2691,6 @@ def preprocess_limb(
                     #b) Delete the MP Stitch points on each 
                     MP_stitch_branch_graph.remove_node(stitch_node)
 
-                    """ Old way that does not do smoothing
-
-                    #c) Add skeleton segment from neighbor to MAP stitch point
-                    new_node_name = np.max(MP_stitch_branch_graph.nodes())+1
-
-                    MP_stitch_branch_graph.add_nodes_from([(int(new_node_name),{"coordinates":MAP_stitch_point})])
-                    MP_stitch_branch_graph.add_weighted_edges_from([(keep_neighbor,new_node_name,np.linalg.norm(MAP_stitch_point - keep_neighbor_coordinates))])
-
-                    new_MP_skeleton = sk.convert_graph_to_skeleton(MP_stitch_branch_graph)
-
-                    """
                     try:
                         if len(MP_stitch_branch_graph)>1:
                             new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
@@ -2676,9 +2750,6 @@ def preprocess_limb(
                                                             curr_limb_endpoints_must_keep=None,
                                                             curr_soma_to_piece_touching_vertices=None)
 
-#                 curr_MAP_meshes_idx = [pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[nn]["branch_face_idx"]] for 
-#                                                nn in local_correspondence_stitch_revised_MAP.keys()]
-                
                 #Need to readjust the mesh correspondence idx
                 for k,v in local_correspondence_stitch_revised_MAP.items():
                     local_correspondence_stitch_revised_MAP[k]["branch_face_idx"] = pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[k]["branch_face_idx"]]
@@ -2806,8 +2877,6 @@ def preprocess_limb(
 
             print(f" Finished with {(MP_idx,MAP_idx)} \n\n\n")
             stitch_counter += 1
-    #         if cut_flag:
-    #             raise Exception("Cut flag was activated")
 
             if check_correspondence_branches:
                 sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP[MAP_idx])
@@ -2818,9 +2887,6 @@ def preprocess_limb(
         print("There were not both MAP and MP pieces so skipping the stitch resolving phase")
 
     print(f"Time for decomp of Limb = {time.time() - curr_limb_time}")
-    #     # ------------- Saving the MAP and MP Decompositions ---------------- #
-    #     proper_limb_mesh_correspondence_MAP[curr_limb_idx] = limb_correspondence_MAP
-    #     proper_limb_mesh_correspondence_MP[curr_limb_idx] = limb_correspondence_MP
 
 
 
@@ -2861,18 +2927,6 @@ def preprocess_limb(
 
                                                     )
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     if not return_concept_network:
         if return_concept_network_starting_info: #because may want to calculate the concept networks later
             return limb_correspondence_individual,network_starting_info_revised_cleaned
@@ -2889,10 +2943,6 @@ def preprocess_limb(
 
     return limb_correspondence_individual,limb_to_soma_concept_networks
 
-
-    
-    
-    
 
 
 
