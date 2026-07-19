@@ -2268,6 +2268,236 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
             conn, curr_MP_branch_skeletons)
 
 
+@dataclass
+class _StitchCtx:
+    """Per-connection state for one MP<->MAP stitch iteration (Parts 15-16).
+
+    Bundles the shared limb references plus the per-connection values that flow from the
+    stitch-point finders / Parts 13-14 into the re-correspondence (`_recorrespond_stitch`) and
+    entry-overwrite (`_overwrite_stitched_entries`) steps, so each takes a single `ctx` arg
+    instead of a 12-15 parameter signature. The three trailing fields are produced by
+    `_recorrespond_stitch` and consumed by `_overwrite_stitched_entries`.
+    """
+    # shared references (identical for every connection in the limb; mutated in place)
+    limb_correspondence_MAP: dict
+    limb_correspondence_MP: dict
+    limb_mesh_mparty: object
+    # per-connection identity + stitch-point results (from the finders / Parts 13-14)
+    MP_idx: int
+    MAP_idx: int
+    MAP_stitch_point_on_end_or_branch: bool
+    MAP_branches_with_stitch_point: object
+    MAP_pieces_idx_touching_border: object
+    keep_MP_stitch_static: bool
+    conn: object
+    MP_branches_with_stitch_point: object
+    curr_MAP_sk: object
+    curr_MP_sk: object
+    curr_MAP_sk_final: object = None
+    cut_flag: bool = False
+    # produced by _recorrespond_stitch (Part 15), consumed by _overwrite_stitched_entries (Part 16)
+    MAP_pieces_for_correspondence: object = None
+    local_correspondence_stitch_revised: object = None
+    MP_branches_for_correspondence: object = None
+
+
+def _recorrespond_stitch(ctx):
+    """Part 15: gather the stitched MAP+MP branches, re-run mesh correspondence across the
+    join (cutting the MAP mesh first when the stitch split a branch), and stash the results
+    (`MAP_pieces_for_correspondence`, `local_correspondence_stitch_revised`,
+    `MP_branches_for_correspondence`, possibly-revised `curr_MAP_sk`) back onto `ctx` for
+    `_overwrite_stitched_entries`. Body identical to the inline Part 15 block it replaces.
+    """
+    MAP_branches_with_stitch_point = ctx.MAP_branches_with_stitch_point
+    MAP_pieces_idx_touching_border = ctx.MAP_pieces_idx_touching_border
+    limb_correspondence_MAP = ctx.limb_correspondence_MAP
+    MAP_idx = ctx.MAP_idx
+    curr_MAP_sk = ctx.curr_MAP_sk
+    cut_flag = ctx.cut_flag
+    limb_mesh_mparty = ctx.limb_mesh_mparty
+    conn = ctx.conn
+    MP_branches_with_stitch_point = ctx.MP_branches_with_stitch_point
+    limb_correspondence_MP = ctx.limb_correspondence_MP
+    MP_idx = ctx.MP_idx
+    curr_MP_sk = ctx.curr_MP_sk
+
+    # -------------- Part 15: Gets all of the skeletons and Mesh to divide u and does mesh correspondence -------#
+    # ------------- revise IDX so still references the whole limb mesh -----------#
+
+    # -------------- 11/10 Addition accounting for not all MAP pieces always touching each other --------------------#
+    if len(MAP_branches_with_stitch_point) > 1:
+        print("\nRevising the MAP pieces index:")
+        print(f"MAP_pieces_idx_touching_border = {MAP_pieces_idx_touching_border}, MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
+        MAP_pieces_for_correspondence = nu.intersect1d(MAP_pieces_idx_touching_border,MAP_branches_with_stitch_point)
+        print(f"MAP_pieces_for_correspondence = {MAP_pieces_for_correspondence}")
+        curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_pieces_for_correspondence]
+    else:
+        MAP_pieces_for_correspondence = MAP_branches_with_stitch_point
+
+    curr_MAP_meshes_idx = [limb_correspondence_MAP[MAP_idx][k]["branch_face_idx"] for k in MAP_pieces_for_correspondence]
+
+    # Have to adjust based on if the skeleton were split
+
+    if cut_flag:
+        #Then it was cut and have to do mesh correspondence to find what label to cut
+        if len(curr_MAP_meshes_idx) > 1:
+            raise Exception("MAP_pieces_for_correspondence was longer than 1 and cut flag was set")
+        pre_stitch_mesh_idx = curr_MAP_meshes_idx[0]
+        pre_stitch_mesh = limb_mesh_mparty.submesh([pre_stitch_mesh_idx],append=True,repair=False)
+        local_correspondence_stitch_revised_MAP = _run_mesh_correspondence(
+                                                    pre_stitch_mesh, curr_MAP_sk,
+                                                    curr_limb_endpoints_must_keep=None,
+                                                    curr_soma_to_piece_touching_vertices=None)
+
+        #Need to readjust the mesh correspondence idx
+        for k,v in local_correspondence_stitch_revised_MAP.items():
+            local_correspondence_stitch_revised_MAP[k]["branch_face_idx"] = pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[k]["branch_face_idx"]]
+
+        curr_MAP_meshes_idx = [v["branch_face_idx"] for v in local_correspondence_stitch_revised_MAP.values()]
+    else:
+        local_correspondence_stitch_revised_MAP = dict([(gg,limb_correspondence_MAP[MAP_idx][kk]) for gg,kk in enumerate(MAP_pieces_for_correspondence)])
+
+        for gg,kk in enumerate(MAP_pieces_for_correspondence):
+            local_correspondence_stitch_revised_MAP[gg]["branch_skeleton"] = curr_MAP_sk[gg]
+
+
+
+    #To make sure that the MAP never gives up ground on the labels
+    must_keep_labels_MAP = dict()
+    must_keep_counter = 0
+    for kk,b_idx in enumerate(curr_MAP_meshes_idx):
+        #must_keep_labels_MAP.update(dict([(ii,kk) for ii in range(must_keep_counter,must_keep_counter+len(b_idx))]))
+        must_keep_labels_MAP[kk] = np.arange(must_keep_counter,must_keep_counter+len(b_idx))
+        must_keep_counter += len(b_idx)
+
+
+
+    #this is where should send only the MP that apply
+    MP_branches_for_correspondence,conn_idx,MP_branches_with_stitch_point_idx = nu.intersect1d(conn,MP_branches_with_stitch_point,return_indices=True)
+
+    curr_MP_meshes_idx = [limb_correspondence_MP[MP_idx][k]["branch_face_idx"] for k in MP_branches_for_correspondence]
+    curr_MP_sk_for_correspondence = [curr_MP_sk[zz] for zz in MP_branches_with_stitch_point_idx]
+
+    stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
+    stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
+    stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk_for_correspondence
+    """
+
+    ****** NEED TO GET THE RIGHT MESH TO RUN HE IDX ON SO GETS A GOOD MESH (CAN'T BE LIMB_MESH_MPARTY)
+    BUT MUST BE THE ORIGINAL MAP MESH
+
+    mesh_pieces_for_MAP
+    sublimb_meshes_MP
+
+    mesh_pieces_for_MAP_face_idx
+    sublimb_meshes_MP_face_idx
+
+    stitching_mesh = tu.combine_meshes(curr_MAP_meshes + curr_MP_meshes)
+    stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk
+
+    """
+
+    # ******************************** this is where should do thing about no mesh correspondence ***************** #
+
+    # -------- 12/22: Trying to do the re-correspondence but if doesn't work then just resort to old one --------- #
+
+    try:
+
+        #3) Run mesh correspondence to get new meshes and mesh_idx and widths
+        local_correspondence_stitch_revised = _run_mesh_correspondence(
+                                                    stitching_mesh, stitching_skeleton_branches,
+                                                    curr_limb_endpoints_must_keep=None,
+                                                    curr_soma_to_piece_touching_vertices=None,
+                                                    must_keep_labels=must_keep_labels_MAP)
+
+        #Need to readjust the mesh correspondence idx
+        for k,v in local_correspondence_stitch_revised.items():
+            local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
+    except:
+        print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
+        # Setting the correspondence manually because the adaptive way did not work
+        local_counter = 0
+        local_correspondence_stitch_revised = dict()
+
+        # setting the MAP parts (the new skeletons have already been adjusted)
+        for k in local_correspondence_stitch_revised_MAP:
+            local_correspondence_stitch_revised[local_counter] = local_correspondence_stitch_revised_MAP[k]
+            local_counter += 1
+
+        # setting the MP parts (the new skeletons have not been adjusted yet so adjusting them here)
+        for mp_idx, k in enumerate(MP_branches_for_correspondence):
+            local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
+            local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk[mp_idx]
+            local_counter += 1
+
+    ctx.MAP_pieces_for_correspondence = MAP_pieces_for_correspondence
+    ctx.local_correspondence_stitch_revised = local_correspondence_stitch_revised
+    ctx.MP_branches_for_correspondence = MP_branches_for_correspondence
+    ctx.curr_MAP_sk = curr_MAP_sk
+
+
+def _overwrite_stitched_entries(ctx):
+    """Part 16: overwrite the old MAP/MP branch entries with the re-corresponded stitched
+    results on `ctx` (adding one new MAP branch when the stitch split a branch, and fixing up
+    skeletons left out of the correspondence). Mutates the correspondence dicts in place.
+    Body identical to the inline Part 16 block it replaces.
+    """
+    MAP_stitch_point_on_end_or_branch = ctx.MAP_stitch_point_on_end_or_branch
+    limb_correspondence_MAP = ctx.limb_correspondence_MAP
+    MAP_idx = ctx.MAP_idx
+    MAP_branches_with_stitch_point = ctx.MAP_branches_with_stitch_point
+    local_correspondence_stitch_revised = ctx.local_correspondence_stitch_revised
+    MAP_pieces_for_correspondence = ctx.MAP_pieces_for_correspondence
+    keep_MP_stitch_static = ctx.keep_MP_stitch_static
+    curr_MAP_sk_final = ctx.curr_MAP_sk_final
+    curr_MAP_sk = ctx.curr_MAP_sk
+    limb_correspondence_MP = ctx.limb_correspondence_MP
+    MP_idx = ctx.MP_idx
+    MP_branches_for_correspondence = ctx.MP_branches_for_correspondence
+    MP_branches_with_stitch_point = ctx.MP_branches_with_stitch_point
+    curr_MP_sk = ctx.curr_MP_sk
+
+    # -------------- Part 16: Overwrite old branch entries (and add on one new to MAP if required a split) -------#
+
+
+    #4a) If MAP_stitch_point_on_end_or_branch is False
+    #- Delete the old MAP branch parts and replace with new MAP ones
+    if not MAP_stitch_point_on_end_or_branch:
+        print("Deleting branches from dictionary")
+        del limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]]
+        #adding the two new branches created from the stitching
+        limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]] = local_correspondence_stitch_revised[0]
+        limb_correspondence_MAP[MAP_idx][np.max(list(limb_correspondence_MAP[MAP_idx].keys()))+1] = local_correspondence_stitch_revised[1]
+
+        #have to reorder the keys
+        #limb_correspondence_MAP[MAP_idx] = dict([(k,limb_correspondence_MAP[MAP_idx][k]) for k in np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))])
+        limb_correspondence_MAP[MAP_idx] = gu.order_dict_by_keys(limb_correspondence_MAP[MAP_idx])
+
+    else: #4b) Revise the meshes,  mesh_idx, and widths of the MAP pieces if weren't broken up
+        for j,curr_MAP_idx_fixed in enumerate(MAP_pieces_for_correspondence): 
+            limb_correspondence_MAP[MAP_idx][curr_MAP_idx_fixed] = local_correspondence_stitch_revised[j]
+        #want to update all of the skeletons just in case was altered by keep_MP_stitch_static and not included in correspondence
+        if keep_MP_stitch_static:
+            if len(MAP_branches_with_stitch_point) != len(curr_MAP_sk_final):
+                raise Exception("MAP_branches_with_stitch_point not same size as curr_MAP_sk_final")
+            for gg,map_idx_curr in enumerate(MAP_branches_with_stitch_point):
+                limb_correspondence_MAP[MAP_idx][map_idx_curr]["branch_skeleton"] = curr_MAP_sk_final[gg]
+
+
+    for j,curr_MP_idx_fixed in enumerate(MP_branches_for_correspondence): #************** right here just need to make only the ones that applied
+        limb_correspondence_MP[MP_idx][curr_MP_idx_fixed] = local_correspondence_stitch_revised[j+len(curr_MAP_sk)]
+
+
+    #5b) Fixing the branch skeletons that were not included in the correspondence
+    MP_leftover,MP_leftover_idx = nu.setdiff1d(MP_branches_with_stitch_point,MP_branches_for_correspondence)
+    print(f"MP_branches_with_stitch_point= {MP_branches_with_stitch_point}")
+    print(f"MP_branches_for_correspondence = {MP_branches_for_correspondence}")
+    print(f"MP_leftover = {MP_leftover}, MP_leftover_idx = {MP_leftover_idx}")
+
+    for curr_MP_leftover,curr_MP_leftover_idx in zip(MP_leftover,MP_leftover_idx):
+        limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
+
+
 def _stitch_map_and_mp(
     limb_correspondence_MAP,
     limb_correspondence_MP,
@@ -2412,6 +2642,7 @@ def _stitch_map_and_mp(
             cut_flag=True
 
 
+        curr_MAP_sk_final = None
         # ------ 11/13 Addition: need to adjust the MAP points if have to keep MP static
         if keep_MP_stitch_static:
             curr_MAP_sk_final = []
@@ -2428,154 +2659,25 @@ def _stitch_map_and_mp(
 
 
 
-        # -------------- Part 15: Gets all of the skeletons and Mesh to divide u and does mesh correspondence -------#
-        # ------------- revise IDX so still references the whole limb mesh -----------#
-
-        # -------------- 11/10 Addition accounting for not all MAP pieces always touching each other --------------------#
-        if len(MAP_branches_with_stitch_point) > 1:
-            print("\nRevising the MAP pieces index:")
-            print(f"MAP_pieces_idx_touching_border = {MAP_pieces_idx_touching_border}, MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
-            MAP_pieces_for_correspondence = nu.intersect1d(MAP_pieces_idx_touching_border,MAP_branches_with_stitch_point)
-            print(f"MAP_pieces_for_correspondence = {MAP_pieces_for_correspondence}")
-            curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_pieces_for_correspondence]
-        else:
-            MAP_pieces_for_correspondence = MAP_branches_with_stitch_point
-
-        curr_MAP_meshes_idx = [limb_correspondence_MAP[MAP_idx][k]["branch_face_idx"] for k in MAP_pieces_for_correspondence]
-
-        # Have to adjust based on if the skeleton were split
-
-        if cut_flag:
-            #Then it was cut and have to do mesh correspondence to find what label to cut
-            if len(curr_MAP_meshes_idx) > 1:
-                raise Exception("MAP_pieces_for_correspondence was longer than 1 and cut flag was set")
-            pre_stitch_mesh_idx = curr_MAP_meshes_idx[0]
-            pre_stitch_mesh = limb_mesh_mparty.submesh([pre_stitch_mesh_idx],append=True,repair=False)
-            local_correspondence_stitch_revised_MAP = _run_mesh_correspondence(
-                                                        pre_stitch_mesh, curr_MAP_sk,
-                                                        curr_limb_endpoints_must_keep=None,
-                                                        curr_soma_to_piece_touching_vertices=None)
-
-            #Need to readjust the mesh correspondence idx
-            for k,v in local_correspondence_stitch_revised_MAP.items():
-                local_correspondence_stitch_revised_MAP[k]["branch_face_idx"] = pre_stitch_mesh_idx[local_correspondence_stitch_revised_MAP[k]["branch_face_idx"]]
-
-            curr_MAP_meshes_idx = [v["branch_face_idx"] for v in local_correspondence_stitch_revised_MAP.values()]
-        else:
-            local_correspondence_stitch_revised_MAP = dict([(gg,limb_correspondence_MAP[MAP_idx][kk]) for gg,kk in enumerate(MAP_pieces_for_correspondence)])
-
-            for gg,kk in enumerate(MAP_pieces_for_correspondence):
-                local_correspondence_stitch_revised_MAP[gg]["branch_skeleton"] = curr_MAP_sk[gg]
-
-
-
-        #To make sure that the MAP never gives up ground on the labels
-        must_keep_labels_MAP = dict()
-        must_keep_counter = 0
-        for kk,b_idx in enumerate(curr_MAP_meshes_idx):
-            #must_keep_labels_MAP.update(dict([(ii,kk) for ii in range(must_keep_counter,must_keep_counter+len(b_idx))]))
-            must_keep_labels_MAP[kk] = np.arange(must_keep_counter,must_keep_counter+len(b_idx))
-            must_keep_counter += len(b_idx)
-
-
-
-        #this is where should send only the MP that apply
-        MP_branches_for_correspondence,conn_idx,MP_branches_with_stitch_point_idx = nu.intersect1d(conn,MP_branches_with_stitch_point,return_indices=True)
-
-        curr_MP_meshes_idx = [limb_correspondence_MP[MP_idx][k]["branch_face_idx"] for k in MP_branches_for_correspondence]
-        curr_MP_sk_for_correspondence = [curr_MP_sk[zz] for zz in MP_branches_with_stitch_point_idx]
-
-        stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
-        stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
-        stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk_for_correspondence
-        """
-
-        ****** NEED TO GET THE RIGHT MESH TO RUN HE IDX ON SO GETS A GOOD MESH (CAN'T BE LIMB_MESH_MPARTY)
-        BUT MUST BE THE ORIGINAL MAP MESH
-
-        mesh_pieces_for_MAP
-        sublimb_meshes_MP
-
-        mesh_pieces_for_MAP_face_idx
-        sublimb_meshes_MP_face_idx
-
-        stitching_mesh = tu.combine_meshes(curr_MAP_meshes + curr_MP_meshes)
-        stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk
-
-        """
-
-        # ******************************** this is where should do thing about no mesh correspondence ***************** #
-
-        # -------- 12/22: Trying to do the re-correspondence but if doesn't work then just resort to old one --------- #
-
-        try:
-
-            #3) Run mesh correspondence to get new meshes and mesh_idx and widths
-            local_correspondence_stitch_revised = _run_mesh_correspondence(
-                                                        stitching_mesh, stitching_skeleton_branches,
-                                                        curr_limb_endpoints_must_keep=None,
-                                                        curr_soma_to_piece_touching_vertices=None,
-                                                        must_keep_labels=must_keep_labels_MAP)
-
-            #Need to readjust the mesh correspondence idx
-            for k,v in local_correspondence_stitch_revised.items():
-                local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
-        except:
-            print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
-            # Setting the correspondence manually because the adaptive way did not work
-            local_counter = 0
-            local_correspondence_stitch_revised = dict()
-
-            # setting the MAP parts (the new skeletons have already been adjusted)
-            for k in local_correspondence_stitch_revised_MAP:
-                local_correspondence_stitch_revised[local_counter] = local_correspondence_stitch_revised_MAP[k]
-                local_counter += 1
-
-            # setting the MP parts (the new skeletons have not been adjusted yet so adjusting them here)
-            for mp_idx, k in enumerate(MP_branches_for_correspondence):
-                local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
-                local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk[mp_idx]
-                local_counter += 1
-
-        # -------------- Part 16: Overwrite old branch entries (and add on one new to MAP if required a split) -------#
-
-
-        #4a) If MAP_stitch_point_on_end_or_branch is False
-        #- Delete the old MAP branch parts and replace with new MAP ones
-        if not MAP_stitch_point_on_end_or_branch:
-            print("Deleting branches from dictionary")
-            del limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]]
-            #adding the two new branches created from the stitching
-            limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]] = local_correspondence_stitch_revised[0]
-            limb_correspondence_MAP[MAP_idx][np.max(list(limb_correspondence_MAP[MAP_idx].keys()))+1] = local_correspondence_stitch_revised[1]
-
-            #have to reorder the keys
-            #limb_correspondence_MAP[MAP_idx] = dict([(k,limb_correspondence_MAP[MAP_idx][k]) for k in np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))])
-            limb_correspondence_MAP[MAP_idx] = gu.order_dict_by_keys(limb_correspondence_MAP[MAP_idx])
-
-        else: #4b) Revise the meshes,  mesh_idx, and widths of the MAP pieces if weren't broken up
-            for j,curr_MAP_idx_fixed in enumerate(MAP_pieces_for_correspondence): 
-                limb_correspondence_MAP[MAP_idx][curr_MAP_idx_fixed] = local_correspondence_stitch_revised[j]
-            #want to update all of the skeletons just in case was altered by keep_MP_stitch_static and not included in correspondence
-            if keep_MP_stitch_static:
-                if len(MAP_branches_with_stitch_point) != len(curr_MAP_sk_final):
-                    raise Exception("MAP_branches_with_stitch_point not same size as curr_MAP_sk_final")
-                for gg,map_idx_curr in enumerate(MAP_branches_with_stitch_point):
-                    limb_correspondence_MAP[MAP_idx][map_idx_curr]["branch_skeleton"] = curr_MAP_sk_final[gg]
-
-
-        for j,curr_MP_idx_fixed in enumerate(MP_branches_for_correspondence): #************** right here just need to make only the ones that applied
-            limb_correspondence_MP[MP_idx][curr_MP_idx_fixed] = local_correspondence_stitch_revised[j+len(curr_MAP_sk)]
-
-
-        #5b) Fixing the branch skeletons that were not included in the correspondence
-        MP_leftover,MP_leftover_idx = nu.setdiff1d(MP_branches_with_stitch_point,MP_branches_for_correspondence)
-        print(f"MP_branches_with_stitch_point= {MP_branches_with_stitch_point}")
-        print(f"MP_branches_for_correspondence = {MP_branches_for_correspondence}")
-        print(f"MP_leftover = {MP_leftover}, MP_leftover_idx = {MP_leftover_idx}")
-
-        for curr_MP_leftover,curr_MP_leftover_idx in zip(MP_leftover,MP_leftover_idx):
-            limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
+        ctx = _StitchCtx(
+            limb_correspondence_MAP=limb_correspondence_MAP,
+            limb_correspondence_MP=limb_correspondence_MP,
+            limb_mesh_mparty=limb_mesh_mparty,
+            MP_idx=MP_idx,
+            MAP_idx=MAP_idx,
+            MAP_stitch_point_on_end_or_branch=MAP_stitch_point_on_end_or_branch,
+            MAP_branches_with_stitch_point=MAP_branches_with_stitch_point,
+            MAP_pieces_idx_touching_border=MAP_pieces_idx_touching_border,
+            keep_MP_stitch_static=keep_MP_stitch_static,
+            conn=conn,
+            MP_branches_with_stitch_point=MP_branches_with_stitch_point,
+            curr_MAP_sk=curr_MAP_sk,
+            curr_MP_sk=curr_MP_sk,
+            curr_MAP_sk_final=curr_MAP_sk_final,
+            cut_flag=cut_flag,
+        )
+        _recorrespond_stitch(ctx)        # Part 15: re-run mesh correspondence at the join
+        _overwrite_stitched_entries(ctx)  # Part 16: overwrite old branch entries w/ stitched
 
 
         print(f" Finished with {(MP_idx,MAP_idx)} \n\n\n")
