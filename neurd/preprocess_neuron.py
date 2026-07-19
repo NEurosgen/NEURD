@@ -438,72 +438,109 @@ def find_if_stitch_point_on_end_or_branch(matched_branches_skeletons,
 
 
 
-def attach_floating_pieces_to_limb_correspondence(
-        limb_correspondence,
-        floating_meshes,
-        distance_to_move_point_threshold = 4000,
-        filter_end_node_length_meshparty = 1000,
-        verbose = False,
-        excluded_node_coordinates=np.array([]),
-    **kwargs):
+def _split_branch_entry(branch_dict, old_key, first, second):
+    """Replace branch_dict[old_key] with `first` and append `second` at max_key+1, then reorder
+    keys; returns the reordered dict. The del+reassign-at-old_key preserves the original idiom
+    exactly. Shared by attach_floating (main-branch cut) and _overwrite_stitched_entries (Part 16).
+    """
+    del branch_dict[old_key]
+    branch_dict[old_key] = first
+    branch_dict[np.max(list(branch_dict.keys())) + 1] = second
+    return gu.order_dict_by_keys(branch_dict)
 
-    # Config resolved from parameters.params -- the sole caller (_stitch_floating_pieces)
-    # overrides none of these. Dropped 4 dead params that were resolved-but-never-used:
-    # max_stitch_distance_CGAL, filter_end_node_length,
-    # limb_remove_mesh_interior_face_threshold, error_on_bad_cgal_return.
-    max_stitch_distance = parameters.params.max_stitch_distance
+
+@dataclass
+class _FloatingMatch:
+    """The floating piece closest to any main limb, chosen for stitching this iteration."""
+    winning_float: int
+    match_main_limb: int
+    dist: float
+    main_stitch_point: object
+    floating_stitch_point: object
+    winning_main_skeleton: object
+
+
+def _find_closest_floating_piece(limb_correspondence_cp, floating_limbs_skeleton_endpoints,
+                                 floating_limbs_to_process):
+    """Steps a-d: build each main limb's full skeleton, find (via KDTree) the minimum endpoint
+    distance from every still-unprocessed floating piece to every main limb, and return the
+    closest (float, main-limb) pair as a `_FloatingMatch`.
+    """
+    #a) Get full skeletons of limbs for all limbs in limb correspondence
+    main_limb_skeletons = []
+    for main_idx in np.sort(list(limb_correspondence_cp.keys())):
+        main_limb_skeletons.append(sk.stack_skeletons([k["branch_skeleton"] for k in limb_correspondence_cp[main_idx].values()]))
+
+    #b) Find the minimum distance (and the node it corresponds to) for each floating piece between their 
+    #endpoints and all skeleton points of limbs 
+    floating_piece_min_distance_all_main_limbs = dict([(float_idx,[]) for float_idx in floating_limbs_to_process])
+    for main_idx,main_limb_sk in enumerate(main_limb_skeletons):
+
+        main_skeleton_coordinates = sk.skeleton_unique_coordinates(main_limb_sk)
+        main_kdtree = KDTree(main_skeleton_coordinates)
+
+        for float_idx in floating_piece_min_distance_all_main_limbs.keys():
+
+            dist,closest_node = main_kdtree.query(floating_limbs_skeleton_endpoints[float_idx])
+            min_dist_idx = np.argmin(dist)
+            min_dist = dist[min_dist_idx]
+            min_dist_closest_node = main_skeleton_coordinates[closest_node[min_dist_idx]]
+            floating_piece_min_distance_all_main_limbs[float_idx].append([min_dist,min_dist_closest_node,floating_limbs_skeleton_endpoints[float_idx][min_dist_idx]])
+
+
+
+    winning_float = -1
+    winning_float_match_main_limb = -1
+    main_limb_stitch_point = None
+    floating_limb_stitch_point = None
+    winning_float_dist = np.inf
+
+
+    #c) Find the floating piece that has the closest distance
+    #--> winning piece
+
+    #For the winning piece
+    #d) Get the closest coordinate on the matching limb
+
+    for f_idx,dist_data in floating_piece_min_distance_all_main_limbs.items():
+
+        dist_data_array = np.array(dist_data)
+        closest_main_limb = np.argmin(dist_data_array[:,0])
+        closest_main_dist = dist_data_array[closest_main_limb][0]
+
+        if closest_main_dist < winning_float_dist:
+
+            winning_float = f_idx
+            winning_float_match_main_limb = closest_main_limb
+            winning_float_dist = closest_main_dist
+            main_limb_stitch_point = dist_data_array[closest_main_limb][1]
+            floating_limb_stitch_point = dist_data_array[closest_main_limb][2]
+
+    winning_main_skeleton = main_limb_skeletons[winning_float_match_main_limb]
+
+    return _FloatingMatch(
+        winning_float=winning_float,
+        match_main_limb=winning_float_match_main_limb,
+        dist=winning_float_dist,
+        main_stitch_point=main_limb_stitch_point,
+        floating_stitch_point=floating_limb_stitch_point,
+        winning_main_skeleton=winning_main_skeleton,
+    )
+
+
+def _preprocess_floating_pieces(floating_meshes, filter_end_node_length_meshparty, verbose):
+    """Part 0/1: keep only floating meshes above the face threshold and run each through
+    preprocess_limb (best-effort -- a piece that fails to decompose is skipped, CLASS-C guard).
+    Returns the list of per-piece limb correspondences. Config read from parameters.params
+    (the sole caller overrides none of it).
+    """
     floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
     size_threshold_MAP_stitch = parameters.params.size_threshold_MAP_stitch
     axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
     use_adaptive_invalidation_d = parameters.params.use_adaptive_invalidation_d_floating
     mp_only_revised_invalidation_d = parameters.params.mp_only_revised_invalidation_d
 
-    """
-    Purpose: To take a limb correspondence and add on the floating pieces
-    that are significant and close enough to a limb
-
-    Pseudocode:
-    0) Filter the floating pieces for only those above certain face count
-    1) Run all significant floating pieces through preprocess_limb
-    2) Get all full skeleton endpoints (degree 1) for all floating pieces
-
-
-    Start loop until all floating pieces have been added
-    a) Get full skeletons of limbs for all limbs in limb correspondence
-    b) Find the minimum distance (and the node it corresponds to) for each floating piece between their 
-    endpoints and all skeleton points of limbs
-    c) Find the floating piece that has the closest distance
-    --> winning piece
-
-    For the winning piece
-    d) Get the closest coordinate on the matching limb
-    e) Try and move closest coordinate to an endpoint or high degree node
-    f) Find the branch on the main limb that corresponds to the stitch point
-    g) Find whether the stitch point is on an endpoint/high degree node or will end up splitting the branch
-    AKA stitch_point_on_end_or_branch
-    h) Find the branch on the floating limb where the closest end point is
-
-    At this point have
-    - main limb stitch point and branches (and whether not splitting will be required)  [like MAP]
-    - floating limb stitch point and branch [like MP]
-
-    Stitching process:
-    i) if not stitch_point_on_end_or_branch
-    - cut the main limb branch where stitch is
-    - do mesh correspondence with the new stitches
-    - (just give the both the same old width)
-    - replace the old entry in the limb corresondence with one of the new skeleton cuts
-    and add on the other skeletons cuts to the end
-
-    j) Add a skeletal segment from floating limb stitch point to main limb stitch point
-    k) Add the floating limb branches to the end of the limb correspondence
-    l) Marks the floating piece as processed
-
-
-    """
-    limb_correspondence_cp = limb_correspondence
-    non_soma_touching_meshes = floating_meshes
-    floating_limbs_above_threshold = [k for k in non_soma_touching_meshes if len(k.faces)>floating_piece_face_threshold]
+    floating_limbs_above_threshold = [k for k in floating_meshes if len(k.faces)>floating_piece_face_threshold]
 
     #1) Run all significant floating pieces through preprocess_limb
     
@@ -568,227 +605,243 @@ def attach_floating_pieces_to_limb_correspondence(
             if debug_corr:
                 print(f"--> time = {time.time() - st_time}")
                 st_time = time.time()
-  
+    return floating_limbs_correspondence
+
+
+def _stitch_floating_piece_into_limb(limb_correspondence_cp, match, winning_floating_correspondence,
+                                     excluded_node_coordinates, distance_to_move_point_threshold,
+                                     verbose):
+    """Steps e-k for the winning floating piece: snap the main-limb stitch point to a nearby
+    end/branch node, find the main + floating branches, and (if the stitch would split a main
+    branch) cut + re-correspond it, then graft the floating branches onto the main limb. Mutates
+    limb_correspondence_cp in place. On a CLASS-B re-correspondence failure it returns early
+    having mutated nothing; the caller marks the piece processed either way.
+    """
+    winning_float = match.winning_float
+    winning_float_match_main_limb = match.match_main_limb
+    winning_float_dist = match.dist
+    main_limb_stitch_point = match.main_stitch_point
+    floating_limb_stitch_point = match.floating_stitch_point
+    winning_main_skeleton = match.winning_main_skeleton
+
+    #e) Try and move closest coordinate to an endpoint or high degree node
+
+    main_limb_stitch_point,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
+                                                        skeleton=winning_main_skeleton,
+                                                        coordinate=main_limb_stitch_point,
+                                                        distance_to_move_point_threshold = distance_to_move_point_threshold,
+                                                        verbose=verbose,
+                                                        consider_high_degree_nodes=True,
+                                                        excluded_node_coordinates=excluded_node_coordinates
+
+                                                        )
+    if verbose:
+        print(f"Status of Main limb stitch point moved = {change_status}")
+
+#     #checking that match was right
+#                   meshes_colors=["red","aqua"],
+#                 skeletons=[floating_limbs_skeleton[winning_float],main_limb_skeletons[winning_float_match_main_limb]],
+#                  skeletons_colors=["red","aqua"],
+#                  scatters=[floating_limb_stitch_point.reshape(-1,3),main_limb_stitch_point.reshape(-1,3)],
+#                  scatters_colors=["red","aqua"])
+
+
+    #f) Find the branch on the main limb that corresponds to the stitch point
+    main_limb_branches = np.array([k["branch_skeleton"] for k in limb_correspondence_cp[winning_float_match_main_limb].values()])
+    match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(main_limb_branches,
+                        current_coordinate=main_limb_stitch_point)
+
+    #g) Find whether the stitch point is on an endpoint/high degree node or will end up splitting the branch
+    #AKA stitch_point_on_end_or_branch
+    stitch_point_on_end_or_branch = find_if_stitch_point_on_end_or_branch(
+                                                            matched_branches_skeletons= main_limb_branches[match_sk_branches],
+                                                             stitch_coordinate=main_limb_stitch_point,
+                                                              verbose=False)
+
+    #h) Find the branch on the floating limb where the closest end point is
+    winning_float_branches = np.array([k["branch_skeleton"] for k in winning_floating_correspondence.values()])
+    match_float_branches = sk.find_branch_skeleton_with_specific_coordinate(winning_float_branches,
+                        current_coordinate=floating_limb_stitch_point)
+
+    if len(match_float_branches) > 1:
+        raise Exception("len(match_float_branches) was greater than 1 in the floating pieces stitch")
+
+    if verbose:
+        print("\n\n")
+        print(f"match_sk_branches = {match_sk_branches}")
+        print(f"match_float_branches = {match_float_branches}")
+        print(f"stitch_point_on_end_or_branch = {stitch_point_on_end_or_branch}")
+
+
+    """
+    Stitching process:
+    i) if not stitch_point_on_end_or_branch
+       1. cut the main limb branch where stitch is
+       2. do mesh correspondence with the new stitches
+       3. (just give the both the same old width)
+       4. replace the old entry in the limb corresondence with one of the new skeleton cuts
+          and add on the other skeletons cuts to the end
+
+    j) Add a skeletal segment from floating limb stitch point to main limb stitch point
+    k) Add the floating limb branches to the end of the limb correspondence
+    l) Marks the floating piece as processed
+
+    """
+
+    # ---------- Begin stitching process ---------------
+    if not stitch_point_on_end_or_branch:
+        main_branch = match_sk_branches[0]
+        #1. cut the main limb branch where stitch is
+        matching_branch_sk = sk.cut_skeleton_at_coordinate(skeleton=main_limb_branches[main_branch],
+                                                                   cut_coordinate = main_limb_stitch_point)
+        #2. do mesh correspondence with the new stitchess
+        stitch_mesh = limb_correspondence_cp[winning_float_match_main_limb][main_branch]["branch_mesh"]
+
+        local_correspondnece = mesh_correspondence_first_pass(mesh=stitch_mesh,
+                                                  skeleton_branches=matching_branch_sk)
+
+        # CLASS-B guard: cutting the main branch + re-correspondence can fail when the cut
+        # leaves a skeleton segment with no connected face patch (resolve_empty_conflicting_
+        # face_labels -> "missing labels was not resolved"). Floating-piece stitching is
+        # best-effort, so skip this piece instead of crashing the whole neuron. Safe to skip
+        # here: nothing has been mutated yet (limb_correspondence_cp is only edited below).
+        # We must mark the piece processed before `continue`, else the while loop reselects
+        # the same winning_float forever.
+        try:
+            local_correspondence_revised = correspondence_1_to_1(mesh=stitch_mesh,
+                                                        local_correspondence=local_correspondnece)
+        except Exception as _stitch_err:
+            print(f"[stitch] floating piece {winning_float} -> main limb "
+                  f"{winning_float_match_main_limb} (dist {winning_float_dist:.1f}): cut-branch "
+                  f"re-correspondence failed ({type(_stitch_err).__name__}: {_stitch_err}); "
+                  f"skipping this floating piece")
+            return  # nothing mutated yet; caller marks winning_float processed
+
+        #3. (just give the both the same old width)
+        old_width = limb_correspondence_cp[winning_float_match_main_limb][main_branch]["width_from_skeleton"]
+        for branch_idx in local_correspondence_revised.keys():
+            local_correspondence_revised[branch_idx]["width_from_skeleton"] = old_width
+
+        #4. replace the old entry in the limb corresondence with one of the new skeleton cuts
+        #and add on the other skeletons cuts to the end
+        print(f"main_branch = {main_branch}")
+        limb_correspondence_cp[winning_float_match_main_limb] = _split_branch_entry(
+            limb_correspondence_cp[winning_float_match_main_limb], main_branch,
+            local_correspondence_revised[0], local_correspondence_revised[1])
+
+
+
+    #j) Add a skeletal segment from floating limb stitch point to main limb stitch point
+    skeleton = winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"]
+    adjusted_floating_sk_branch = sk.stack_skeletons([skeleton,np.array([floating_limb_stitch_point,main_limb_stitch_point])])
+            
+#             adjusted_floating_sk_branch = sk.add_and_smooth_segment_to_branch(skeleton,new_seg=np.array([floating_limb_stitch_point,main_limb_stitch_point]),
+#                                                                              resize_mult=0.2,n_resized_cutoff=3)
+
+    winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"] = adjusted_floating_sk_branch
+
+    #k) Add the floating limb branches to the end of the limb correspondence
+    curr_limb_key_len = np.max(list(limb_correspondence_cp[winning_float_match_main_limb].keys()))
+    for float_idx,flaot_data in winning_floating_correspondence.items():
+        limb_correspondence_cp[winning_float_match_main_limb][curr_limb_key_len + 1 + float_idx] = flaot_data
+
+
+def attach_floating_pieces_to_limb_correspondence(
+        limb_correspondence,
+        floating_meshes,
+        distance_to_move_point_threshold = 4000,
+        filter_end_node_length_meshparty = 1000,
+        verbose = False,
+        excluded_node_coordinates=np.array([]),
+    **kwargs):
+    """
+    Purpose: To take a limb correspondence and add on the floating pieces
+    that are significant and close enough to a limb
+
+    Pseudocode:
+    0) Filter the floating pieces for only those above certain face count
+    1) Run all significant floating pieces through preprocess_limb
+    2) Get all full skeleton endpoints (degree 1) for all floating pieces
+
+
+    Start loop until all floating pieces have been added
+    a) Get full skeletons of limbs for all limbs in limb correspondence
+    b) Find the minimum distance (and the node it corresponds to) for each floating piece between their 
+    endpoints and all skeleton points of limbs
+    c) Find the floating piece that has the closest distance
+    --> winning piece
+
+    For the winning piece
+    d) Get the closest coordinate on the matching limb
+    e) Try and move closest coordinate to an endpoint or high degree node
+    f) Find the branch on the main limb that corresponds to the stitch point
+    g) Find whether the stitch point is on an endpoint/high degree node or will end up splitting the branch
+    AKA stitch_point_on_end_or_branch
+    h) Find the branch on the floating limb where the closest end point is
+
+    At this point have
+    - main limb stitch point and branches (and whether not splitting will be required)  [like MAP]
+    - floating limb stitch point and branch [like MP]
+
+    Stitching process:
+    i) if not stitch_point_on_end_or_branch
+    - cut the main limb branch where stitch is
+    - do mesh correspondence with the new stitches
+    - (just give the both the same old width)
+    - replace the old entry in the limb corresondence with one of the new skeleton cuts
+    and add on the other skeletons cuts to the end
+
+    j) Add a skeletal segment from floating limb stitch point to main limb stitch point
+    k) Add the floating limb branches to the end of the limb correspondence
+    l) Marks the floating piece as processed
+
+
+    """
+
+    # max_stitch_distance is the only config still needed here; the rest moved into
+    # _preprocess_floating_pieces. The sole caller (_stitch_floating_pieces) overrides none.
+    max_stitch_distance = parameters.params.max_stitch_distance
+
+    limb_correspondence_cp = limb_correspondence
+
+    floating_limbs_correspondence = _preprocess_floating_pieces(
+        floating_meshes, filter_end_node_length_meshparty, verbose)
+
     #2) Get all full skeleton endpoints (degree 1) for all floating pieces
     floating_limbs_skeleton = [sk.stack_skeletons([k["branch_skeleton"] for k in l_c.values()]) for l_c in floating_limbs_correspondence]
     floating_limbs_skeleton_endpoints = [sk.find_skeleton_endpoint_coordinates(k) for k in floating_limbs_skeleton]
-   
+
     floating_limbs_to_process = np.arange(0,len(floating_limbs_skeleton))
 
     #Start loop until all floating pieces have been added
     while len(floating_limbs_to_process)>0:
 
-        #a) Get full skeletons of limbs for all limbs in limb correspondence
-        main_limb_skeletons = []
-        for main_idx in np.sort(list(limb_correspondence_cp.keys())):
-            main_limb_skeletons.append(sk.stack_skeletons([k["branch_skeleton"] for k in limb_correspondence_cp[main_idx].values()]))
-
-        #b) Find the minimum distance (and the node it corresponds to) for each floating piece between their 
-        #endpoints and all skeleton points of limbs 
-        floating_piece_min_distance_all_main_limbs = dict([(float_idx,[]) for float_idx in floating_limbs_to_process])
-        for main_idx,main_limb_sk in enumerate(main_limb_skeletons):
-
-            main_skeleton_coordinates = sk.skeleton_unique_coordinates(main_limb_sk)
-            main_kdtree = KDTree(main_skeleton_coordinates)
-
-            for float_idx in floating_piece_min_distance_all_main_limbs.keys():
-
-                dist,closest_node = main_kdtree.query(floating_limbs_skeleton_endpoints[float_idx])
-                min_dist_idx = np.argmin(dist)
-                min_dist = dist[min_dist_idx]
-                min_dist_closest_node = main_skeleton_coordinates[closest_node[min_dist_idx]]
-                floating_piece_min_distance_all_main_limbs[float_idx].append([min_dist,min_dist_closest_node,floating_limbs_skeleton_endpoints[float_idx][min_dist_idx]])
-
-
-
-        winning_float = -1
-        winning_float_match_main_limb = -1
-        main_limb_stitch_point = None
-        floating_limb_stitch_point = None
-        winning_float_dist = np.inf
-
-
-        #c) Find the floating piece that has the closest distance
-        #--> winning piece
-
-        #For the winning piece
-        #d) Get the closest coordinate on the matching limb
-
-        for f_idx,dist_data in floating_piece_min_distance_all_main_limbs.items():
-
-            dist_data_array = np.array(dist_data)
-            closest_main_limb = np.argmin(dist_data_array[:,0])
-            closest_main_dist = dist_data_array[closest_main_limb][0]
-
-            if closest_main_dist < winning_float_dist:
-
-                winning_float = f_idx
-                winning_float_match_main_limb = closest_main_limb
-                winning_float_dist = closest_main_dist
-                main_limb_stitch_point = dist_data_array[closest_main_limb][1]
-                floating_limb_stitch_point = dist_data_array[closest_main_limb][2]
-
-        winning_main_skeleton = main_limb_skeletons[winning_float_match_main_limb]
-        winning_floating_correspondence = floating_limbs_correspondence[winning_float]
+        match = _find_closest_floating_piece(
+            limb_correspondence_cp, floating_limbs_skeleton_endpoints, floating_limbs_to_process)
+        winning_floating_correspondence = floating_limbs_correspondence[match.winning_float]
 
         if verbose:
-            print(f"winning_float = {winning_float}")
-            print(f"winning_float_match_main_limb = {winning_float_match_main_limb}")
-            print(f"winning_float_dist = {winning_float_dist}")
-            print(f"main_limb_stitch_point = {main_limb_stitch_point}")
-            print(f"floating_limb_stitch_point = {floating_limb_stitch_point}")
-            
-        #print(f"winning_floating_correspondence = {winning_floating_correspondence}")
-        
-        #print(f"winning_floating_correspondence = {winning_floating_correspondence['branch_mesh']}")
+            print(f"winning_float = {match.winning_float}")
+            print(f"winning_float_match_main_limb = {match.match_main_limb}")
+            print(f"winning_float_dist = {match.dist}")
+            print(f"main_limb_stitch_point = {match.main_stitch_point}")
+            print(f"floating_limb_stitch_point = {match.floating_stitch_point}")
 
-        
-        if winning_float_dist > max_stitch_distance:
-            print(f"The closest float distance was {winning_float_dist} which was greater than the maximum stitch distance {max_stitch_distance}\n"
+        #c/d) if the closest piece is farther than the max, stop stitching entirely
+        if match.dist > max_stitch_distance:
+            print(f"The closest float distance was {match.dist} which was greater than the maximum stitch distance {max_stitch_distance}\n"
                  " --> so ending the floating mesh stitch processs")
-            
-#             su.compressed_pickle(main_limb_skeletons,"main_limb_skeletons")
-#             su.compressed_pickle(floating_limbs_skeleton_endpoints,"floating_limbs_skeleton_endpoints")
-#             su.compressed_pickle(floating_piece_min_distance_all_main_limbs,"floating_piece_min_distance_all_main_limbs")
-#             su.compressed_pickle(limb_correspondence_cp,'limb_correspondence_cp')
-#             raise Exception("Done stitching")
-            
             return limb_correspondence_cp
-        else:
-            
-            
-            #e) Try and move closest coordinate to an endpoint or high degree node
 
-            main_limb_stitch_point,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
-                                                                skeleton=winning_main_skeleton,
-                                                                coordinate=main_limb_stitch_point,
-                                                                distance_to_move_point_threshold = distance_to_move_point_threshold,
-                                                                verbose=verbose,
-                                                                consider_high_degree_nodes=True,
-                                                                excluded_node_coordinates=excluded_node_coordinates
-
-                                                                )
-            if verbose:
-                print(f"Status of Main limb stitch point moved = {change_status}")
-
-        #     #checking that match was right
-        #                   meshes_colors=["red","aqua"],
-        #                 skeletons=[floating_limbs_skeleton[winning_float],main_limb_skeletons[winning_float_match_main_limb]],
-        #                  skeletons_colors=["red","aqua"],
-        #                  scatters=[floating_limb_stitch_point.reshape(-1,3),main_limb_stitch_point.reshape(-1,3)],
-        #                  scatters_colors=["red","aqua"])
-
-
-            #f) Find the branch on the main limb that corresponds to the stitch point
-            main_limb_branches = np.array([k["branch_skeleton"] for k in limb_correspondence_cp[winning_float_match_main_limb].values()])
-            match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(main_limb_branches,
-                                current_coordinate=main_limb_stitch_point)
-
-            #g) Find whether the stitch point is on an endpoint/high degree node or will end up splitting the branch
-            #AKA stitch_point_on_end_or_branch
-            stitch_point_on_end_or_branch = find_if_stitch_point_on_end_or_branch(
-                                                                    matched_branches_skeletons= main_limb_branches[match_sk_branches],
-                                                                     stitch_coordinate=main_limb_stitch_point,
-                                                                      verbose=False)
-
-            #h) Find the branch on the floating limb where the closest end point is
-            winning_float_branches = np.array([k["branch_skeleton"] for k in winning_floating_correspondence.values()])
-            match_float_branches = sk.find_branch_skeleton_with_specific_coordinate(winning_float_branches,
-                                current_coordinate=floating_limb_stitch_point)
-
-            if len(match_float_branches) > 1:
-                raise Exception("len(match_float_branches) was greater than 1 in the floating pieces stitch")
-
-            if verbose:
-                print("\n\n")
-                print(f"match_sk_branches = {match_sk_branches}")
-                print(f"match_float_branches = {match_float_branches}")
-                print(f"stitch_point_on_end_or_branch = {stitch_point_on_end_or_branch}")
-
-
-            """
-            Stitching process:
-            i) if not stitch_point_on_end_or_branch
-               1. cut the main limb branch where stitch is
-               2. do mesh correspondence with the new stitches
-               3. (just give the both the same old width)
-               4. replace the old entry in the limb corresondence with one of the new skeleton cuts
-                  and add on the other skeletons cuts to the end
-
-            j) Add a skeletal segment from floating limb stitch point to main limb stitch point
-            k) Add the floating limb branches to the end of the limb correspondence
-            l) Marks the floating piece as processed
-
-            """
-
-            # ---------- Begin stitching process ---------------
-            if not stitch_point_on_end_or_branch:
-                main_branch = match_sk_branches[0]
-                #1. cut the main limb branch where stitch is
-                matching_branch_sk = sk.cut_skeleton_at_coordinate(skeleton=main_limb_branches[main_branch],
-                                                                           cut_coordinate = main_limb_stitch_point)
-                #2. do mesh correspondence with the new stitchess
-                stitch_mesh = limb_correspondence_cp[winning_float_match_main_limb][main_branch]["branch_mesh"]
-
-                local_correspondnece = mesh_correspondence_first_pass(mesh=stitch_mesh,
-                                                          skeleton_branches=matching_branch_sk)
-
-                # CLASS-B guard: cutting the main branch + re-correspondence can fail when the cut
-                # leaves a skeleton segment with no connected face patch (resolve_empty_conflicting_
-                # face_labels -> "missing labels was not resolved"). Floating-piece stitching is
-                # best-effort, so skip this piece instead of crashing the whole neuron. Safe to skip
-                # here: nothing has been mutated yet (limb_correspondence_cp is only edited below).
-                # We must mark the piece processed before `continue`, else the while loop reselects
-                # the same winning_float forever.
-                try:
-                    local_correspondence_revised = correspondence_1_to_1(mesh=stitch_mesh,
-                                                                local_correspondence=local_correspondnece)
-                except Exception as _stitch_err:
-                    print(f"[stitch] floating piece {winning_float} -> main limb "
-                          f"{winning_float_match_main_limb} (dist {winning_float_dist:.1f}): cut-branch "
-                          f"re-correspondence failed ({type(_stitch_err).__name__}: {_stitch_err}); "
-                          f"skipping this floating piece")
-                    floating_limbs_to_process = np.setdiff1d(floating_limbs_to_process, [winning_float])
-                    continue
-
-                #3. (just give the both the same old width)
-                old_width = limb_correspondence_cp[winning_float_match_main_limb][main_branch]["width_from_skeleton"]
-                for branch_idx in local_correspondence_revised.keys():
-                    local_correspondence_revised[branch_idx]["width_from_skeleton"] = old_width
-
-                #4. replace the old entry in the limb corresondence with one of the new skeleton cuts
-                #and add on the other skeletons cuts to the end
-                print(f"main_branch = {main_branch}")
-                del limb_correspondence_cp[winning_float_match_main_limb][main_branch]
-
-
-                limb_correspondence_cp[winning_float_match_main_limb][main_branch] = local_correspondence_revised[0]
-                limb_correspondence_cp[winning_float_match_main_limb][np.max(list(limb_correspondence_cp[winning_float_match_main_limb].keys()))+1] = local_correspondence_revised[1]
-                limb_correspondence_cp[winning_float_match_main_limb] = gu.order_dict_by_keys(limb_correspondence_cp[winning_float_match_main_limb])
-
-
-
-            #j) Add a skeletal segment from floating limb stitch point to main limb stitch point
-            skeleton = winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"]
-            adjusted_floating_sk_branch = sk.stack_skeletons([skeleton,np.array([floating_limb_stitch_point,main_limb_stitch_point])])
-            
-#             adjusted_floating_sk_branch = sk.add_and_smooth_segment_to_branch(skeleton,new_seg=np.array([floating_limb_stitch_point,main_limb_stitch_point]),
-#                                                                              resize_mult=0.2,n_resized_cutoff=3)
-
-            winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"] = adjusted_floating_sk_branch
-
-            #k) Add the floating limb branches to the end of the limb correspondence
-            curr_limb_key_len = np.max(list(limb_correspondence_cp[winning_float_match_main_limb].keys()))
-            for float_idx,flaot_data in winning_floating_correspondence.items():
-                limb_correspondence_cp[winning_float_match_main_limb][curr_limb_key_len + 1 + float_idx] = flaot_data
-        
-
-
+        _stitch_floating_piece_into_limb(
+            limb_correspondence_cp, match, winning_floating_correspondence,
+            excluded_node_coordinates, distance_to_move_point_threshold, verbose)
 
         #l) Marks the floating piece as processed
-        floating_limbs_to_process = np.setdiff1d(floating_limbs_to_process,[winning_float])
-        
+        floating_limbs_to_process = np.setdiff1d(floating_limbs_to_process,[match.winning_float])
+
     return limb_correspondence_cp
+
 
 
 
@@ -2430,14 +2483,10 @@ def _overwrite_stitched_entries(ctx):
     #- Delete the old MAP branch parts and replace with new MAP ones
     if not MAP_stitch_point_on_end_or_branch:
         print("Deleting branches from dictionary")
-        del limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]]
-        #adding the two new branches created from the stitching
-        limb_correspondence_MAP[MAP_idx][MAP_branches_with_stitch_point[0]] = local_correspondence_stitch_revised[0]
-        limb_correspondence_MAP[MAP_idx][np.max(list(limb_correspondence_MAP[MAP_idx].keys()))+1] = local_correspondence_stitch_revised[1]
-
-        #have to reorder the keys
-        #limb_correspondence_MAP[MAP_idx] = dict([(k,limb_correspondence_MAP[MAP_idx][k]) for k in np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))])
-        limb_correspondence_MAP[MAP_idx] = gu.order_dict_by_keys(limb_correspondence_MAP[MAP_idx])
+        #replace the split branch with the two new cut halves, reordering keys
+        limb_correspondence_MAP[MAP_idx] = _split_branch_entry(
+            limb_correspondence_MAP[MAP_idx], MAP_branches_with_stitch_point[0],
+            local_correspondence_stitch_revised[0], local_correspondence_stitch_revised[1])
 
     else: #4b) Revise the meshes,  mesh_idx, and widths of the MAP pieces if weren't broken up
         for j,curr_MAP_idx_fixed in enumerate(MAP_pieces_for_correspondence): 
