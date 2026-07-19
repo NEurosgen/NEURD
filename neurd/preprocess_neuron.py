@@ -328,9 +328,24 @@ def correspondence_1_to_1(
     
     if plot:
         plot_correspondence_on_single_mesh(mesh,local_correspondence_revised)
-    
+
     return local_correspondence_revised
 
+
+def _run_mesh_correspondence(mesh, skeleton_branches, **one_to_one_kwargs):
+    """The recurring "first-pass mesh correspondence, then resolve 1-to-1" pair.
+
+    Equivalent to:
+        local = mesh_correspondence_first_pass(mesh=mesh, skeleton_branches=skeleton_branches)
+        return correspondence_1_to_1(mesh=mesh, local_correspondence=local, **one_to_one_kwargs)
+
+    Use only where the intermediate first-pass result is not needed on its own (i.e. it feeds
+    straight into correspondence_1_to_1). Sites that reuse the first-pass result, pass
+    skeleton= instead of skeleton_branches=, or split the two calls across a try boundary keep
+    the explicit two-call form.
+    """
+    local_correspondence = mesh_correspondence_first_pass(mesh=mesh, skeleton_branches=skeleton_branches)
+    return correspondence_1_to_1(mesh=mesh, local_correspondence=local_correspondence, **one_to_one_kwargs)
 
 
 def filter_soma_touching_vertices_dict_by_mesh(mesh,
@@ -1644,15 +1659,10 @@ def _fix_mp_soma_extension(
             sk.check_skeleton_connected_component(sk.stack_skeletons(list(matching_branch_sk) + [br_new]))
 
             #5) Run Adaptive mesh correspondnece using branches and mesh
-            local_correspondnece_MP = mesh_correspondence_first_pass(
-                mesh=extend_soma_mesh,
-                skeleton_branches=list(matching_branch_sk) + [br_new],
-            )
-
             # GETTING MESHES THAT ARE NOT FULLY CONNECTED!!
-            local_correspondence_revised = correspondence_1_to_1(
-                mesh=extend_soma_mesh,
-                local_correspondence=local_correspondnece_MP,
+            local_correspondence_revised = _run_mesh_correspondence(
+                extend_soma_mesh,
+                list(matching_branch_sk) + [br_new],
                 curr_limb_endpoints_must_keep=endpoints_must_keep_MP,
                 curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices_MP,
             )
@@ -2587,10 +2597,8 @@ def _stitch_map_and_mp(
                 raise Exception("MAP_pieces_for_correspondence was longer than 1 and cut flag was set")
             pre_stitch_mesh_idx = curr_MAP_meshes_idx[0]
             pre_stitch_mesh = limb_mesh_mparty.submesh([pre_stitch_mesh_idx],append=True,repair=False)
-            local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=pre_stitch_mesh,
-                                      skeleton_branches=curr_MAP_sk)
-            local_correspondence_stitch_revised_MAP = correspondence_1_to_1(mesh=pre_stitch_mesh,
-                                                        local_correspondence=local_correspondnece_stitch,
+            local_correspondence_stitch_revised_MAP = _run_mesh_correspondence(
+                                                        pre_stitch_mesh, curr_MAP_sk,
                                                         curr_limb_endpoints_must_keep=None,
                                                         curr_soma_to_piece_touching_vertices=None)
 
@@ -2649,11 +2657,8 @@ def _stitch_map_and_mp(
         try:
 
             #3) Run mesh correspondence to get new meshes and mesh_idx and widths
-            local_correspondnece_stitch = mesh_correspondence_first_pass(mesh=stitching_mesh,
-                                          skeleton_branches=stitching_skeleton_branches)
-
-            local_correspondence_stitch_revised = correspondence_1_to_1(mesh=stitching_mesh,
-                                                        local_correspondence=local_correspondnece_stitch,
+            local_correspondence_stitch_revised = _run_mesh_correspondence(
+                                                        stitching_mesh, stitching_skeleton_branches,
                                                         curr_limb_endpoints_must_keep=None,
                                                         curr_soma_to_piece_touching_vertices=None,
                                                         must_keep_labels=must_keep_labels_MAP)
