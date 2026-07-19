@@ -441,57 +441,23 @@ def find_if_stitch_point_on_end_or_branch(matched_branches_skeletons,
 def attach_floating_pieces_to_limb_correspondence(
         limb_correspondence,
         floating_meshes,
-        floating_piece_face_threshold = None,
-        max_stitch_distance=None,
         distance_to_move_point_threshold = 4000,
-    
+        filter_end_node_length_meshparty = 1000,
         verbose = False,
         excluded_node_coordinates=np.array([]),
-        filter_end_node_length = None,
-        filter_end_node_length_meshparty = 1000,
-        use_adaptive_invalidation_d = None,
-        axon_width_preprocess_limb_max = None,
-        limb_remove_mesh_interior_face_threshold = None,
-        error_on_bad_cgal_return = False,
-        max_stitch_distance_CGAL=None,
-        size_threshold_MAP_stitch = None,
-        #invalidation_d = 2000,
-    
-        mp_only_revised_invalidation_d = None,
-        
     **kwargs):
-    
-    if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
-        
-    if max_stitch_distance is None:
-        max_stitch_distance = parameters.params.max_stitch_distance
-        
-    if floating_piece_face_threshold is None:
-        floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
-        
-    if filter_end_node_length is None:
-        filter_end_node_length = parameters.params.filter_end_node_length
-        
-    if axon_width_preprocess_limb_max is None:
-        axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
-        
-    if limb_remove_mesh_interior_face_threshold is None:
-        limb_remove_mesh_interior_face_threshold = parameters.params.limb_remove_mesh_interior_face_threshold
-        
-    if max_stitch_distance_CGAL is None:
-        max_stitch_distance_CGAL = parameters.params.max_stitch_distance_CGAL
-        
-    if size_threshold_MAP_stitch is None:
-        size_threshold_MAP_stitch = parameters.params.size_threshold_MAP_stitch
-        
-    if use_adaptive_invalidation_d is None:
-        use_adaptive_invalidation_d  = parameters.params.use_adaptive_invalidation_d_floating
-        
-    if mp_only_revised_invalidation_d is None:
-        mp_only_revised_invalidation_d = parameters.params.mp_only_revised_invalidation_d
-    
-    
+
+    # Config resolved from parameters.params -- the sole caller (_stitch_floating_pieces)
+    # overrides none of these. Dropped 4 dead params that were resolved-but-never-used:
+    # max_stitch_distance_CGAL, filter_end_node_length,
+    # limb_remove_mesh_interior_face_threshold, error_on_bad_cgal_return.
+    max_stitch_distance = parameters.params.max_stitch_distance
+    floating_piece_face_threshold = parameters.params.floating_piece_face_threshold
+    size_threshold_MAP_stitch = parameters.params.size_threshold_MAP_stitch
+    axon_width_preprocess_limb_max = parameters.params.axon_width_preprocess_limb_max
+    use_adaptive_invalidation_d = parameters.params.use_adaptive_invalidation_d_floating
+    mp_only_revised_invalidation_d = parameters.params.mp_only_revised_invalidation_d
+
     """
     Purpose: To take a limb correspondence and add on the floating pieces
     that are significant and close enough to a limb
