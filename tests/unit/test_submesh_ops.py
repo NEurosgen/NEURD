@@ -127,6 +127,19 @@ def test_split_significant_tie_order_matches_tu():
     assert _fsets([s.root_face_idx() for s in mine]) == _fsets(tu_idx)  # exact order, incl. the a/b tie
 
 
+def test_split_significant_return_insignificant_matches_tu(synth):
+    """return_insignificant=True -> (sig, insig), both vertex-ordered, matching tu's 4-tuple."""
+    thr = 100  # synth 80/320/1280 faces -> sig={1280,320}, insig={80}
+    sig, insig = so.split_significant(synth, thr, return_insignificant=True)
+    tu_sig_m, tu_sig_idx, tu_insig_m, tu_insig_idx = tu.split_significant_pieces(
+        synth, significance_threshold=thr, return_insignificant_pieces=True, return_face_indices=True
+    )
+    assert _fsets([s.root_face_idx() for s in sig]) == _fsets(tu_sig_idx)      # same sig set + order
+    assert _fsets([s.root_face_idx() for s in insig]) == _fsets(tu_insig_idx)  # same insig set + order
+    assert [s.n_faces for s in sig] == [1280, 320]
+    assert [s.n_faces for s in insig] == [80]
+
+
 # --------------------------------------------------------------------------- #
 # largest_component  ==  tu.largest_conn_comp                                  #
 # --------------------------------------------------------------------------- #
