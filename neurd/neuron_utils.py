@@ -786,107 +786,6 @@ def sdf_filter(curr_branch,curr_limb,size_threshold=20,
 # ------------------------------ 9/1 To help with mesh correspondence -----------------------------------------------------#
 
 
-def _dump_adaptive_correspondence_failure(current_neuron, ex_limb, limb_idx, branch_idx,
-                                          branches_for_surround, surround_mesh_faces,
-                                          n_limb_faces, out_dir="/tmp/neurd_diag"):
-    """
-    Forensic capture for the "class A" failure in apply_adaptive_mesh_correspondence_to_neuron:
-    a branch's mesh_face_idx addresses a face that does NOT exist in ex_limb.mesh, so trimesh
-    raises an opaque 'index N out of bounds for axis 0 with size N' deep inside util.submesh.
-
-    Writes everything needed to diagnose OFFLINE (the segmentation run can take >2h, so it must
-    only happen once) and prints a verdict that distinguishes the two candidate root causes:
-      * max index == face count        -> exact fencepost / off-by-one boundary
-      * max index  > face count (by k) -> branch indices built against a different/larger mesh
-    Best-effort only: this function never raises (every step is guarded).
-    """
-    import os, json, time
-    import numpy as _np
-
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-    except Exception:
-        pass
-
-    nid = None
-    for _a in ("segment_id", "description", "name"):
-        nid = getattr(current_neuron, _a, None)
-        if nid:
-            break
-    nid = str(nid) if nid is not None else "unknown"
-    tag = f"classA_{nid}_{limb_idx}_b{branch_idx}_{int(time.time())}"
-    path_base = os.path.join(out_dir, tag)
-
-    # per-branch index stats across the WHOLE limb (not just the surround set)
-    per_branch = {}
-    all_idx_max = -1
-    for k in ex_limb.concept_network.nodes():
-        try:
-            arr = _np.asarray(ex_limb.concept_network.nodes[k]["data"].mesh_face_idx)
-            if arr.size:
-                mn, mx = int(arr.min()), int(arr.max())
-                all_idx_max = max(all_idx_max, mx)
-            else:
-                mn = mx = -1
-            per_branch[int(k)] = dict(n=int(arr.size), min=mn, max=mx,
-                                      oob=int(_np.sum(arr >= n_limb_faces)) if arr.size else 0)
-        except Exception as e:
-            per_branch[int(k)] = dict(error=str(e))
-
-    surround_max = int(surround_mesh_faces.max()) if surround_mesh_faces.size else -1
-    n_oob = int(_np.sum(surround_mesh_faces >= n_limb_faces)) if surround_mesh_faces.size else 0
-    bad_branches = sorted([k for k, v in per_branch.items() if v.get("oob", 0) > 0])
-
-    if surround_max == n_limb_faces:
-        verdict = ("EXACT fencepost: max branch index == limb face count -> off-by-one boundary "
-                   "(branch partition and limb mesh differ by exactly the count).")
-    elif surround_max > n_limb_faces:
-        verdict = (f"max branch index ({surround_max}) EXCEEDS limb face count ({n_limb_faces}) by "
-                   f"{surround_max - n_limb_faces} -> branch mesh_face_idx most likely computed "
-                   f"against a different/larger mesh than ex_limb.mesh.")
-    else:
-        verdict = "no out-of-bounds index detected (unexpected for this code path)."
-
-    summary = dict(neuron=nid, limb=str(limb_idx), branch=int(branch_idx),
-                   n_limb_faces=int(n_limb_faces),
-                   n_branches=int(ex_limb.concept_network.number_of_nodes()),
-                   surround_n=int(surround_mesh_faces.size), surround_max=surround_max,
-                   surround_n_oob=n_oob, all_branch_idx_max=int(all_idx_max),
-                   bad_branches=bad_branches, verdict=verdict, per_branch=per_branch)
-
-    print("\n" + "=" * 80)
-    print(f"[CLASS-A FORENSIC] neuron {nid}  limb {limb_idx}  branch {branch_idx}")
-    print(f"  ex_limb.mesh faces      : {n_limb_faces}")
-    print(f"  surround max face index : {surround_max}   (#OOB = {n_oob}/{surround_mesh_faces.size})")
-    print(f"  max index over ALL branches of this limb : {all_idx_max}")
-    print(f"  offending branches      : {bad_branches}")
-    print(f"  VERDICT: {verdict}")
-    print(f"  dump -> {path_base}.{{json,npz,_limbmesh.off}}")
-    print("=" * 80 + "\n")
-
-    try:
-        with open(path_base + ".json", "w") as f:
-            json.dump(summary, f, indent=2)
-    except Exception as e:
-        print(f"[CLASS-A FORENSIC] json dump failed: {e}")
-    try:
-        _np.savez_compressed(
-            path_base + ".npz",
-            surround_mesh_faces=surround_mesh_faces,
-            branches_for_surround=_np.asarray(list(branches_for_surround)),
-            **{f"branch_{int(k)}_face_idx":
-                   _np.asarray(ex_limb.concept_network.nodes[k]["data"].mesh_face_idx)
-               for k in ex_limb.concept_network.nodes()})
-    except Exception as e:
-        print(f"[CLASS-A FORENSIC] npz dump failed: {e}")
-    try:
-        ex_limb.mesh.export(path_base + "_limbmesh.off")
-    except Exception as e:
-        print(f"[CLASS-A FORENSIC] limb mesh export failed: {e}")
-
-    return path_base
-
-
 def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
                                                 apply_sdf_filter=False,
                                                 n_std_dev=1):
@@ -918,20 +817,16 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
                 # CLASS-A guard: surround_mesh_faces must address ex_limb.mesh. When a branch's
                 # mesh_face_idx has desynced from the limb mesh, trimesh raises an opaque
                 # 'index N is out of bounds for axis 0 with size N' deep inside util.submesh.
-                # Capture forensics (the >2h run only happens once) and raise a self-explanatory
-                # error that names the limb/branch and the exact mismatch. NOT a watertight issue.
+                # Raise a self-explanatory error that names the limb/branch and the exact
+                # mismatch. NOT a watertight issue.
                 _n_limb_faces = len(ex_limb.mesh.faces)
                 if surround_mesh_faces.size and int(surround_mesh_faces.max()) >= _n_limb_faces:
-                    _dump_path = _dump_adaptive_correspondence_failure(
-                        current_neuron, ex_limb, limb_idx, branch_idx,
-                        branches_for_surround, surround_mesh_faces, _n_limb_faces)
                     raise IndexError(
                         f"[adaptive correspondence] limb {limb_idx} branch {branch_idx}: branch "
                         f"mesh_face_idx references face {int(surround_mesh_faces.max())} but "
                         f"ex_limb.mesh has only {_n_limb_faces} faces -- the per-branch face "
                         f"partition has desynced from the limb mesh (this is an index-bookkeeping "
-                        f"problem, NOT a mesh-quality/watertight one). "
-                        f"Forensics: {_dump_path}.{{json,npz,_limbmesh.off}}")
+                        f"problem, NOT a mesh-quality/watertight one).")
 
                 surrounding_mesh = ex_limb.mesh.submesh([surround_mesh_faces],append=True,repair=False)
 
