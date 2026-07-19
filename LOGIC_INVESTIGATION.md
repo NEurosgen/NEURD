@@ -15,6 +15,34 @@ gradually. Working branch: `refactor/simplify-preprocess-logic`; safe checkpoint
 Non-goals (for now): rewriting logic, merging functions, performance. Behavior stays anchored by the
 golden harness (small-h01 + `1830470325`) on every future change.
 
+## Executive summary (2026-07-19 — Areas A–E swept, no code changed)
+
+**Goal 1 — minimize the unreliable `mesh_tools`:** the fragile surface is small and mapped (Area E
+contract table): **6 calls** in `cu`/`m_sk` (+1 `sk` CGAL). The **only non-determinism in the entire
+pipeline** is one line — the waterfill `np.random` tie-break at `compartment_utils:1187` inside
+`resolve_empty_conflicting_face_labels`. A thin adapter around those 6 (uniform empty/failure contract)
+would isolate every fragile interaction in one file, and is the natural plug-in point for a library swap
+(skeletor / meshparty-native map / CGAL correspondence). The 60+ `sk`/`tu` skeleton primitives are stable
+and not the problem. (We can only *isolate* — `mesh_tools` is a sibling package, edited upstream.)
+
+**Goal 2 — tame re-calls / branches / exceptions:** measured, several suspected hotspots are **non-problems**:
+- Skeletonization "cycle" (Area B) is a bounded **≤2-pass** adaptive, not a loop → no unbounded re-calls.
+- Concept-network branching (Area D) is a **build + 4-check validation battery**, not tangled logic.
+- The floating selection loop's O(N²·L) rebuild (Area C) is **1.5 %** of time → ignore.
+- The correspondence "double-call" retry (Area A) **never fires** (0/341 branches) — dead by geometry.
+
+The **real** re-call cost is the floating-piece **decomposition**: `preprocess_limb` runs on every
+above-threshold piece (128 on the big H01), and ~**40 % are decomposed then dropped** as too-far. But that
+waste is **structural** (decomposition reveals chain connectivity) and the one safe way to cut it — a
+cheap connectivity pre-filter — **saves 40 % on thin-piece H01 but 0 % on fat-piece minnie65** (Q7/Q9/Q10),
+so it's shelved.
+
+**Actionable takeaways:** (a) the outer correspondence double-call is safely removable (prefer `base_kwargs`
+dedup, keep the net); (b) a `mesh_tools` adapter seam is well-specified if isolation/determinism is wanted;
+(c) most of this file's branching is load-bearing validation, not cruft — consistent with the earlier
+finding that deep branch-reduction has poor risk/reward. **Net: no large safe logic win found; the value
+was ruling out tempting-but-unsafe changes with measurement before writing code.**
+
 ---
 
 ## Pipeline map (top-level call tree)
@@ -423,10 +451,28 @@ we're trying to avoid. Idea not dead, but needs a cheap centerline proxy (PCA/me
 revisiting. **Value of Q10:** the tempting single-neuron Q9 result (a "40 % slam-dunk") was correctly
 caught as non-general *before any code was written* — the whole point of this investigation phase.
 
-### Area D — Concept network + starting-info
-`calculate_limb_concept_networks` (if=9) + `_clean/_rearrange_network_starting_info`.
-Most branch-dense; builds the limb graph from starting coordinates.
-- Open: which branches fire on real data; is the starting-info massaged redundantly across the two fns?
+### Area D — Concept network + starting-info  ✅ (static read, 2026-07-19)
+`calculate_limb_concept_networks` (if=9, raise=4) + `_clean/_rearrange_network_starting_info`.
+
+**Finding — the branch-density is a VALIDATION battery, not tangled logic.** `calculate_limb_concept_networks`
+([:801]) is structurally simple: for each `soma_idx` → each soma-group starting point:
+1. find the must-keep start branch (`sk.find_branch_skeleton_with_specific_coordinate`);
+2. **build** the concept network — one call to `nru.branches_to_concept_network(...)` (the real work,
+   in **neuron_utils**, NEURD-owned, *not* mesh_tools);
+3. **validate** (gated by `run_concept_network_checks`): 3.1 start piece recovered, 3.2 #nodes == #branches,
+   3.3 single connected component, 3.4 per-branch endpoints match — **4 of the 4 `raise`s are these
+   defensive checks.** So the "huge branching" is an **assertion suite around a single build call**, not
+   control-flow-by-exception. No re-calling loop; bounded by (n_somas × soma-groups) — tiny for the
+   single-soma target. The whole check battery is switchable off (`run_concept_network_checks=False`).
+
+⇒ Not a re-call / complexity hotspot. If one wanted fewer branches here, the lever is factoring the 4
+checks into a `_validate_concept_network(...)` helper (cosmetic, low value) — the logic itself is a clean
+build+verify. The concept-network *construction* complexity lives in `nru.branches_to_concept_network`
+(a separate neuron_utils study, out of this file's scope).
+
+**Secondary (not deep-dived):** `_clean/_rearrange_network_starting_info` (for=4, if=6-7 each) prepare
+`network_starting_info` before this; open sub-Q (low priority): do the two massage it redundantly? — a
+targeted read if starting-info ever becomes suspect.
 
 ### Area E — mesh_tools dependency seam (cross-cutting)  ✅ (contract table, 2026-07-19, static read)
 The isolation target from Finding 2 — serves "minimize mesh_tools". Contract of the ~6 unreliable calls
@@ -526,4 +572,8 @@ The isolation target from Finding 2 — serves "minimize mesh_tools". Contract o
 - 2026-07-19: **Area E contract table (static).** Documented the 6 unreliable mesh_tools calls'
   in/out/empty/failure/determinism. Only non-determinism = waterfill `np.random` @ compartment_utils:1187
   (in `resolve_empty_conflicting_face_labels`); rest deterministic. Adapter seam = those 6 calls in
-  cu/m_sk (+1 sk CGAL). Areas A/C/B/E done; open = Area D (concept-network branching) only.
+  cu/m_sk (+1 sk CGAL).
+- 2026-07-19: **Area D (static).** `calculate_limb_concept_networks` branch-density is a build (one
+  `nru.branches_to_concept_network`) + a 4-check validation battery (gated) — not tangled logic, no
+  re-call loop. Concept-network construction complexity is in neuron_utils (out of file scope).
+  **All areas A–E swept; see Executive summary. No code changed.**
