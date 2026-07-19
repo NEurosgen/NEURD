@@ -2083,6 +2083,186 @@ def _decompose_map_sublimbs(
     return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
 
 
+def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_point,
+                             meshparty_segment_size):
+    """Reroute a branch skeleton's stitch endpoint to `target_point`, smoothed.
+
+    Convert the branch to a graph, drop the node at `remove_point`, add + smooth a segment
+    from the kept neighbour to `target_point` (or, when the graph collapses to <=1 node, a
+    straight segment to `else_point`), then resize to `meshparty_segment_size`. `else_point`
+    is a separate arg only to preserve a pre-existing asymmetry at the Part-14 call site;
+    normally it equals `target_point`.
+    """
+    MP_stitch_branch_graph = sk.convert_skeleton_to_graph(branch_skeleton)
+    stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph, dict(coordinates=remove_point))[0]
+    stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph, stitch_node)
+    if len(stitch_neighbors) != 1:
+        raise Exception("Not just one neighbor for stitch point of MP branch")
+    keep_neighbor = stitch_neighbors[0]
+    keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph, node_list=[keep_neighbor])[0]
+    MP_stitch_branch_graph.remove_node(stitch_node)
+    try:
+        if len(MP_stitch_branch_graph) > 1:
+            new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
+                                            skeleton_stitch_point=keep_neighbor_coordinates,
+                                             new_stitch_point=target_point)
+        else:
+            print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
+            new_MP_skeleton = np.vstack([keep_neighbor_coordinates, else_point]).reshape(-1, 2, 3)
+    except:
+        su.compressed_pickle(MP_stitch_branch_graph, "MP_stitch_branch_graph")
+        su.compressed_pickle(keep_neighbor_coordinates, "keep_neighbor_coordinates")
+        su.compressed_pickle(target_point, "target_point")
+        raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
+    return sk.resize_skeleton_branch(new_MP_skeleton, segment_width=meshparty_segment_size)
+
+
+def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP,
+                           min_distance_threshold, move_MAP_stitch_to_end_or_branch,
+                           distance_to_move_point_threshold, total_keep_endpoints):
+    """Find the MAP-side stitch point for one MP<->MAP connection.
+
+    Picks the MAP skeleton point closest to the connection centroid whose branch mesh actually
+    touches the border vertices, optionally snapped to a nearby end/branch node. Returns
+    (MAP_stitch_point, MAP_stitch_point_on_end_or_branch, MAP_branches_with_stitch_point,
+    MAP_pieces_idx_touching_border).
+    """
+    # -------------- 11/9 NEW METHOD FOR FINDING MAP STITCH POINT ------------ #
+    # (finds a MAP stitch point whose branch mesh actually touches the border vertices)
+    o_keys = np.sort(list(map_correspondence.keys()))
+    curr_MAP_branch_meshes = np.array([map_correspondence[k]["branch_mesh"]
+                                     for k in o_keys])
+    curr_MAP_branch_skeletons = np.array([map_correspondence[k]["branch_skeleton"]
+                                     for k in o_keys])
+
+    MAP_pieces_idx_touching_border = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MAP_branch_meshes,
+                                   nullifying_points=v_g,
+                                    filter_away=False,
+                                   distance_threshold=min_distance_threshold,
+                                   return_indices=True)
+
+    MAP_branches_considered = curr_MAP_branch_skeletons[MAP_pieces_idx_touching_border]
+    curr_skeleton_MAP_for_stitch = sk.stack_skeletons(MAP_branches_considered)
+
+    #3) Find the closest skeletal point on MAP pairing (MAP stitch)
+    MAP_skeleton_coords = np.unique(curr_skeleton_MAP_for_stitch.reshape(-1,3),axis=0)
+
+
+    MAP_stitch_point = MAP_skeleton_coords[np.argmin(np.linalg.norm(MAP_skeleton_coords-av_vert,axis=1))]
+
+    # --------- 11/13: Making so could possibly stitch to another point that was already stitched to
+    curr_br_endpts = np.array([sk.find_branch_endpoints(k) for k in MAP_branches_considered]).reshape(-1,3)
+    curr_br_endpts_unique = np.unique(curr_br_endpts,axis=0)
+
+
+
+    #3b) Consider if the stitch point is close enough to end or branch node in skeleton:
+    # and if so then reassign
+    if move_MAP_stitch_to_end_or_branch:
+        MAP_stitch_point_new,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
+                                                skeleton=curr_skeleton_MAP,
+                                                coordinate=MAP_stitch_point,
+                                                distance_to_move_point_threshold = distance_to_move_point_threshold,
+                                                verbose=False,
+                                                possible_node_coordinates=curr_br_endpts_unique,
+                                                excluded_node_coordinates=total_keep_endpoints,
+                                                )
+        MAP_stitch_point=MAP_stitch_point_new
+
+
+    #4) Find the branches that have that MAP stitch point:
+
+    MAP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
+        divded_skeleton=curr_MAP_branch_skeletons,
+        current_coordinate = MAP_stitch_point
+    )
+
+
+
+    MAP_stitch_point_on_end_or_branch = False
+    if len(MAP_branches_with_stitch_point)>1:
+        MAP_stitch_point_on_end_or_branch = True
+    elif len(MAP_branches_with_stitch_point)==1:
+        if len(nu.matching_rows(sk.find_branch_endpoints(curr_MAP_branch_skeletons[MAP_branches_with_stitch_point[0]]),
+                                MAP_stitch_point))>0:
+            MAP_stitch_point_on_end_or_branch=True
+    else:
+        raise Exception("No matching MAP values")
+    return (MAP_stitch_point, MAP_stitch_point_on_end_or_branch,
+            MAP_branches_with_stitch_point, MAP_pieces_idx_touching_border)
+
+
+def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, min_distance_threshold,
+                          prevent_MP_starter_branch_stitches, total_keep_endpoints,
+                          all_map_stitch_points):
+    """Find the MP-side stitch point (winning_vertex) for one MP<->MAP connection.
+
+    Restricts to MP branch meshes touching the border, picks the endpoint closest to the
+    connection centroid, finds the branch(es) carrying it, and flags keep_MP_stitch_static when
+    that vertex was already used as a MAP stitch point. Returns (winning_vertex,
+    MP_branches_with_stitch_point, keep_MP_stitch_static, conn, curr_MP_branch_skeletons).
+    """
+    ord_keys = np.sort(list(mp_correspondence.keys()))
+    curr_MP_branch_meshes = [mp_correspondence[k]["branch_mesh"] for k in ord_keys]
+
+
+
+
+    # 11/9 Addition: New way that filters meshes by their touching of the vertex connection group (this could possibly be an empty group)
+    conn = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MP_branch_meshes,
+                                   nullifying_points=v_g,
+                                    filter_away=False,
+                                   distance_threshold=min_distance_threshold,
+                                   return_indices=True)
+
+    if len(conn) == 0:
+        print("Connectivity was 0 for the MP mesh groups touching the vertex group so not restricting by that anymore")
+        sk_conn = np.arange(0,len(curr_MP_branch_meshes))
+    else:
+        sk_conn = conn
+
+    print(f"sk_conn = {sk_conn}")
+    print(f"conn = {conn}")
+
+
+    #1) Get the endpoint vertices of the MP skeleton branches (so every endpoint or high degree node)
+    #(needs to be inside loop because limb correspondence will change)
+    curr_MP_branch_skeletons = [mp_correspondence[k]["branch_skeleton"] for k in sk_conn]
+    endpoint_nodes_coordinates = np.array([sk.find_branch_endpoints(k) for k in curr_MP_branch_skeletons])
+    endpoint_nodes_coordinates = np.unique(endpoint_nodes_coordinates.reshape(-1,3),axis=0)
+
+    """ ---------- 1 /5: Take out the possible endpoints --------------------"""
+    if prevent_MP_starter_branch_stitches:
+        endpoint_nodes_coordinates = nu.setdiff2d(endpoint_nodes_coordinates,total_keep_endpoints)
+
+
+    #2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
+
+    winning_vertex = endpoint_nodes_coordinates[np.argmin(np.linalg.norm(endpoint_nodes_coordinates-av_vert,axis=1))]
+    print(f"winning_vertex = {winning_vertex}")
+
+
+    #2b) Find the branch points where the winning vertex is located
+    curr_MP_branch_skeletons = [mp_correspondence[k]["branch_skeleton"] for k in np.sort(list(mp_correspondence.keys()))]
+    MP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
+        divded_skeleton=curr_MP_branch_skeletons,
+        current_coordinate = winning_vertex
+    )
+    print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
+
+
+
+
+
+    # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
+    if len(nu.matching_rows(np.array(all_map_stitch_points),winning_vertex)) > 0:
+        keep_MP_stitch_static = True
+    else:
+        keep_MP_stitch_static = False
+    return (winning_vertex, MP_branches_with_stitch_point, keep_MP_stitch_static,
+            conn, curr_MP_branch_skeletons)
+
+
 def _stitch_map_and_mp(
     limb_correspondence_MAP,
     limb_correspondence_MP,
@@ -2167,134 +2347,21 @@ def _stitch_map_and_mp(
         av_vert = np.mean(v_g,axis=0)
 
         # ---------------- Doing the MAP part first -------------- #
-        # -------------- 11/9 NEW METHOD FOR FINDING MAP STITCH POINT ------------ #
-        # (finds a MAP stitch point whose branch mesh actually touches the border vertices)
-        o_keys = np.sort(list(limb_correspondence_MAP[MAP_idx].keys()))
-        curr_MAP_branch_meshes = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_mesh"]
-                                         for k in o_keys])
-        curr_MAP_branch_skeletons = np.array([limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"]
-                                         for k in o_keys])
-
-        MAP_pieces_idx_touching_border = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MAP_branch_meshes,
-                                       nullifying_points=v_g,
-                                        filter_away=False,
-                                       distance_threshold=min_distance_threshold,
-                                       return_indices=True)
-
-        MAP_branches_considered = curr_MAP_branch_skeletons[MAP_pieces_idx_touching_border]
-        curr_skeleton_MAP_for_stitch = sk.stack_skeletons(MAP_branches_considered)
-
-        #3) Find the closest skeletal point on MAP pairing (MAP stitch)
-        MAP_skeleton_coords = np.unique(curr_skeleton_MAP_for_stitch.reshape(-1,3),axis=0)
-
-
-        MAP_stitch_point = MAP_skeleton_coords[np.argmin(np.linalg.norm(MAP_skeleton_coords-av_vert,axis=1))]
-
-        # --------- 11/13: Making so could possibly stitch to another point that was already stitched to
-        curr_br_endpts = np.array([sk.find_branch_endpoints(k) for k in MAP_branches_considered]).reshape(-1,3)
-        curr_br_endpts_unique = np.unique(curr_br_endpts,axis=0)
-
-
-
-        #3b) Consider if the stitch point is close enough to end or branch node in skeleton:
-        # and if so then reassign
-        if move_MAP_stitch_to_end_or_branch:
-            MAP_stitch_point_new,change_status = sk.move_point_to_nearest_branch_end_point_within_threshold(
-                                                    skeleton=curr_skeleton_MAP,
-                                                    coordinate=MAP_stitch_point,
-                                                    distance_to_move_point_threshold = distance_to_move_point_threshold,
-                                                    verbose=False,
-                                                    possible_node_coordinates=curr_br_endpts_unique,
-                                                    excluded_node_coordinates=total_keep_endpoints,
-                                                    )
-            MAP_stitch_point=MAP_stitch_point_new
-
-
-        #4) Find the branches that have that MAP stitch point:
-
-        MAP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
-            divded_skeleton=curr_MAP_branch_skeletons,
-            current_coordinate = MAP_stitch_point
-        )
-
-
-
-        MAP_stitch_point_on_end_or_branch = False
-        if len(MAP_branches_with_stitch_point)>1:
-            MAP_stitch_point_on_end_or_branch = True
-        elif len(MAP_branches_with_stitch_point)==1:
-            if len(nu.matching_rows(sk.find_branch_endpoints(curr_MAP_branch_skeletons[MAP_branches_with_stitch_point[0]]),
-                                    MAP_stitch_point))>0:
-                MAP_stitch_point_on_end_or_branch=True
-        else:
-            raise Exception("No matching MAP values")
-
-        #add the map stitch point to the history
-        all_map_stitch_points.append(MAP_stitch_point)
+        (MAP_stitch_point, MAP_stitch_point_on_end_or_branch,
+         MAP_branches_with_stitch_point, MAP_pieces_idx_touching_border) = _find_map_stitch_point(
+            limb_correspondence_MAP[MAP_idx], v_g, av_vert, curr_skeleton_MAP,
+            min_distance_threshold, move_MAP_stitch_to_end_or_branch,
+            distance_to_move_point_threshold, total_keep_endpoints)
+        all_map_stitch_points.append(MAP_stitch_point)  # add the map stitch point to the history
 
         # ---------------- Doing the MP Part --------------------- #
-
-
-
-        ord_keys = np.sort(list(limb_correspondence_MP[MP_idx].keys()))
-        curr_MP_branch_meshes = [limb_correspondence_MP[MP_idx][k]["branch_mesh"] for k in ord_keys]
-
-
-
-
-        # 11/9 Addition: New way that filters meshes by their touching of the vertex connection group (this could possibly be an empty group)
-        conn = tu.filter_meshes_by_containing_coordinates(mesh_list=curr_MP_branch_meshes,
-                                       nullifying_points=v_g,
-                                        filter_away=False,
-                                       distance_threshold=min_distance_threshold,
-                                       return_indices=True)
-
-        if len(conn) == 0:
-            print("Connectivity was 0 for the MP mesh groups touching the vertex group so not restricting by that anymore")
-            sk_conn = np.arange(0,len(curr_MP_branch_meshes))
-        else:
-            sk_conn = conn
-
-        print(f"sk_conn = {sk_conn}")
-        print(f"conn = {conn}")
-
-
-        #1) Get the endpoint vertices of the MP skeleton branches (so every endpoint or high degree node)
-        #(needs to be inside loop because limb correspondence will change)
-        curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in sk_conn]
-        endpoint_nodes_coordinates = np.array([sk.find_branch_endpoints(k) for k in curr_MP_branch_skeletons])
-        endpoint_nodes_coordinates = np.unique(endpoint_nodes_coordinates.reshape(-1,3),axis=0)
-
-        """ ---------- 1 /5: Take out the possible endpoints --------------------"""
-        if prevent_MP_starter_branch_stitches:
-            endpoint_nodes_coordinates = nu.setdiff2d(endpoint_nodes_coordinates,total_keep_endpoints)
-
-
-        #2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
-
-        winning_vertex = endpoint_nodes_coordinates[np.argmin(np.linalg.norm(endpoint_nodes_coordinates-av_vert,axis=1))]
-        print(f"winning_vertex = {winning_vertex}")
-
-
-        #2b) Find the branch points where the winning vertex is located
-        curr_MP_branch_skeletons = [limb_correspondence_MP[MP_idx][k]["branch_skeleton"] for k in np.sort(list(limb_correspondence_MP[MP_idx].keys()))]
-        MP_branches_with_stitch_point = sk.find_branch_skeleton_with_specific_coordinate(
-            divded_skeleton=curr_MP_branch_skeletons,
-            current_coordinate = winning_vertex
-        )
-        print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
-
-
+        (winning_vertex, MP_branches_with_stitch_point, keep_MP_stitch_static,
+         conn, curr_MP_branch_skeletons) = _find_mp_stitch_point(
+            limb_correspondence_MP[MP_idx], v_g, av_vert, min_distance_threshold,
+            prevent_MP_starter_branch_stitches, total_keep_endpoints, all_map_stitch_points)
 
         print(f"MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
         print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
-
-
-        # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
-        if len(nu.matching_rows(np.array(all_map_stitch_points),winning_vertex)) > 0:
-            keep_MP_stitch_static = True
-        else:
-            keep_MP_stitch_static = False
 
 
 
@@ -2306,44 +2373,11 @@ def _stitch_map_and_mp(
         curr_MP_sk = []
         for b_idx in MP_branches_with_stitch_point:
             if not keep_MP_stitch_static:
-                #a) Get neighbor coordinates to MP stitch points
-                MP_stitch_branch_graph = sk.convert_skeleton_to_graph(curr_MP_branch_skeletons[b_idx])
-                stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=winning_vertex))[0]
-                stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
-
-                if len(stitch_neighbors) != 1:
-                    raise Exception("Not just one neighbor for stitch point of MP branch")
-                keep_neighbor = stitch_neighbors[0]  
-                keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
-
-                #b) Delete the MP Stitch points on each 
-                MP_stitch_branch_graph.remove_node(stitch_node)
-
-                try:
-                    if len(MP_stitch_branch_graph)>1:
-                        new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
-                                                        skeleton_stitch_point=keep_neighbor_coordinates,
-                                                         new_stitch_point=MAP_stitch_point)
-                    else:
-                        print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
-                        new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
-                except:
-                    su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
-                    su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
-                    su.compressed_pickle(MAP_stitch_point,"MAP_stitch_point")
-
-
-                    raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
-
-
-
-
-
-                #smooth over the new skeleton
-                new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
-                                                                  segment_width=meshparty_segment_size)
-
-                curr_MP_sk.append(new_MP_skeleton_smooth)
+                # reroute the MP branch so its winning_vertex endpoint extends to MAP_stitch_point
+                curr_MP_sk.append(_reroute_branch_endpoint(
+                    curr_MP_branch_skeletons[b_idx],
+                    remove_point=winning_vertex, target_point=MAP_stitch_point,
+                    else_point=MAP_stitch_point, meshparty_segment_size=meshparty_segment_size))
             else:
                 print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
                 curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
@@ -2386,44 +2420,13 @@ def _stitch_map_and_mp(
         if keep_MP_stitch_static:
             curr_MAP_sk_final = []
             for map_skel in curr_MAP_sk:
-                #a) Get neighbor coordinates to MP stitch points
-                MP_stitch_branch_graph = sk.convert_skeleton_to_graph(map_skel)
-                stitch_node = xu.get_nodes_with_attributes_dict(MP_stitch_branch_graph,dict(coordinates=MAP_stitch_point))[0]
-                stitch_neighbors = xu.get_neighbors(MP_stitch_branch_graph,stitch_node)
-
-                if len(stitch_neighbors) != 1:
-                    raise Exception("Not just one neighbor for stitch point of MP branch")
-                keep_neighbor = stitch_neighbors[0]  
-                keep_neighbor_coordinates = xu.get_node_attributes(MP_stitch_branch_graph,node_list=[keep_neighbor])[0]
-
-                #b) Delete the MP Stitch points on each 
-                MP_stitch_branch_graph.remove_node(stitch_node)
-
-                try:
-                    if len(MP_stitch_branch_graph)>1:
-                        new_MP_skeleton = sk.add_and_smooth_segment_to_branch(skeleton=sk.convert_graph_to_skeleton(MP_stitch_branch_graph),
-                                                        skeleton_stitch_point=keep_neighbor_coordinates,
-                                                         new_stitch_point=winning_vertex)
-                    else:
-                        print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
-                        new_MP_skeleton = np.vstack([keep_neighbor_coordinates,MAP_stitch_point]).reshape(-1,2,3)
-                except:
-                    su.compressed_pickle(MP_stitch_branch_graph,"MP_stitch_branch_graph")
-                    su.compressed_pickle(keep_neighbor_coordinates,"keep_neighbor_coordinates")
-                    su.compressed_pickle(winning_vertex,"winning_vertex")
-
-
-                    raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
-
-
-
-
-
-                #smooth over the new skeleton
-                new_MP_skeleton_smooth = sk.resize_skeleton_branch(new_MP_skeleton,
-                                                                  segment_width=meshparty_segment_size)
-
-                curr_MAP_sk_final.append(new_MP_skeleton_smooth)
+                # else_point=MAP_stitch_point preserves this block's pre-existing asymmetry (target
+                # is winning_vertex but the <=1-node fallback uses MAP_stitch_point) -- kept byte-
+                # identical here; the suspected bug is fixed in a separate commit.
+                curr_MAP_sk_final.append(_reroute_branch_endpoint(
+                    map_skel,
+                    remove_point=MAP_stitch_point, target_point=winning_vertex,
+                    else_point=MAP_stitch_point, meshparty_segment_size=meshparty_segment_size))
             curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
 
 
