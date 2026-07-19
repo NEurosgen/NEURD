@@ -137,17 +137,27 @@ def split(mesh, connectivity="vertices"):
     return [SubMesh(_submesh(mesh, comps[i]), comps[i], mesh) for i in order]
 
 
-def split_significant(mesh, min_faces, connectivity="vertices"):
-    """Components with ``>= min_faces`` faces, ordered largest-first by VERTEX count.
+def _order_by_vertices_desc(pieces):
+    """Largest-first by VERTEX count, matching tu's stable-ascending-then-reversed tiebreak
+    (``sorted(...)[::-1]``) so the order is byte-identical even when pieces tie on vertex count."""
+    order = sorted(range(len(pieces)), key=lambda i: len(pieces[i].mesh.vertices))[::-1]
+    return [pieces[i] for i in order]
 
-    Mirrors ``tu.split_significant_pieces``: it filters on face count but re-sorts the
-    survivors by ``len(vertices)`` (not faces), using the SAME stable-ascending-then-reversed
-    tiebreak as ``tu`` (``sorted(...)[::-1]``) so the order is byte-identical even when pieces
-    tie on vertex count -- required for a faithful drop-in replacement.
+
+def split_significant(mesh, min_faces, connectivity="vertices", return_insignificant=False):
+    """Components split by a ``min_faces`` face-count threshold, each group largest-first by VERTEX count.
+
+    Mirrors ``tu.split_significant_pieces``: it filters on face count but orders survivors by
+    ``len(vertices)`` (not faces). With ``return_insignificant=True`` returns ``(significant,
+    insignificant)`` -- both lists of ``SubMesh``, each vertex-ordered -- mirroring
+    ``tu.split_significant_pieces(return_insignificant_pieces=True)``.
     """
-    keep = [s for s in split(mesh, connectivity) if s.n_faces >= min_faces]
-    order = sorted(range(len(keep)), key=lambda i: len(keep[i].mesh.vertices))[::-1]
-    return [keep[i] for i in order]
+    pieces = split(mesh, connectivity)
+    significant = _order_by_vertices_desc([s for s in pieces if s.n_faces >= min_faces])
+    if not return_insignificant:
+        return significant
+    insignificant = _order_by_vertices_desc([s for s in pieces if s.n_faces < min_faces])
+    return significant, insignificant
 
 
 def largest_component(mesh, connectivity="vertices"):
