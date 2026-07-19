@@ -141,11 +141,13 @@ def split_significant(mesh, min_faces, connectivity="vertices"):
     """Components with ``>= min_faces`` faces, ordered largest-first by VERTEX count.
 
     Mirrors ``tu.split_significant_pieces``: it filters on face count but re-sorts the
-    survivors by ``len(vertices)`` (not faces).
+    survivors by ``len(vertices)`` (not faces), using the SAME stable-ascending-then-reversed
+    tiebreak as ``tu`` (``sorted(...)[::-1]``) so the order is byte-identical even when pieces
+    tie on vertex count -- required for a faithful drop-in replacement.
     """
     keep = [s for s in split(mesh, connectivity) if s.n_faces >= min_faces]
-    keep.sort(key=lambda s: len(s.mesh.vertices), reverse=True)
-    return keep
+    order = sorted(range(len(keep)), key=lambda i: len(keep[i].mesh.vertices))[::-1]
+    return [keep[i] for i in order]
 
 
 def largest_component(mesh, connectivity="vertices"):

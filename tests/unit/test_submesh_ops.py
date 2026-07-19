@@ -110,6 +110,23 @@ def test_split_significant_matches_tu_real(real):
     assert set(_fsets([s.root_face_idx() for s in mine])) == set(_fsets(tu_idx))  # same kept set
 
 
+def test_split_significant_tie_order_matches_tu():
+    """Two identical pieces tie on vertex count -> order must match tu EXACTLY (sorted[::-1]).
+
+    Guards the faithful-drop-in tiebreak: with a plain `sort(reverse=True)` the tie would order
+    the opposite way to tu, breaking byte-identity for the Phase-1 migration.
+    """
+    a = trimesh.creation.icosphere(subdivisions=2)  # 320 faces / 162 verts
+    b = trimesh.creation.icosphere(subdivisions=2)  # identical -> ties with `a`
+    c = trimesh.creation.icosphere(subdivisions=1)  # 80 faces (distinct)
+    b.apply_translation([5.0, 0.0, 0.0])
+    c.apply_translation([10.0, 0.0, 0.0])
+    mesh = tu.combine_meshes([a, b, c])
+    mine = so.split_significant(mesh, 1)
+    _, tu_idx = tu.split_significant_pieces(mesh, significance_threshold=1, return_face_indices=True)
+    assert _fsets([s.root_face_idx() for s in mine]) == _fsets(tu_idx)  # exact order, incl. the a/b tie
+
+
 # --------------------------------------------------------------------------- #
 # largest_component  ==  tu.largest_conn_comp                                  #
 # --------------------------------------------------------------------------- #
