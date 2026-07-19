@@ -17,24 +17,7 @@ from datasci_tools import general_utils as gu
 #for meshparty preprocessing
 
 
-
-
-
 process_version = 10 #no skeleton jumping hopefully
-
-#from neuron_utils import *
-
-
-
-# else:
-#     combine_close_skeleton_nodes_threshold_meshparty_axon = 1300
-#     filter_end_node_length_meshparty_axon = 1500
-#     filter_end_node_length_axon = 1500
-#     invalidation_d_axon = 2000
-#     smooth_neighborhood_axon = 1
-    
-    
-
 
 
 min_distance_threshold = 0.00001
@@ -51,8 +34,6 @@ check_correspondence_branches = True
 #--------------- default arguments to use ----------#
 
         
-
-    
 def mesh_correspondence_first_pass(
     mesh,
     skeleton=None,
@@ -122,13 +103,6 @@ def mesh_correspondence_first_pass(
         curr_branch_face_correspondence, width_from_skeleton = returned_data
         
             
-#             print(f"curr_branch_sk.shape = {curr_branch_sk.shape}")
-#             np.savez("saved_skeleton_branch.npz",curr_branch_sk=curr_branch_sk)
-#             tu.write_neuron_off(curr_limb_mesh,"curr_limb_mesh.off")
-#             #print(f"returned_data = {returned_data}")
-#             raise Exception(f"The output from mesh_correspondence_adaptive_distance was nothing: curr_branch_face_correspondence")
-
-
         if len(curr_branch_face_correspondence) > 0:
             curr_submesh = curr_limb_mesh.submesh([list(curr_branch_face_correspondence)],append=True,repair=False)
         else:
@@ -144,7 +118,6 @@ def mesh_correspondence_first_pass(
     if plot:
         plot_correspondence(mesh,local_correspondence)
     return local_correspondence
-
 
 
 def check_skeletonization_and_decomp(
@@ -214,8 +187,6 @@ def check_skeletonization_and_decomp(
         raise Exception(f"Found empyt meshes after branch mesh correspondence: {empty_submeshes}")
         
 
-        
-        
 def correspondence_1_to_1(
     mesh,
     local_correspondence,
@@ -266,7 +237,6 @@ def correspondence_1_to_1(
         raise Exception("There are some missing labels in the initial labeling")
 
 
-
     #here is where can call the function that resolves the face labels
     try:
         face_coloring_copy = cu.resolve_empty_conflicting_face_labels(
@@ -309,7 +279,6 @@ def correspondence_1_to_1(
 
                     #1) Find the label_to_expand based on the starting coordinate
                     divided_branches = [v["branch_skeleton"] for v in local_correspondence.values()]
-                    #print(f"st_coord = {st_coord}")
                     label_to_expand = sk.find_branch_skeleton_with_specific_coordinate(divded_skeleton=divided_branches,
                                                                                        current_coordinate=st_coord)[0]
 
@@ -406,7 +375,6 @@ def filter_soma_touching_vertices_dict_by_mesh(mesh,
         return output_soma_touching_vertices
     
     
-    
 # ----------------- When refactoring the limb decomposition function ------ #
 
 def find_if_stitch_point_on_end_or_branch(matched_branches_skeletons,
@@ -431,12 +399,6 @@ def find_if_stitch_point_on_end_or_branch(matched_branches_skeletons,
 
                         return stitch_point_on_end_or_branch
                     
-
-                    
-
-
-
-
 
 def _split_branch_entry(branch_dict, old_key, first, second):
     """Replace branch_dict[old_key] with `first` and append `second` at max_key+1, then reorder
@@ -486,7 +448,6 @@ def _find_closest_floating_piece(limb_correspondence_cp, floating_limbs_skeleton
             min_dist = dist[min_dist_idx]
             min_dist_closest_node = main_skeleton_coordinates[closest_node[min_dist_idx]]
             floating_piece_min_distance_all_main_limbs[float_idx].append([min_dist,min_dist_closest_node,floating_limbs_skeleton_endpoints[float_idx][min_dist_idx]])
-
 
 
     winning_float = -1
@@ -601,7 +562,6 @@ def _preprocess_floating_pieces(floating_meshes, filter_end_node_length_meshpart
             floating_limbs_correspondence.append(curr_corr)
             
             
-            
             if debug_corr:
                 print(f"--> time = {time.time() - st_time}")
                 st_time = time.time()
@@ -639,11 +599,6 @@ def _stitch_floating_piece_into_limb(limb_correspondence_cp, match, winning_floa
         print(f"Status of Main limb stitch point moved = {change_status}")
 
 #     #checking that match was right
-#                   meshes_colors=["red","aqua"],
-#                 skeletons=[floating_limbs_skeleton[winning_float],main_limb_skeletons[winning_float_match_main_limb]],
-#                  skeletons_colors=["red","aqua"],
-#                  scatters=[floating_limb_stitch_point.reshape(-1,3),main_limb_stitch_point.reshape(-1,3)],
-#                  scatters_colors=["red","aqua"])
 
 
     #f) Find the branch on the main limb that corresponds to the stitch point
@@ -730,13 +685,10 @@ def _stitch_floating_piece_into_limb(limb_correspondence_cp, match, winning_floa
             local_correspondence_revised[0], local_correspondence_revised[1])
 
 
-
     #j) Add a skeletal segment from floating limb stitch point to main limb stitch point
     skeleton = winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"]
     adjusted_floating_sk_branch = sk.stack_skeletons([skeleton,np.array([floating_limb_stitch_point,main_limb_stitch_point])])
             
-#             adjusted_floating_sk_branch = sk.add_and_smooth_segment_to_branch(skeleton,new_seg=np.array([floating_limb_stitch_point,main_limb_stitch_point]),
-#                                                                              resize_mult=0.2,n_resized_cutoff=3)
 
     winning_floating_correspondence[match_float_branches[0]]["branch_skeleton"] = adjusted_floating_sk_branch
 
@@ -843,8 +795,6 @@ def attach_floating_pieces_to_limb_correspondence(
     return limb_correspondence_cp
 
 
-
-
 def calculate_limb_concept_networks(limb_correspondence,
                                     network_starting_info,
                                    run_concept_network_checks=True,
@@ -859,7 +809,6 @@ def calculate_limb_concept_networks(limb_correspondence,
     
     limb_correspondence_individual = limb_correspondence
     divided_skeletons = np.array([limb_correspondence_individual[k]["branch_skeleton"] for k in np.sort(list(limb_correspondence_individual.keys()))])
-
 
 
     # -------------- Part 18: Getting Concept Networks  [soma_idx] --> list of concept networks -------#
@@ -895,7 +844,6 @@ def calculate_limb_concept_networks(limb_correspondence,
     """
 
     
-
     limb_to_soma_concept_networks = dict()
 
     for soma_idx in network_starting_info.keys():
@@ -909,7 +857,6 @@ def calculate_limb_concept_networks(limb_correspondence,
                 print(f"\n\n---------Working on soma_idx = {soma_idx}, soma_group_idx {soma_group_idx}, endpt = {endpt}---------")
 
 
-
             #1) find the branch with the endoint that must keep
             # ---------------- 11/17 Addition: If the endpoint does not match a skeleton point anymore then just get the closest endpoint of mesh that has touching vertices
 
@@ -917,11 +864,7 @@ def calculate_limb_concept_networks(limb_correspondence,
                                                             current_coordinate=endpt)[0]
 
 
-
-            #print(f"Starting_branch = {start_branch}")
-            #print(f"Start endpt = {endpt}")
             start_branch_endpoints = sk.find_branch_endpoints(divided_skeletons[start_branch])
-            #print(f"Starting_branch endpoints = {start_branch_endpoints}")
 
             #2) Call the branches_to_concept_network with the
             curr_limb_concept_network = nru.branches_to_concept_network(curr_branch_skeletons=divided_skeletons,
@@ -970,7 +913,6 @@ def calculate_limb_concept_networks(limb_correspondence,
                     b_endpoints = neuron.Branch(un_resized_b).endpoints
                     #2) get the endpoints in the concept map
                     graph_endpoints = xu.get_node_attributes(curr_limb_concept_network,attribute_name="endpoints",node_list=[j])[0]
-                    #print(f"original_branch_endpoints = {b_endpoints}, concept graph node endpoints = {graph_endpoints}")
                     if not xu.compare_endpoints(b_endpoints,graph_endpoints):
                         raise Exception(f"The node {j} in concept graph endpoints do not match the endpoints of the original branch\n"
                                        f"original_branch_endpoints = {b_endpoints}, concept graph node endpoints = {graph_endpoints}")
@@ -978,7 +920,6 @@ def calculate_limb_concept_networks(limb_correspondence,
             limb_to_soma_concept_networks[soma_idx].append(curr_limb_concept_network)
 
     return limb_to_soma_concept_networks                    
-
 
 
 def filter_limb_correspondence_for_end_nodes(limb_correspondence,
@@ -1016,11 +957,6 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
     lc_width_from_skeletons = [v["width_from_skeleton"] for v in limb_correspondence_individual.values()]
 
     #1) Get all of the starting coordinates
-#     all_starting_coords = []
-#     if not starting_info is None:
-#         for soma_idx,soma_v in network_starting_info_revised_cleaned.items():
-#             for soma_group_idx,soma_group_v in soma_v.items():
-#                 all_starting_coords.append(soma_group_v["endpoint"])
                 
     if not starting_info is None:
         all_starting_coords = nru.all_soma_connnecting_endpionts_from_starting_info(network_starting_info_revised_cleaned)
@@ -1071,14 +1007,11 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
         total_skeletal_length = 0
         weighted_width = 0
         if len(or_idx) > 1:
-            #print(f"\n\nAverageing widths for {j}:")
             for oi in or_idx:
                 curr_sk_len = sk.calculate_skeleton_distance(lc_skeletons[oi])
-                #print(f"curr_sk_len = {curr_sk_len}, curr_width = {lc_width_from_skeletons[oi]}")
                 weighted_width += curr_sk_len*lc_width_from_skeletons[oi]
                 total_skeletal_length+=curr_sk_len
             final_width = weighted_width/total_skeletal_length
-            #print(f"Final width = {final_width}")
             new_width_from_skeletons.append(final_width)
         else:
             new_width_from_skeletons.append(lc_width_from_skeletons[or_idx[0]])
@@ -1098,15 +1031,11 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
     face_lookup.update(face_lookup_marked)
 
 
-
-
-
     original_labels = np.arange(0,len(cleaned_branches))
 
     face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = limb_mesh_mparty,
                                                                     face_lookup=face_lookup,
                                                                     no_missing_labels = list(original_labels))
-
 
 
     #6) Get the divided meshes and face idx from waterfilling
@@ -1862,7 +1791,6 @@ def _group_into_map_mp_sublimbs(
         could be split into multiple pieces
 
 
-
         """
 
 
@@ -1876,9 +1804,7 @@ def _group_into_map_mp_sublimbs(
         for cc in conn_comp:
             total_cc_size = np.sum([len(mesh_large_idx[k]) for k in cc])
             if total_cc_size>size_threshold_MAP:
-                #print(f"cc ({cc}) passed the size threshold because size was {total_cc_size}")
                 filtered_pieces.append(pieces_above_threshold[list(cc)])
-
 
 
         if len(filtered_pieces) > 0:
@@ -1888,7 +1814,6 @@ def _group_into_map_mp_sublimbs(
             #(already organized into their components)
             mesh_pieces_for_MAP = [limb_mesh_mparty.submesh([np.concatenate(divided_submeshes_idx[k])],append=True,repair=False) for k in filtered_pieces]
             mesh_pieces_for_MAP_face_idx = [np.concatenate(divided_submeshes_idx[k]) for k in filtered_pieces]
-
 
 
             # --------------- Part 7: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
@@ -1918,12 +1843,9 @@ def _group_into_map_mp_sublimbs(
             widths_MP = [segment_widths_median[k] for k in sublimbs_MP_orig_idx]
 
 
-
-
     # --------------- Part 8: If No MAP sublimbs found, set the MP sublimb lists to just the whole MP branch decomposition ------------- #
 
     #if no sublimbs need to be decomposed with MAP then just reassign all of the previous MP processing to the sublimb_MPs
-
 
 
     if len(mesh_pieces_for_MAP) == 0:
@@ -2180,7 +2102,6 @@ def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP, 
     curr_br_endpts_unique = np.unique(curr_br_endpts,axis=0)
 
 
-
     #3b) Consider if the stitch point is close enough to end or branch node in skeleton:
     # and if so then reassign
     if move_MAP_stitch_to_end_or_branch:
@@ -2201,7 +2122,6 @@ def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP, 
         divded_skeleton=curr_MAP_branch_skeletons,
         current_coordinate = MAP_stitch_point
     )
-
 
 
     MAP_stitch_point_on_end_or_branch = False
@@ -2228,8 +2148,6 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
     """
     ord_keys = np.sort(list(mp_correspondence.keys()))
     curr_MP_branch_meshes = [mp_correspondence[k]["branch_mesh"] for k in ord_keys]
-
-
 
 
     # 11/9 Addition: New way that filters meshes by their touching of the vertex connection group (this could possibly be an empty group)
@@ -2273,9 +2191,6 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
         current_coordinate = winning_vertex
     )
     print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
-
-
-
 
 
     # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
@@ -2380,7 +2295,6 @@ def _recorrespond_stitch(ctx):
             local_correspondence_stitch_revised_MAP[gg]["branch_skeleton"] = curr_MAP_sk[gg]
 
 
-
     #To make sure that the MAP never gives up ground on the labels
     must_keep_labels_MAP = dict()
     must_keep_counter = 0
@@ -2388,7 +2302,6 @@ def _recorrespond_stitch(ctx):
         #must_keep_labels_MAP.update(dict([(ii,kk) for ii in range(must_keep_counter,must_keep_counter+len(b_idx))]))
         must_keep_labels_MAP[kk] = np.arange(must_keep_counter,must_keep_counter+len(b_idx))
         must_keep_counter += len(b_idx)
-
 
 
     #this is where should send only the MP that apply
@@ -2536,7 +2449,6 @@ def _stitch_map_and_mp(
         sublimb_skeletons_MP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
 
 
-
     sublimb_meshes_MAP = []
     sublimb_skeletons_MAP = []
 
@@ -2558,10 +2470,6 @@ def _stitch_map_and_mp(
     mesh_conn_adjusted = np.vstack([mesh_conn[:,0],mesh_conn[:,1]-len(sublimb_meshes_MP)]).T
 
 
-
-
-
-
     """
     Pseudocode:
     For each connection edge:
@@ -2576,7 +2484,6 @@ def _stitch_map_and_mp(
                 ii) 
 
     """
-
 
 
     # -------------- STITCHING PHASE -------#
@@ -2605,11 +2512,6 @@ def _stitch_map_and_mp(
         print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
 
 
-
-
-
-
-
         # -------------- Part 13: Will Adjust the MP branches that have the stitch point so extends to the MAP stitch point -------#
         curr_MP_sk = []
         for b_idx in MP_branches_with_stitch_point:
@@ -2622,7 +2524,6 @@ def _stitch_map_and_mp(
             else:
                 print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
                 curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
-
 
 
         #2) Get skeletons and meshes from MP and MAP pieces
@@ -2671,7 +2572,6 @@ def _stitch_map_and_mp(
                     remove_point=MAP_stitch_point, target_point=winning_vertex,
                     else_point=winning_vertex))
             curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
-
 
 
         ctx = _StitchCtx(
@@ -2791,7 +2691,6 @@ def preprocess_limb(
     )
 
 
-
     # --------------- Parts 4-8: split the meshparty decomposition into MAP / MP sublimbs ------------- #
     _grp = _group_into_map_mp_sublimbs(
         segment_branches,
@@ -2875,10 +2774,6 @@ def preprocess_limb(
     print(f"Time for decomp of Limb = {time.time() - curr_limb_time}")
 
 
-
-
-
-
     # -------------- Part 17: Grouping the MP and MAP Correspondence into one correspondence dictionary -------#
     limb_correspondence_individual = _merge_map_mp_correspondence(
         limb_correspondence_MAP, limb_correspondence_MP
@@ -2921,11 +2816,7 @@ def preprocess_limb(
                                                                        )
 
 
-
-
     return limb_correspondence_individual,limb_to_soma_concept_networks
-
-
 
 
 def _extract_single_soma(mesh, segment_id):
@@ -3233,230 +3124,6 @@ def preprocess_neuron(
     }
     
  
-
-# --- 3/24 Addition ----
-    
-    
-# ----- 12/29: Helps with the human data --------------
-
-floating_piece_face_threshold_expansion = 500
-def limb_meshes_expansion(
-    non_soma_touching_meshes,
-    insignificant_limbs,
-    soma_meshes,
-    
-    #Step 1: Filering
-    plot_filtered_pieces = False,
-    non_soma_touching_meshes_face_min = floating_piece_face_threshold_expansion,
-    insignificant_limbs_face_min = floating_piece_face_threshold_expansion,
-    
-    #Step 2: Distance Graph Structure
-    plot_distance_G = False,
-    plot_distance_G_thresholded = False,
-    max_distance_threshold = 500,
-    
-    #Step 3: 
-    min_n_faces_on_path = 5_000,
-    
-    plot_final_limbs = False,
-    plot_not_added_limbs = False,
-    return_meshes_divided = True,
-    
-    
-    verbose = False,
-    
-    ):
-    """
-    Purpose: To find the objects that should be made into 
-    significant limbs for decomposition 
-    (out of the non_soma_touching_meshes and insignificant_limbs )
-
-    Pseudocode: 
-    1) Filter the non-soma pieces and insignificant meshes
-    2) Find distances between all of the significant pieces and form a graph structure
-    3) Determine the meshes that should be made significant limbs
-    a) find all paths from NST
-    b) filter for those paths with a certain fae total
-    3) fin all of the nodes right before the soma 
-    and the unique set of those will be significant limbs
-    
-    
-    
-    Ex: 
-    floating_piece_face_threshold_expansion = 500
-    new_limbs_nst,il_still_idx,nst_still_meshes,il_still_meshes = limb_meshes_expansion(
-        neuron_obj_comb.non_soma_touching_meshes,
-        neuron_obj_comb.insignificant_limbs,
-        neuron_obj_comb["S0"].mesh,
-
-        #Step 1: Filering
-        plot_filtered_pieces = True,
-    #     non_soma_touching_meshes_face_min = floating_piece_face_threshold_expansion,
-    #     insignificant_limbs_face_min = floating_piece_face_threshold_expansion,
-
-        #Step 2: Distance Graph Structure
-        plot_distance_G = True,
-        plot_distance_G_thresholded = True,
-        max_distance_threshold = 500,
-
-        #Step 3: 
-        min_n_faces_on_path = 5_000,
-        plot_final_limbs = True,
-        plot_not_added_limbs = True,
-
-        verbose = True
-        )
-    """
-
-
-    soma_name = "Soma"
-    #1) Filter the non_soma_touching and insignificant limbs for a size
-    non_soma_touching_meshes= np.array(non_soma_touching_meshes)
-    insignificant_limbs = np.array(insignificant_limbs)
-
-    non_soma_touching_meshes_filt_idx = tu.filter_meshes_by_size(non_soma_touching_meshes,
-                                                            non_soma_touching_meshes_face_min,
-                                                             return_indices = True)
-    non_soma_touching_meshes_filt = non_soma_touching_meshes[non_soma_touching_meshes_filt_idx]
-
-
-    insignificant_limbs_filt_idx = tu.filter_meshes_by_size(insignificant_limbs,
-                                                        insignificant_limbs_face_min,
-                                                       return_indices = True)
-    insignificant_limbs_filt = insignificant_limbs[insignificant_limbs_filt_idx]
-
-    soma_mesh = tu.combine_meshes(soma_meshes)
-
-
-    if verbose:
-        print(f"len(non_soma_touching_meshes_filt) = {len(non_soma_touching_meshes_filt)}")
-        print(f"len(insignificant_limbs_filt) = {len(insignificant_limbs_filt)}")
-
-
-    
-    if len(non_soma_touching_meshes_filt) <= 0:
-        if return_meshes_divided:
-            return np.array([]),np.array([]),np.array([]),np.array([])
-        else:
-            return np.array([])
-
-
-
-
-
-    #2) Find distances between all of the significant pieces and form a graph structure
-    meshes = [soma_mesh] + list(non_soma_touching_meshes_filt) + list(insignificant_limbs_filt)
-    meshes_names = np.array([soma_name] + [
-        f"nst_{k}" for k in range(len(non_soma_touching_meshes_filt))] + [
-        f"il_{k}" for k in range(len(insignificant_limbs_filt))
-    ])
-
-    mesh_lookup = {k:v for k,v in zip(meshes_names,meshes)}
-
-    mesh_edges = tu.mesh_list_distance_connectivity(
-        meshes,
-        return_G = False,
-        verbose = False
-        )
-
-
-    edges_names_fixed = [list(k) + [v] for k,v in zip(meshes_names[mesh_edges[:,:2].astype('int')],mesh_edges[:,2])]
-    G = nx.Graph()
-    G.add_weighted_edges_from(edges_names_fixed)
-
-    if plot_distance_G:
-        print(f"plot_distance_G")
-        nx.draw(G,with_labels = True)
-        plt.show()
-
-    G_sub =xu.query_to_subgraph(G,f"weight < {max_distance_threshold}")
-
-    if plot_distance_G_thresholded:
-        print(f"plot_distance_G_thresholded")
-        nx.draw(G_sub,with_labels = True,)
-        plt.show()
-
-
-    #3) Determine the meshes that should be made significant limbs
-    """
-    a) find all paths from NST
-    b) filter for those paths with a certain fae total
-    3) fin all of the nodes right before the soma 
-    and the unique set of those will be significant limbs
-
-    """
-    nst_nodes= [k for k in G_sub.nodes() if "nst" in k]
-
-    if len(nst_nodes) <= 0:
-        if return_meshes_divided:
-            return np.array([]),np.array([]),np.array([]),np.array([])
-        else:
-            return np.array([])
-
-    nst_shortest_paths = []
-    for nst_n in nst_nodes:
-        try:
-            curr_path = xu.shortest_path(G_sub,nst_n,soma_name,weight="weight")
-        except:
-            if verbose:
-                print(f"No path from {nst_n} to {soma_name}")
-        else:
-            nst_shortest_paths.append(curr_path)
-
-    if verbose:
-        print(f"nst_shortest_paths = {nst_shortest_paths}")
-
-#     if len(nst_shortest_paths) <= 0:
-#         if return_meshes_divided:
-#             return np.array([]),np.array([]),np.array([]),np.array([])
-#         else:
-#             return np.array([])
-
-    #b) filter for those paths with a certain fae total
-    face_totals_for_paths = np.array([np.sum([len(mesh_lookup[k].faces) for k in z if k != soma_name]) for z in nst_shortest_paths])
-
-
-    face_paths_idx = np.where(face_totals_for_paths>min_n_faces_on_path)[0]
-
-
-    new_non_sig_limbs = np.unique([nst_shortest_paths[k][-2] for k in face_paths_idx])
-
-    if verbose:
-        print(f"face_totals_for_paths = {face_totals_for_paths}")
-        print(f"face_paths_idx = {face_paths_idx}")
-        print(f"new_non_sig_limbs = {new_non_sig_limbs}")
-
-
-    
-    nst_idx = [int(k.split("_")[-1]) for k in new_non_sig_limbs if "nst" in k]
-    il_idx = [int(k.split("_")[-1]) for k in new_non_sig_limbs if "il" in k]
-
-    new_limbs_nst = non_soma_touching_meshes_filt[nst_idx]
-    new_limbs_il = insignificant_limbs_filt[il_idx]
-    
-    
-        
-    nst_still_idx = np.delete(np.arange(len(non_soma_touching_meshes)),non_soma_touching_meshes_filt_idx[nst_idx])
-    il_still_idx = np.delete(np.arange(len(insignificant_limbs)),insignificant_limbs_filt_idx[il_idx])
-
-    nst_still_meshes = non_soma_touching_meshes[nst_still_idx]
-    il_still_meshes = insignificant_limbs[il_still_idx]
-    
-    
-        
-    if return_meshes_divided:
-        if verbose:
-            print(f"len(new_limbs_nst) = {len(new_limbs_nst)}")
-            print(f"len(new_limbs_il) = {len(new_limbs_il)}")
-            print(f"len(nst_still_meshes) = {len(nst_still_meshes)}")
-            print(f"len(il_still_meshes) = {len(il_still_meshes)}")
-
-        return new_limbs_nst,new_limbs_il,nst_still_meshes,il_still_meshes
-
-    else:
-        return new_non_sig_limbs
-    
-    
 #--- from neurd_packages ---
 from . import neuron
 from . import neuron_utils as nru
@@ -3479,5 +3146,4 @@ from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import system_utils as su
 from datasci_tools.tqdm_utils import tqdm
-
 
