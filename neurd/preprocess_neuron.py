@@ -146,8 +146,6 @@ def check_skeletonization_and_decomp(
     divided_skeleton_graph_recovered = sk.convert_graph_to_skeleton(divided_skeleton_graph)
 
     cleaned_limb_skeleton = cleaned_branch
-    print(f"divided_skeleton_graph_recovered = {divided_skeleton_graph_recovered.shape} and \n"
-          f"current_mesh_data[0]['branch_skeletons_cleaned'].shape = {cleaned_limb_skeleton.shape}\n")
     if divided_skeleton_graph_recovered.shape != cleaned_limb_skeleton.shape:
         print(f"****divided_skeleton_graph_recovered and cleaned_limb_skeleton shapes not match: "
                         f"{divided_skeleton_graph_recovered.shape} vs. {cleaned_limb_skeleton.shape} *****")
@@ -155,11 +153,9 @@ def check_skeletonization_and_decomp(
 
     #check that it is all one component
     divided_skeleton_graph_n_comp = nx.number_connected_components(divided_skeleton_graph)
-    print(f"Number of connected components in deocmposed recovered graph = {divided_skeleton_graph_n_comp}")
 
     cleaned_limb_skeleton_graph = sk.convert_skeleton_to_graph(cleaned_limb_skeleton)
     cleaned_limb_skeleton_graph_n_comp = nx.number_connected_components(cleaned_limb_skeleton_graph)
-    print(f"Number of connected components in cleaned skeleton graph= {cleaned_limb_skeleton_graph_n_comp}")
 
     if divided_skeleton_graph_n_comp > 1 or cleaned_limb_skeleton_graph_n_comp > 1:
         raise Exception(f"One of the decompose_skeletons or cleaned skeletons was not just one component : {divided_skeleton_graph_n_comp,cleaned_limb_skeleton_graph_n_comp}")
@@ -181,7 +177,6 @@ def check_skeletonization_and_decomp(
         if len(v["correspondence_mesh"].faces) == 0:
             empty_submeshes.append(j)
 
-    print(f"Empty submeshes = {empty_submeshes}")
 
     if len(empty_submeshes) > 0:
         raise Exception(f"Found empyt meshes after branch mesh correspondence: {empty_submeshes}")
@@ -228,7 +223,6 @@ def correspondence_1_to_1(
             face_lookup[c].append(j)
 
     original_labels = set(list(itertools.chain.from_iterable(list(face_lookup.values()))))
-    print(f"max(original_labels),len(original_labels) = {(max(original_labels),len(original_labels))}")
 
     if len(original_labels) != len(no_missing_labels):
         raise Exception(f"len(original_labels) != len(no_missing_labels) for original_labels = {len(original_labels)},no_missing_labels = {len(no_missing_labels)}")
@@ -679,7 +673,6 @@ def _stitch_floating_piece_into_limb(limb_correspondence_cp, match, winning_floa
 
         #4. replace the old entry in the limb corresondence with one of the new skeleton cuts
         #and add on the other skeletons cuts to the end
-        print(f"main_branch = {main_branch}")
         limb_correspondence_cp[winning_float_match_main_limb] = _split_branch_entry(
             limb_correspondence_cp[winning_float_match_main_limb], main_branch,
             local_correspondence_revised[0], local_correspondence_revised[1])
@@ -1454,7 +1447,6 @@ def _fix_mp_soma_extension(
                 segment_branches, current_coordinate=curr_endnode
             )
 
-            print(f"match_sk_branches = {match_sk_branches}")
             if len(match_sk_branches) > 1:
                 border_average_coordinate = np.mean(sm_bord_verts, axis=0)
                 new_branch_sk = np.vstack([curr_endnode, border_average_coordinate]).reshape(-1, 2, 3)
@@ -1483,13 +1475,11 @@ def _fix_mp_soma_extension(
             endpoints_must_keep_MP = {sm_idx: [br_new[0][1]]}
 
             orig_vertex = br_new[0][0]
-            print(f"orig_vertex = {orig_vertex}")
 
             #2) Find the branches that have that coordinate (could be multiple)
             match_sk_branches = sk.find_branch_skeleton_with_specific_coordinate(
                 segment_branches, current_coordinate=orig_vertex
             )
-            print(f"match_sk_branches = {match_sk_branches}")
 
             stitch_point_on_end_or_branch = find_if_stitch_point_on_end_or_branch(
                 matched_branches_skeletons=segment_branches[match_sk_branches],
@@ -1531,7 +1521,6 @@ def _fix_mp_soma_extension(
             for new_s_idx in new_submeshes_idx:
                 curr_ray_distance = tu.ray_trace_distance(mesh=limb_mesh_mparty, face_inds=new_s_idx, ray_inter=ray_inter)
                 curr_width_median = np.median(curr_ray_distance[curr_ray_distance != 0])
-                print(f"curr_width_median = {curr_width_median}")
                 if (not np.isnan(curr_width_median)) and (curr_width_median > 0):
                     new_widths.append(curr_width_median)
                 else:
@@ -1809,7 +1798,6 @@ def _group_into_map_mp_sublimbs(
 
         if len(filtered_pieces) > 0:
             # --------------- Part 6: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
-            print(f"len(filtered_pieces) = {len(filtered_pieces)}")
             #all the pieces that will require MAP mesh correspondence and skeletonization
             #(already organized into their components)
             mesh_pieces_for_MAP = [limb_mesh_mparty.submesh([np.concatenate(divided_submeshes_idx[k])],append=True,repair=False) for k in filtered_pieces]
@@ -2163,8 +2151,6 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
     else:
         sk_conn = conn
 
-    print(f"sk_conn = {sk_conn}")
-    print(f"conn = {conn}")
 
 
     #1) Get the endpoint vertices of the MP skeleton branches (so every endpoint or high degree node)
@@ -2181,7 +2167,6 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
     #2) Find the closest endpoint vertex to the vertex connection group (this is MP stitch point)
 
     winning_vertex = endpoint_nodes_coordinates[np.argmin(np.linalg.norm(endpoint_nodes_coordinates-av_vert,axis=1))]
-    print(f"winning_vertex = {winning_vertex}")
 
 
     #2b) Find the branch points where the winning vertex is located
@@ -2190,7 +2175,6 @@ def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
         divded_skeleton=curr_MP_branch_skeletons,
         current_coordinate = winning_vertex
     )
-    print(f"MP_branches_with_stitch_point = {MP_branches_with_stitch_point}")
 
 
     # -------- 11/13 addition: Will see if the MP stitch point was already a MAP stitch point ---- #
@@ -2261,9 +2245,7 @@ def _recorrespond_stitch(ctx):
     # -------------- 11/10 Addition accounting for not all MAP pieces always touching each other --------------------#
     if len(MAP_branches_with_stitch_point) > 1:
         print("\nRevising the MAP pieces index:")
-        print(f"MAP_pieces_idx_touching_border = {MAP_pieces_idx_touching_border}, MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
         MAP_pieces_for_correspondence = nu.intersect1d(MAP_pieces_idx_touching_border,MAP_branches_with_stitch_point)
-        print(f"MAP_pieces_for_correspondence = {MAP_pieces_for_correspondence}")
         curr_MAP_sk = [limb_correspondence_MAP[MAP_idx][k]["branch_skeleton"] for k in MAP_pieces_for_correspondence]
     else:
         MAP_pieces_for_correspondence = MAP_branches_with_stitch_point
@@ -2418,9 +2400,6 @@ def _overwrite_stitched_entries(ctx):
 
     #5b) Fixing the branch skeletons that were not included in the correspondence
     MP_leftover,MP_leftover_idx = nu.setdiff1d(MP_branches_with_stitch_point,MP_branches_for_correspondence)
-    print(f"MP_branches_with_stitch_point= {MP_branches_with_stitch_point}")
-    print(f"MP_branches_for_correspondence = {MP_branches_for_correspondence}")
-    print(f"MP_leftover = {MP_leftover}, MP_leftover_idx = {MP_leftover_idx}")
 
     for curr_MP_leftover,curr_MP_leftover_idx in zip(MP_leftover,MP_leftover_idx):
         limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
@@ -2508,8 +2487,6 @@ def _stitch_map_and_mp(
          conn, curr_MP_branch_skeletons) = _find_mp_stitch_point(
             limb_correspondence_MP[MP_idx], v_g, av_vert, total_keep_endpoints, all_map_stitch_points)
 
-        print(f"MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
-        print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
 
 
         # -------------- Part 13: Will Adjust the MP branches that have the stitch point so extends to the MAP stitch point -------#
@@ -2522,7 +2499,6 @@ def _stitch_map_and_mp(
                     remove_point=winning_vertex, target_point=MAP_stitch_point,
                     else_point=MAP_stitch_point))
             else:
-                print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
                 curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
 
 
@@ -2649,10 +2625,6 @@ def preprocess_limb(
     run_concept_network_checks = True
     print_fusion_steps = True
 
-    print(f"invalidation_d = {limb_params['invalidation_d']}")
-    print(f"use_adaptive_invalidation_d= {limb_params['use_adaptive_invalidation_d']}")
-    print(f"axon_width_preprocess_limb_max = {limb_params['axon_width_preprocess_limb_max']}")
-    print(f"filter_end_node_length= {filter_end_node_length}")
 
     curr_limb_time = time.time()
 
@@ -2670,7 +2642,6 @@ def preprocess_limb(
     else:
         root_curr = None
 
-    print(f"root_curr = {root_curr}")
 
     if print_fusion_steps:
         print(f"Time for preparing soma vertices and root: {time.time() - fusion_time }")
