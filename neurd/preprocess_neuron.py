@@ -14,8 +14,9 @@ from datasci_tools import general_utils as gu
 from . import neuron
 from . import neuron_utils as nru
 
-from .soma_extraction_utils  import extract_soma_center 
+from .soma_extraction_utils  import extract_soma_center
 from . import parameters
+from . import submesh_ops
 
 
 #--- from mesh_tools ---
@@ -2835,11 +2836,11 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
         append=True, repair=False
     )
 
-    sig_pieces, insignificant_limbs = tu.split_significant_pieces(
-        non_soma_mesh,
-        significance_threshold=params.size_threshold_MAP,
-        return_insignificant_pieces=True
+    sig_pieces_sm, insignificant_sm = submesh_ops.split_significant(
+        non_soma_mesh, params.size_threshold_MAP, return_insignificant=True
     )
+    sig_pieces = [s.mesh for s in sig_pieces_sm]
+    insignificant_limbs = [s.mesh for s in insignificant_sm]
 
     
     connected_pieces, connected_vertices = tu.mesh_pieces_connectivity(
