@@ -2420,13 +2420,14 @@ def _stitch_map_and_mp(
         if keep_MP_stitch_static:
             curr_MAP_sk_final = []
             for map_skel in curr_MAP_sk:
-                # else_point=MAP_stitch_point preserves this block's pre-existing asymmetry (target
-                # is winning_vertex but the <=1-node fallback uses MAP_stitch_point) -- kept byte-
-                # identical here; the suspected bug is fixed in a separate commit.
+                # FIX: the <=1-node fallback now targets winning_vertex to match target_point. The
+                # original used MAP_stitch_point here -- a copy-paste asymmetry from the Part-13
+                # block (whose target IS MAP_stitch_point). Only affects the rare path where the
+                # branch graph collapses to a single node after the stitch node is removed.
                 curr_MAP_sk_final.append(_reroute_branch_endpoint(
                     map_skel,
                     remove_point=MAP_stitch_point, target_point=winning_vertex,
-                    else_point=MAP_stitch_point, meshparty_segment_size=meshparty_segment_size))
+                    else_point=winning_vertex, meshparty_segment_size=meshparty_segment_size))
             curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
 
 
