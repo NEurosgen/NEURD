@@ -951,7 +951,7 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
 
     #1) Get all of the starting coordinates
                 
-    if not starting_info is None:
+    if starting_info is not None:
         all_starting_coords = nru.all_soma_connnecting_endpionts_from_starting_info(network_starting_info_revised_cleaned)
     else:
         all_starting_coords = []
@@ -1310,7 +1310,7 @@ def _decompose_map_piece(
     )
 
     # ---- 0) Generating the Clean skeletons  -------------------------------------------#
-    if not curr_soma_to_piece_touching_vertices is None:
+    if curr_soma_to_piece_touching_vertices is not None:
         curr_total_border_vertices = dict([(k, np.vstack(v)) for k, v in curr_soma_to_piece_touching_vertices.items()])
     else:
         curr_total_border_vertices = None
@@ -1891,11 +1891,11 @@ def _decompose_mp_sublimbs(
         print(f"---- Working on MP Decomposition #{sublimb_idx} ----")
         mesh_start_time = time.time()
 
-        if len(sublimb_meshes_MP) == 1 and MAP_flag == False:
+        if len(sublimb_meshes_MP) == 1 and not MAP_flag:
             print("Using Quicker soma_to_piece_touching_vertices because no MAP and only one sublimb_mesh piece ")
             curr_soma_to_piece_touching_vertices = soma_touching_vertices_dict
         else:
-            if not soma_touching_vertices_dict is None:
+            if soma_touching_vertices_dict is not None:
                 print("Computing the current soma touching verts dict manually")
                 curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
                                                     mesh = mesh,
@@ -2637,7 +2637,7 @@ def preprocess_limb(
     # --------------- Part 1 and 2: Getting Border Vertices and Setting the Root------------- #
     fusion_time = time.time()
     #will eventually get the current root from soma_to_piece_touching_vertices[i]
-    if not soma_touching_vertices_dict is None:
+    if soma_touching_vertices_dict is not None:
         root_curr = soma_touching_vertices_dict[list(soma_touching_vertices_dict.keys())[0]][0][0]
     else:
         root_curr = None
