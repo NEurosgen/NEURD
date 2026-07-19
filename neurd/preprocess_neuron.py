@@ -817,73 +817,6 @@ def attach_floating_pieces_to_limb_correspondence(
 
 
 
-def _dump_concept_network_mismatch(divided_skeletons, concept_network, soma_idx,
-                                   out_dir="/tmp/neurd_diag"):
-    """
-    Forensic capture for error 1 ("concept graph nodes != branches"). The limb has branches that
-    downsample (to 1 segment) to DUPLICATE edges; branches_to_concept_network deletes the
-    non-dominant duplicates and re-adds them, but ends with fewer nodes than branches. This records
-    WHY and prints a verdict that decides the fix:
-      * duplicate branches have NEAR-IDENTICAL full skeletons -> GENUINE redundancy -> dedup
-      * duplicate branches are DISTINCT (only share endpoints) -> the re-add is the bug
-    Dumps the branch skeletons to npz for offline analysis. Best-effort; never raises.
-    """
-    import os, time
-    import numpy as _np
-    n_br = len(divided_skeletons)
-    n_nodes = len(concept_network.nodes())
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-    except Exception:
-        pass
-
-    verdict = "analysis unavailable"
-    n_dup_branches = n_zero_len = -1
-    try:
-        downs, lengths = [], []
-        for b in divided_skeletons:
-            try:
-                downs.append(_np.asarray(sk.resize_skeleton_branch(b, n_segments=1)).reshape(-1, 3))
-            except Exception:
-                downs.append(None)
-            try:
-                lengths.append(float(sk.calculate_skeleton_distance(b)))
-            except Exception:
-                lengths.append(-1.0)
-        edges = [None if d is None else
-                 tuple(sorted((tuple(_np.round(d[0], 2)), tuple(_np.round(d[-1], 2))))) for d in downs]
-        from collections import Counter
-        dup = {e: c for e, c in Counter([e for e in edges if e is not None]).items() if c > 1}
-        n_dup_branches = int(sum(dup.values()) - len(dup))
-        n_zero_len = int(sum(1 for L in lengths if 0 <= L < 1e-6))
-        if dup:
-            biggest = max(dup, key=dup.get)
-            members = [i for i, e in enumerate(edges) if e == biggest]
-            ref = _np.asarray(divided_skeletons[members[0]])
-            identical = sum(1 for m in members[1:]
-                            if _np.asarray(divided_skeletons[m]).shape == ref.shape
-                            and _np.allclose(_np.asarray(divided_skeletons[m]), ref, atol=1.0))
-            verdict = (f"biggest dup-edge group = {len(members)} branches; "
-                       f"{identical}/{len(members)-1} have a near-identical FULL skeleton -> "
-                       f"{'GENUINE REDUNDANCY (dedup)' if identical > 0 else 'DISTINCT (re-add bug)'}")
-    except Exception as e:
-        verdict = f"inline analysis failed: {e}"
-
-    print("\n" + "=" * 80)
-    print(f"[CONCEPT-MISMATCH FORENSIC] soma {soma_idx}: {n_br} branches -> {n_nodes} concept nodes")
-    print(f"  branches collapsing to a duplicate downsampled edge: {n_dup_branches}")
-    print(f"  zero-length branches: {n_zero_len}")
-    print(f"  VERDICT: {verdict}")
-    print("=" * 80 + "\n")
-    try:
-        path = os.path.join(out_dir, f"concept_mismatch_soma{soma_idx}_{int(time.time())}.npz")
-        _np.savez_compressed(path, n_nodes=n_nodes, n_branches=n_br,
-                             **{f"sk_{i}": _np.asarray(s) for i, s in enumerate(divided_skeletons)})
-        print(f"[CONCEPT-MISMATCH FORENSIC] skeletons dumped to {path}")
-    except Exception as e:
-        print(f"[CONCEPT-MISMATCH FORENSIC] npz dump failed: {e}")
-
-
 def calculate_limb_concept_networks(limb_correspondence,
                                     network_starting_info,
                                    run_concept_network_checks=True,
@@ -988,9 +921,6 @@ def calculate_limb_concept_networks(limb_correspondence,
 
                 #3.2: Check number of nodes match the number of divided skeletons
                 if len(curr_limb_concept_network.nodes()) != len(divided_skeletons):
-                    # FORENSIC (error 1): capture branch skeletons + verdict (genuine redundancy vs
-                    # re-add bug) so the dedup fix isn't designed blind. Behaviour-neutral, then raise.
-                    _dump_concept_network_mismatch(divided_skeletons, curr_limb_concept_network, soma_idx)
                     raise Exception("The number of nodes in the concept graph and number of branches passed to it did not match\n"
                                   f"len(curr_limb_concept_network.nodes())={len(curr_limb_concept_network.nodes())}, len(curr_limb_divided_skeletons)= {len(divided_skeletons)}")
 
@@ -1358,29 +1288,6 @@ def _connectivity_is_valid(mesh_conn, n_mp, n_map):
         return False
     return len(list(nx.connected_components(G))) == 1
 
-def _dump_connectivity_failure(
-    mesh_conn,
-    mesh_conn_filt,
-    mesh_conn_old,
-    sublimb_meshes_MP,
-    sublimb_meshes_MAP,
-    limb_mesh_mparty,
-    sublimb_skeletons_MP,
-    sublimb_skeletons_MAP,
-):
-    n_mp = len(sublimb_meshes_MP)
-    print(f"mesh_conn_filt = {mesh_conn_filt}")
-    print(f"mesh_conn_old = {mesh_conn_old}")
-    mesh_conn_adjusted = np.vstack([mesh_conn[:, 0], mesh_conn[:, 1] - n_mp]).T
-    print(f"mesh_conn_adjusted = {mesh_conn_adjusted}")
-    print(f"len(sublimb_meshes_MP) = {n_mp}")
-    print(f"len(sublimb_meshes_MAP) = {len(sublimb_meshes_MAP)}")
-
-    su.compressed_pickle(sublimb_meshes_MP, "sublimb_meshes_MP")
-    su.compressed_pickle(sublimb_meshes_MAP, "sublimb_meshes_MAP")
-    su.compressed_pickle(limb_mesh_mparty, "limb_mesh_mparty")
-    su.compressed_pickle(sublimb_skeletons_MP, "sublimb_skeletons_MP")
-    su.compressed_pickle(sublimb_skeletons_MAP, "sublimb_skeletons_MAP")
 def _resolve_mesh_connectivity(
     sublimb_meshes_MP,
     sublimb_meshes_MAP,
@@ -1406,11 +1313,6 @@ def _resolve_mesh_connectivity(
 
     # уже на "vertices" — дальше отступать некуда, это ошибка
     if connectivity_type == "vertices":
-        _dump_connectivity_failure(
-            mesh_conn, mesh_conn, mesh_conn_old,
-            sublimb_meshes_MP, sublimb_meshes_MAP, limb_mesh_mparty,
-            sublimb_skeletons_MP, sublimb_skeletons_MAP,
-        )
         raise Exception("Something went wrong in the connectivity")
 
     # ── Попытка 2: переключаемся на "vertices" ───────────────────────
@@ -1424,12 +1326,7 @@ def _resolve_mesh_connectivity(
         print(f"Successful mesh connectivity with type {connectivity_type}")
         return mesh_conn, mesh_conn_vertex_groups, connectivity_type
 
-    # "vertices" тоже не сошёлся — финальная ошибка с дампом
-    _dump_connectivity_failure(
-        mesh_conn, mesh_conn, mesh_conn_old,
-        sublimb_meshes_MP, sublimb_meshes_MAP, limb_mesh_mparty,
-        sublimb_skeletons_MP, sublimb_skeletons_MAP,
-    )
+    # "vertices" тоже не сошёлся — финальная ошибка
     raise Exception("Something went wrong in the connectivity")
 
 
@@ -1859,54 +1756,11 @@ def _clean_network_starting_info(
 
 
 def _safe_frame_faces(meshes, li):
-    """Best-effort len(meshes[li].faces); None if unavailable. For IDX-TRACE only."""
+    """Best-effort len(meshes[li].faces); None if unavailable."""
     try:
         return len(meshes[li].faces)
     except Exception:
         return None
-
-
-def _trace_branch_face_idx(face_idx_arrays, frame_n_faces, label,
-                           _logpath="/tmp/neurd_diag/idx_trace.log"):
-    """
-    TEMP INSTRUMENTATION (behavior-neutral): localize the class-A frame desync.
-
-    Given a limb's branch_face_idx arrays and the face count of the mesh they SHOULD address,
-    print + log max-index / overlap / out-of-bounds. By calling this at each decomposition
-    handoff we can see WHERE branch indices stop addressing the stored limb mesh (frame inflation)
-    and WHERE overlap (broken partition) appears. Pure read/print/append; never raises.
-
-    Opt-in via env var (default OFF) so it is free to leave in permanently: when disabled it returns
-    before doing ANY work (one dict lookup) -> zero cost on production runs. Enable with
-    NEURD_IDX_TRACE=1. Env is inherited by spawn workers, so it also works under process_all_neurons.
-    """
-    import os
-    if not os.environ.get("NEURD_IDX_TRACE"):
-        return
-    import numpy as _np
-    try:
-        arrs = [_np.asarray(a).ravel() for a in face_idx_arrays
-                if a is not None and _np.asarray(a).size]
-        if not arrs:
-            line = f"[IDX-TRACE] {label}: (no face_idx)"
-        else:
-            allidx = _np.concatenate(arrs)
-            uniq = int(_np.unique(allidx).size)
-            mx = int(allidx.max())
-            overlap = allidx.size / max(uniq, 1)
-            oob = (frame_n_faces is not None) and (mx >= frame_n_faces)
-            flag = "  <<< FAIL" if (oob or overlap > 1.01) else ""
-            line = (f"[IDX-TRACE] {label}: nbranch={len(arrs)} frame_faces={frame_n_faces} "
-                    f"max_idx={mx} unique={uniq} overlap={overlap:.2f}x oob={oob}{flag}")
-    except Exception as e:
-        line = f"[IDX-TRACE] {label}: trace failed: {e}"
-    print(line, flush=True)
-    try:
-        os.makedirs(os.path.dirname(_logpath), exist_ok=True)
-        with open(_logpath, "a") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
 
 
 @dataclass
@@ -2883,12 +2737,6 @@ def preprocess_limb(
     limb_to_soma_touching_vertices_list.extend(_mp_soma_touching_add)
 
 
-    # IDX-TRACE P1: MP and MAP sub-decompositions vs the limb frame (limb_mesh_mparty == input mesh)
-    _trace_branch_face_idx([d.get("branch_face_idx") for sub in limb_correspondence_MP.values() for d in sub.values()],
-                           len(limb_mesh_mparty.faces), "P1 MP-build vs limb_mesh_mparty")
-    _trace_branch_face_idx([d.get("branch_face_idx") for sub in limb_correspondence_MAP.values() for d in sub.values()],
-                           len(limb_mesh_mparty.faces), "P1 MAP-build vs limb_mesh_mparty")
-
     if check_correspondence_branches:
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MAP)
         sk.check_correspondence_branches_have_2_endpoints(limb_correspondence_MP)
@@ -2927,10 +2775,6 @@ def preprocess_limb(
     limb_correspondence_individual = _merge_map_mp_correspondence(
         limb_correspondence_MAP, limb_correspondence_MP
     )
-
-    # IDX-TRACE P2: after MP+MAP merge, vs the limb frame
-    _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_individual.values()],
-                           len(limb_mesh_mparty.faces), "P2 after-merge vs limb_mesh_mparty")
 
     # -------------- Part 18: filter the network starting info into a clean presentation ------------ #
     # 1) перегруппировать в soma_idx -> border_group -> [dict(touching_verts, endpoint)]
@@ -3246,12 +3090,6 @@ def preprocess_neuron(
         branch_meshes, soma_touching_vertices, params
     )
 
-    # IDX-TRACE N1: decomposition output vs the stored limb meshes (branch_meshes == ex_limb.mesh)
-    for _li in sorted(limb_correspondence.keys(), key=lambda x: str(x)):
-        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence[_li].values()],
-                               _safe_frame_faces(branch_meshes, _li), f"N1 after_decompose limb={_li}")
-
-
     limb_correspondence_stitched = _stitch_floating_pieces(
         limb_correspondence,
         floating_meshes,
@@ -3260,20 +3098,10 @@ def preprocess_neuron(
         params
     )
 
-    # IDX-TRACE N2: stitch-induced frame desync is visible here (pre-rebuild)
-    for _li in sorted(limb_correspondence_stitched.keys(), key=lambda x: str(x)):
-        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_stitched[_li].values()],
-                               _safe_frame_faces(branch_meshes, _li), f"N2 after_stitch limb={_li}")
-
     # FIX (class A): _stitch_floating_pieces leaves floating/cut branches in a foreign mesh frame.
     # Rebuild a self-consistent frame (limb mesh = combined branch meshes, contiguous face idx) for
     # any limb whose partition is no longer clean. Only broken (stitched) limbs are touched.
     branch_meshes = _rebuild_limb_frames(limb_correspondence_stitched, branch_meshes)
-
-    # IDX-TRACE N3: after the rebuild every limb must be a clean partition (validation of the fix)
-    for _li in sorted(limb_correspondence_stitched.keys(), key=lambda x: str(x)):
-        _trace_branch_face_idx([d.get("branch_face_idx") for d in limb_correspondence_stitched[_li].values()],
-                               _safe_frame_faces(branch_meshes, _li), f"N3 after_rebuild limb={_li}")
 
     limb_concept_networks = _build_concept_networks(
         limb_correspondence_stitched,
