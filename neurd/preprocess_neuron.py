@@ -3,7 +3,6 @@ import copy
 from copy import deepcopy
 from dataclasses import dataclass
 import itertools
-import matplotlib.pyplot as plt
 
 import networkx as nx
 from scipy.spatial import KDTree
@@ -11,7 +10,24 @@ import time
 import trimesh
 from datasci_tools import numpy_dep as np
 from datasci_tools import general_utils as gu
+#--- from neurd_packages ---
+from . import neuron
+from . import neuron_utils as nru
 
+from .soma_extraction_utils  import extract_soma_center 
+from . import parameters
+
+
+#--- from mesh_tools ---
+from mesh_tools import compartment_utils as cu
+from mesh_tools import meshparty_skeletonize as m_sk
+from mesh_tools import skeleton_utils as sk
+from mesh_tools import trimesh_utils as tu
+
+from datasci_tools import networkx_utils as xu
+from datasci_tools import numpy_utils as nu
+from datasci_tools import system_utils as su
+from datasci_tools.tqdm_utils import tqdm
 #importing at the bottom so don't get any conflicts
 
 #for meshparty preprocessing
@@ -46,7 +62,6 @@ def mesh_correspondence_first_pass(
     backup_distance_threshold = 6000,
     backup_skeletal_buffer = 300,
     connectivity="edges",
-    plot = False,
     ):
     """
     Will come up with the mesh correspondences for all of the skeleton
@@ -115,8 +130,7 @@ def mesh_correspondence_first_pass(
         local_correspondence[j]["width_from_skeleton"] = width_from_skeleton
         
         
-    if plot:
-        plot_correspondence(mesh,local_correspondence)
+    
     return local_correspondence
 
 
@@ -189,7 +203,7 @@ def correspondence_1_to_1(
     curr_soma_to_piece_touching_vertices=None,
     must_keep_labels=dict(),
     fill_to_soma_border=True,
-    plot = False,
+
                     ):
     """
     Will Fix the 1-to-1 Correspondence of the mesh
@@ -298,8 +312,6 @@ def correspondence_1_to_1(
         del local_correspondence_revised[k]["correspondence_mesh"]
         del local_correspondence_revised[k]["correspondence_face_idx"]
     
-    if plot:
-        plot_correspondence_on_single_mesh(mesh,local_correspondence_revised)
 
     return local_correspondence_revised
 
@@ -2792,7 +2804,7 @@ def preprocess_limb(
 
 def _extract_single_soma(mesh, segment_id):
     """Заменяет оригинальную Фазу 1 и 2. Ищет строго одну сому."""
-    (soma_mesh_list, _, total_soma_list_sdf, _, _) = sm.extract_soma_center(
+    (soma_mesh_list, _, total_soma_list_sdf, _, _) = extract_soma_center(
         segment_id, mesh.vertices, mesh.faces
     )
 
@@ -3095,26 +3107,5 @@ def preprocess_neuron(
     }
     
  
-#--- from neurd_packages ---
-from . import neuron
-from . import neuron_utils as nru
 
-from . import soma_extraction_utils as sm
-from . import parameters
-
-
-#--- from mesh_tools ---
-from mesh_tools import compartment_utils as cu
-from mesh_tools import meshparty_skeletonize as m_sk
-from mesh_tools import skeleton_utils as sk
-from mesh_tools import trimesh_utils as tu
-
-#--- from datasci_tools ---
-from datasci_tools import general_utils as gu
-from datasci_tools import matplotlib_utils as mu
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
-from datasci_tools import numpy_utils as nu
-from datasci_tools import system_utils as su
-from datasci_tools.tqdm_utils import tqdm
 
