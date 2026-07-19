@@ -232,10 +232,37 @@ Two options, both golden-gated:
 **Follow-ups:** measure whether the many floating-stitch correspondences recompute overlapping work
 (Q6, Area A ∩ Area C).
 
-### Area B — Skeletonization retry cycle
+### Area B — Skeletonization "retry cycle"  ✅ (investigated 2026-07-19 — reassuring negative result)
 `_cycle_for_something` / `_decide_next_limb_cfg` / `_new_invalidation_d` / `_run_skeletonization_pass`.
-"Try skeletonize, if the result is bad adjust config and retry." Wraps `m_sk` + CGAL (unreliable).
-- Open: how many iterations typically; what triggers a retry; is the config-adjust monotone/terminating?
+
+**Q4 answered by static read — it is NOT a loop.** `_cycle_for_something` ([:1181]):
+```
+pass1 = _run_skeletonization_pass(limb_cfg)            # 1 m_sk skeletonization
+if not use_adaptive_invalidation_d: return pass1        # → 1 pass
+new_cfg = _decide_next_limb_cfg(pass1, ...)             # decides ONCE
+if new_cfg is None: return pass1                        # → 1 pass
+return _run_skeletonization_pass(new_cfg)               # → exactly 2 passes, NOT re-checked
+```
+⇒ **bounded at ≤ 2 skeletonization passes per limb/piece; always terminates; no `while`/`for`.** The
+name "_cycle_for_something" is misleading — it's a fixed *adaptive second pass*, not a cycle. So the
+user's "functions re-called many times" concern **does not apply here** — this hotspot is bounded.
+Total `m_sk.skeletonize_mesh_largest_component` calls ≤ 2·(n_limbs + n_floating_pieces).
+
+**What triggers the 2nd pass** (`_decide_next_limb_cfg` [:1121]): (1) limb is axon-thin
+(`width_median ≤ axon_width_preprocess_limb_max`) → re-run with axon params; or (2) no MAP-wide pieces
++ `mp_only_revised_invalidation_d` + not-already-axon → re-run with a width-interpolated `invalidation_d`
+(`_new_invalidation_d`, a bounded linear interpolation clamped to `[lowest, max_invalidation_d]`). If the
+limb has wide (MAP) pieces → `None` (no 2nd pass; those go to the CGAL/MAP path). Monotone/terminating
+trivially (the decision is made once, pass 2 is never re-evaluated).
+
+**Unreliable-mesh_tools here:** each pass = `m_sk.skeletonize_mesh_largest_component` +
+`m_sk.skeleton_obj_to_branches` (meshparty; slow, can degenerate) — but bounded ≤2, no error-retry
+(failures propagate). The separate **CGAL** skeletonization + its meshparty fallback lives in
+`_decompose_map_piece` (Area A/C, the `try=2`), not here.
+
+**Verdict: no problem — bounded and terminating.** Optional color (not essential): the empirical 2nd-pass
+fire-rate per limb (needs one instrumented run). Skipped — the bound is the point, and it's proven
+statically.
 
 ### Area C — Stitching (MAP↔MP + floating)  ⭐ (dominant correspondence volume)
 `_stitch_map_and_mp` (+ `_recorrespond_stitch`, finders, reroute) and `attach_floating_*` (`while` loop).
@@ -401,9 +428,32 @@ caught as non-general *before any code was written* — the whole point of this 
 Most branch-dense; builds the limb graph from starting coordinates.
 - Open: which branches fire on real data; is the starting-info massaged redundantly across the two fns?
 
-### Area E — mesh_tools dependency seam (cross-cutting)
-The isolation target from Finding 2. Deliverable: a contract table for the ~6 unreliable calls and a
-proposed thin adapter boundary (no implementation yet).
+### Area E — mesh_tools dependency seam (cross-cutting)  ✅ (contract table, 2026-07-19, static read)
+The isolation target from Finding 2 — serves "minimize mesh_tools". Contract of the ~6 unreliable calls
+(what a replacement/adapter must provide):
+
+| call (mesh_tools) | in → out | empty / failure | determinism |
+|---|---|---|---|
+| `cu.get_skeletal_distance(mesh, edges, distance_threshold=3000, …)` | → `(mean_d, std_d, submesh, face_idx)`: faces within a per-edge tube of the skeleton | returns `face_idx=[]` (else @ :877) when **no edge finds a face** within threshold; raises if faces found but <1 unique (:633); raises on internal errors | **deterministic** (geometry) |
+| `cu.mesh_correspondence_adaptive_distance(skel, mesh, distance_threshold, return_closest_face_on_empty)` | → `(face_idx, width)` or `[]` | `[]` when first pass empty (unless `return_closest_face_on_empty` → single closest face); wraps 2× `get_skeletal_distance` (adaptive thr = mean+2·std) | **deterministic** |
+| `cu.resolve_empty_conflicting_face_labels(mesh, face_lookup, must_keep_labels, …)` | face labeling (may have empty/conflict) → **complete 1-to-1** labeling, each label 1 connected component | **raises if mesh not 1 connected component** (:1273); **CLASS-B raise** when a branch label ends with no faces / waterfill can't resolve | **NON-deterministic** — `np.random.choice` in the waterfill tie-break (`compartment_utils:1187`, propagation_type="random") ⚠️ |
+| `cu.waterfill_starting_label_to_soma_border(…)` | soma-border label flood | (not fully read) | likely non-det (shared waterfill) — TODO |
+| `m_sk.skeletonize_mesh_largest_component(mesh, root, invalidation_d, …)` | mesh → MCF skeleton obj | slow; can degenerate on bad meshes; failures propagate (no retry in `_run_skeletonization_pass`) | meshparty MCF (mostly deterministic, slow) |
+| `sk.skeletonize_and_clean_connected_branch_CGAL(…)` | mesh → cleaned CGAL skeleton | **CLASS-C** degenerate-submesh crash; guarded by `error_on_bad_cgal_return` + meshparty fallback in `_decompose_map_piece` | CGAL (deterministic); the fallback path is the variable one |
+
+**Key takeaways for "minimize mesh_tools":**
+- The **only non-determinism** in the whole correspondence/skeletonization surface is the **waterfill
+  random tie-break** in `resolve_empty_conflicting_face_labels` (:1187). Everything else is
+  deterministic. ⇒ a single deterministic tie-break (seeded / lowest-label / majority) would make the
+  pipeline deterministic-in-isolation (today it's only deterministic run-to-run because the global RNG
+  advances identically from the seed — the reason the stitch RNG-capture harness exists).
+- The unreliable surface is **6 calls in 2 dep modules** (`cu`, `m_sk`) + one `sk` CGAL entry. A thin
+  adapter wrapping these (uniform empty/failure/determinism contract) would isolate every fragile
+  interaction in one file — without touching the 60+ stable `sk`/`tu` skeleton primitives. That adapter
+  is also where a library swap (skeletor / meshparty-native map / CGAL correspondence) would plug in
+  (see the `mesh_correspondence_adaptive_distance` analysis in Area A discussion).
+- `mesh_tools` is a **sibling reimerlab package** (not vendored) — we can only **isolate**, not edit it
+  here; changes to it belong upstream (`reimerlab/mesh_tools`, `pip install -e`).
 
 ---
 
@@ -417,8 +467,10 @@ proposed thin adapter boundary (no implementation yet).
   skeleton edge finds a face within 3000; the outer double-call is a real "no nearby faces" fallback,
   dead **by geometry** (corresponded skeleton always ⊂ its mesh). Prefer `base_kwargs` dedup over deletion.
 - Q3 (Finding 3): which raise/except arms never fire on real neurons (dead defensive code)? → coverage run.
-- Q4 (Area B): does the skeletonization retry cycle always terminate; worst-case iteration count?
-- Q5 (Area E): exact empty/failure/determinism contract of each unreliable `mesh_tools` call.
+- Q4 (Area B): ✅ ANSWERED (static) — `_cycle_for_something` is NOT a loop; bounded ≤2 skeletonization
+  passes/limb, always terminates. 2nd pass triggers on axon-thin OR no-MAP+invalidation-tune. No problem.
+- Q5 (Area E): ✅ ANSWERED — contract table done (see Area E). Only non-determinism = waterfill random
+  tie-break @ compartment_utils:1187 (in resolve_empty); rest deterministic. Adapter seam = 6 calls.
 - Q6 (Area A∩C): ✅ partly — the 23 floating-stitch re-correspondences are branch-cut re-corr inside the
   77 stitches; they're the biggest floating cost (part of 146 s stitch). Not obviously overlapping.
 - Q7 (Area C): ❌ ANSWERED — a simple initial-distance pre-filter is INFEASIBLE: chaining dominates
@@ -467,5 +519,11 @@ proposed thin adapter boundary (no implementation yet).
   `2451406889`). Safety universal (0 false-prune ×3), but savings geometry-dependent: 40 % H01-big,
   **0 % minnie65** (fat pieces → surface-vs-skeleton gap over-includes all 19 dropped at safe thr 8000;
   6000 false-prunes). Connectivity pre-filter NOT robust → shelved (parked as Q11: needs a cheap
-  centerline proxy). Investigation correctly killed a tempting single-neuron win before coding. Areas
-  A + C substantially mapped; open next = Area B (skeletonization retry) or Area D (concept-network).
+  centerline proxy). Investigation correctly killed a tempting single-neuron win before coding.
+- 2026-07-19: **Area B investigated (static) — reassuring negative result.** `_cycle_for_something` is a
+  fixed ≤2-pass adaptive skeletonization, NOT a loop → always terminates; the "re-called many times"
+  concern doesn't apply here. Q4 answered without a run.
+- 2026-07-19: **Area E contract table (static).** Documented the 6 unreliable mesh_tools calls'
+  in/out/empty/failure/determinism. Only non-determinism = waterfill `np.random` @ compartment_utils:1187
+  (in `resolve_empty_conflicting_face_labels`); rest deterministic. Adapter seam = those 6 calls in
+  cu/m_sk (+1 sk CGAL). Areas A/C/B/E done; open = Area D (concept-network branching) only.
