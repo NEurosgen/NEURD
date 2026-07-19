@@ -4,6 +4,16 @@ Self-contained handoff. Companion investigation: `MESH_OPERATIONS_LAYER.md` (the
 example) and `NEURON_CLASSES_ARCHITECTURE.md`. Branch: `refactor/simplify-preprocess-logic` (safe
 checkpoint `fix/dense-limb-correspondence-and-cgal-fallback`).
 
+> **STATUS — ✅ Phase 0 DONE (commit `e04fdb8`).** Two corrections vs the draft below:
+> **(1) the module is `neurd/submesh_ops.py`, not `mesh_ops.py`** — `neurd/_mesh_ops.py` already exists
+> (L6 decimate/poisson/fill_holes, prod-wired via `__init__.py`), so the L2 layer took a distinct name;
+> tests live in `tests/unit/test_submesh_ops.py`. **(2) the `SubMesh` snippet below was buggy** — `sub()`
+> used `self.face_idx[faces]` while `root_face_idx()` also folds the chain, double-applying indices
+> (`A[A[B]]` not `A[B]`); the delivered code and the snippet here are corrected. 24 `tu.*`-equivalence
+> tests are green on a synthetic 3-icosphere + small-h01 (both connectivities), incl.
+> `original_faces == tu.original_mesh_faces_map` proven on the real mesh. **Next = Phase 1 migration
+> (not started; stop-for-review).**
+
 ## Why (1-paragraph brief)
 NEURD's essence is *take meshes → segment them*, but the mesh-op vocabulary is **63 scattered `tu.*`
 (trimesh_utils, a fragile sibling dependency) calls** across `spine_utils`/`soma_extraction`/
@@ -28,20 +38,21 @@ Target replacements (see the L2 worked example in `MESH_OPERATIONS_LAYER.md`):
 | `tu.original_mesh_faces_map` (103) | `SubMesh.root_face_idx()` (O(1)); KDTree fallback only for foreign meshes | the big win |
 | (`connected_components(edges,…)` internal) | `connected_face_components(mesh, connectivity)` | primitive |
 
-## Deliverable module: `neurd/mesh_ops.py`
+## Deliverable module: `neurd/submesh_ops.py` (delivered — see STATUS banner)
 
 ### Primitive 1 — `SubMesh` (the composing value type)
 ```python
-@dataclass
+@dataclass(eq=False)
 class SubMesh:
     mesh: "trimesh.Trimesh"          # the extracted geometry
-    face_idx: np.ndarray             # indices into `parent` (len == len(mesh.faces))
+    face_idx: np.ndarray             # indices into the IMMEDIATE parent's faces (len == len(mesh.faces))
     parent: "trimesh.Trimesh | SubMesh"
-    def sub(self, faces) -> "SubMesh":            # submesh-of-submesh; indices remap automatically
-        return SubMesh(self.mesh.submesh([faces], append=True, repair=False), self.face_idx[faces], self)
-    def root_face_idx(self) -> np.ndarray:        # collapse the chain to the ORIGINAL mesh
-        base = self.parent.root_face_idx() if isinstance(self.parent, SubMesh) else np.arange(len(self.parent.faces))
-        return base[self.face_idx] if isinstance(self.parent, SubMesh) else self.face_idx
+    def sub(self, faces) -> "SubMesh":            # submesh-of-submesh; `faces` index into THIS mesh
+        return SubMesh(self.mesh.submesh([faces], append=True, repair=False), np.asarray(faces), self)
+    def root_face_idx(self) -> np.ndarray:        # fold the chain to the ORIGINAL (root) mesh
+        if isinstance(self.parent, SubMesh):
+            return self.parent.root_face_idx()[self.face_idx]
+        return self.face_idx                      # parent is the raw root mesh; face_idx indexes it
     @property
     def n_faces(self) -> int: return len(self.face_idx)
 ```
@@ -60,7 +71,7 @@ Face-index groups of connected components. **Two modes (must match `tu` exactly)
 `split`, `split_significant`, `largest_component`, `components_from_face_idx`, `original_faces(sub)`.
 
 ## Isolated testing — Phase 0 (ZERO pipeline risk, no meshlab, fast)
-Test file: `tests/unit/test_mesh_ops.py`, run with `pytest tests/unit/test_mesh_ops.py -v`.
+Test file: `tests/unit/test_submesh_ops.py`, run with `pytest tests/unit/test_submesh_ops.py -v`.
 
 **Sample meshes (no pipeline needed):**
 ```python
@@ -95,8 +106,8 @@ Definition of done for Phase 0: `pytest` green; every composite proven equal to 
 synthetic + real meshes. **No production code touched yet** → nothing can break.
 
 ## Phased execution
-- **Phase 0 (this deliverable, zero risk):** write `neurd/mesh_ops.py` + `tests/unit/test_mesh_ops.py`;
-  prove `tu.*` equivalence. Commit.
+- **Phase 0 (✅ DONE, commit `e04fdb8`, zero risk):** wrote `neurd/submesh_ops.py` +
+  `tests/unit/test_submesh_ops.py`; `tu.*` equivalence proven (24 tests green). Committed.
 - **Phase 1 (first migration, golden-gated):** swap the **safest, most self-contained** call sites first —
   e.g. a `tu.split_significant_pieces` / `tu.largest_conn_comp` call in `soma_extraction_utils` or
   `preprocess_neuron` → the `mesh_ops` equivalent. Do NOT start with the `branch_face_idx` data structure.
@@ -116,13 +127,13 @@ Recreate `verify_refactor.py` (small) + `verify_big.py` (big) via `tests/tools/n
 each migration commit must reproduce these **byte-identical**. Stitch-path changes also need
 `replay_stitch.py` (RNG-capture) — see memory.
 
-## Concrete first tasks (checklist for the next session)
-1. Create `neurd/mesh_ops.py` with `SubMesh` + `connected_face_components` (both connectivities).
-2. Add composites: `split`, `split_significant`, `largest_component`, `components_from_face_idx`,
+## Concrete first tasks — ✅ ALL DONE (commit `e04fdb8`)
+1. ✅ Created `neurd/submesh_ops.py` with `SubMesh` + `connected_face_components` (both connectivities).
+2. ✅ Added composites: `split`, `split_significant`, `largest_component`, `components_from_face_idx`,
    `original_faces`.
-3. Create `tests/unit/test_mesh_ops.py` with the equivalence + property tests above; get `pytest` green.
-4. Commit Phase 0 (module + tests only — zero pipeline risk).
-5. STOP and review with the user before Phase 1 (first migration).
+3. ✅ Created `tests/unit/test_submesh_ops.py` with the equivalence + property tests above; `pytest` green.
+4. ✅ Committed Phase 0 (module + tests only — zero pipeline risk).
+5. ✅ STOPPED for review before Phase 1 (first migration).
 
 ## Risks / notes
 - `mesh_tools` is a sibling dep — the new layer lives in **neurd/**, wraps/replaces `tu.*` usage; it does

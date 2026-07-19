@@ -102,14 +102,14 @@ def connected_face_components(mesh, connectivity="vertices") -> list[np.ndarray]
     """Face-index groups of the mesh's connected components (shared vertices or edges)."""
     # adjacency (vertex/edge) → connected_components → face-index arrays
 
-@dataclass
+@dataclass(eq=False)
 class SubMesh:                      # a mesh that REMEMBERS its provenance and COMPOSES
     mesh: "Trimesh"                 # the geometry
-    face_idx: np.ndarray           # indices into `parent`
+    face_idx: np.ndarray           # indices into the IMMEDIATE parent's faces
     parent: "Trimesh | SubMesh"
-    def sub(self, faces) -> "SubMesh":         # submesh-of-submesh: indices remap automatically
-        return SubMesh(self.mesh.submesh([faces]), self.face_idx[faces], self)
-    def root_face_idx(self) -> np.ndarray:     # collapse the whole chain to the ORIGINAL mesh
+    def sub(self, faces) -> "SubMesh":         # submesh-of-submesh: `faces` index into THIS mesh
+        return SubMesh(self.mesh.submesh([faces], append=True, repair=False), np.asarray(faces), self)
+    def root_face_idx(self) -> np.ndarray:     # fold the whole chain to the ORIGINAL mesh
         return self.parent.root_face_idx()[self.face_idx] if isinstance(self.parent, SubMesh) else self.face_idx
 
 # ---- composites (each a few lines) ----
@@ -130,14 +130,18 @@ most-used, most-fragile op (`original_mesh_faces_map`'s geometric re-matching) *
 provenance is carried by construction, not re-derived. This is precisely "elementary functions → assemble
 the narrow ones", and it *shrinks* `mesh_tools` reliance (Goal 1) at the same time.
 
-**Migration shape (non-breaking):** put these in a NEURD-owned `mesh_ops` module; internally the composites
-can call the existing `tu.*` at first (thin), then get replaced primitive-by-primitive. The real leverage
+**Migration shape (non-breaking):** ✅ delivered as the NEURD-owned `submesh_ops` module (named to avoid
+`neurd/_mesh_ops.py`, the pre-existing L6 decimate/poisson layer; commit `e04fdb8`). The primitives are
+reimplemented **directly on trimesh** (`face_adjacency` / `vertex_adjacency_graph` / `vertex_faces`) — NOT
+thin `tu.*` wrappers — and equivalence-tested against `tu.*` (Phase 0, 24 tests green). The real leverage
 lands when `preprocess_neuron`'s `branch_face_idx` threading (Areas A/C) is switched to `SubMesh` — the
 manual remapping there is exactly what the type removes. Each step golden-gated (small-h01 + `1830470325`).
 
 ## Open questions
 - MO1: what's the right *SubMesh/face-index* abstraction (composition semantics: submesh-of-submesh index
-  remap; equality; parent linkage)? — **sketched above; the `root_face_idx` composition law is the core.**
+  remap; equality; parent linkage)? — ✅ **RESOLVED, delivered in `submesh_ops.py`:** `sub()` stores
+  indices into the *immediate* parent, `root_face_idx()` folds the chain; `eq=False` (compare by
+  `root_face_idx` set in tests). The `root_face_idx` composition law (`sub(A).sub(B) == A[B]`) is the core.
 - MO2: which heavy consumer to migrate first as the proof (preprocess_neuron correspondence face-idx vs
   soma_extraction vs spine_utils)?
 - MO3: how much of the 63-fn surface is genuinely needed vs incidental (some may be one-off / dead)?
