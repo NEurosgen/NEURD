@@ -37,7 +37,7 @@ from mesh_tools import trimesh_utils as tu
 
 DECIMATION_PARAMETERS = dict(decimation_ratio=0)
 EXPORT_EXT = ".off"
-DATA_TYPE = "h01"  # <-- ключевое отличие от microns-версии
+DATA_TYPE = "microns"  # <-- ключевое отличие от microns-версии
 
 
 # ---------------------- УТИЛИТЫ ПАМЯТИ / ПРОЦЕССА ----------------------
