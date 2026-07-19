@@ -506,9 +506,9 @@ def original_mesh_soma(
 
 
     #7) Split the new mesh and take the largest
-    split_meshes_after_backtrack = tu.split_significant_pieces(prelim_soma_mesh,
-                                significance_threshold=mesh_significance_threshold,
-                                                              connectivity=soma_connectivity,)
+    split_meshes_after_backtrack = [s.mesh for s in submesh_ops.split_significant(
+                                prelim_soma_mesh, mesh_significance_threshold,
+                                connectivity=soma_connectivity)]
     if verbose:
         print(f"split_meshes_after_backtrack = {split_meshes_after_backtrack}")
         print(f"soma_size_threshold = {soma_size_threshold}")
@@ -1676,4 +1676,5 @@ from datasci_tools import system_utils as su
 from datasci_tools import pipeline
 
 from . import parameters
+from . import submesh_ops
 
