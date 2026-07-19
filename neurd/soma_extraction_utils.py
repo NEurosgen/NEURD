@@ -990,8 +990,8 @@ def extract_soma_center(
                                      return_mesh=True,
                                      delete_temp_files=False)
 
-                dec_splits = tu.split_significant_pieces(largest_mesh_path_inner_decimated,significance_threshold=15,
-                                                        connectivity=soma_connectivity,)
+                dec_splits = [s.mesh for s in submesh_ops.split_significant(
+                    largest_mesh_path_inner_decimated, 15, connectivity=soma_connectivity)]
                 print(f"\n-------Splits after inner decimation len = {len(dec_splits)}--------\n")
 
                 if len(dec_splits) == 0:
