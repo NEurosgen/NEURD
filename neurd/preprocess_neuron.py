@@ -39,6 +39,15 @@ process_version = 10 #no skeleton jumping hopefully
 
 min_distance_threshold = 0.00001
 
+# Stitch config — hardcoded constants (former signature defaults; never tuned, not from
+# parameters.params). Module-level so preprocess_limb + the stitch helpers read them directly
+# instead of threading them as arguments.
+meshparty_segment_size = 100
+move_MAP_stitch_to_end_or_branch = True
+distance_to_move_point_threshold = 500
+prevent_MP_starter_branch_stitches = False
+check_correspondence_branches = True
+
 #--------------- default arguments to use ----------#
 
         
@@ -2083,8 +2092,7 @@ def _decompose_map_sublimbs(
     return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
 
 
-def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_point,
-                             meshparty_segment_size):
+def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_point):
     """Reroute a branch skeleton's stitch endpoint to `target_point`, smoothed.
 
     Convert the branch to a graph, drop the node at `remove_point`, add + smooth a segment
@@ -2117,9 +2125,7 @@ def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_p
     return sk.resize_skeleton_branch(new_MP_skeleton, segment_width=meshparty_segment_size)
 
 
-def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP,
-                           min_distance_threshold, move_MAP_stitch_to_end_or_branch,
-                           distance_to_move_point_threshold, total_keep_endpoints):
+def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP, total_keep_endpoints):
     """Find the MAP-side stitch point for one MP<->MAP connection.
 
     Picks the MAP skeleton point closest to the connection centroid whose branch mesh actually
@@ -2192,8 +2198,7 @@ def _find_map_stitch_point(map_correspondence, v_g, av_vert, curr_skeleton_MAP,
             MAP_branches_with_stitch_point, MAP_pieces_idx_touching_border)
 
 
-def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, min_distance_threshold,
-                          prevent_MP_starter_branch_stitches, total_keep_endpoints,
+def _find_mp_stitch_point(mp_correspondence, v_g, av_vert, total_keep_endpoints,
                           all_map_stitch_points):
     """Find the MP-side stitch point (winning_vertex) for one MP<->MAP connection.
 
@@ -2268,12 +2273,6 @@ def _stitch_map_and_mp(
     limb_correspondence_MP,
     limb_mesh_mparty,
     total_keep_endpoints,
-    *,
-    move_MAP_stitch_to_end_or_branch,
-    distance_to_move_point_threshold,
-    meshparty_segment_size,
-    check_correspondence_branches,
-    prevent_MP_starter_branch_stitches,
 ):
     """Parts 11-16: stitch each MP<->MAP connection, mutating limb_correspondence_MAP /
     limb_correspondence_MP in place (branches re-cut / re-corresponded at the join), and
@@ -2349,16 +2348,13 @@ def _stitch_map_and_mp(
         # ---------------- Doing the MAP part first -------------- #
         (MAP_stitch_point, MAP_stitch_point_on_end_or_branch,
          MAP_branches_with_stitch_point, MAP_pieces_idx_touching_border) = _find_map_stitch_point(
-            limb_correspondence_MAP[MAP_idx], v_g, av_vert, curr_skeleton_MAP,
-            min_distance_threshold, move_MAP_stitch_to_end_or_branch,
-            distance_to_move_point_threshold, total_keep_endpoints)
+            limb_correspondence_MAP[MAP_idx], v_g, av_vert, curr_skeleton_MAP, total_keep_endpoints)
         all_map_stitch_points.append(MAP_stitch_point)  # add the map stitch point to the history
 
         # ---------------- Doing the MP Part --------------------- #
         (winning_vertex, MP_branches_with_stitch_point, keep_MP_stitch_static,
          conn, curr_MP_branch_skeletons) = _find_mp_stitch_point(
-            limb_correspondence_MP[MP_idx], v_g, av_vert, min_distance_threshold,
-            prevent_MP_starter_branch_stitches, total_keep_endpoints, all_map_stitch_points)
+            limb_correspondence_MP[MP_idx], v_g, av_vert, total_keep_endpoints, all_map_stitch_points)
 
         print(f"MAP_branches_with_stitch_point = {MAP_branches_with_stitch_point}")
         print(f"MAP_stitch_point_on_end_or_branch = {MAP_stitch_point_on_end_or_branch}")
@@ -2377,7 +2373,7 @@ def _stitch_map_and_mp(
                 curr_MP_sk.append(_reroute_branch_endpoint(
                     curr_MP_branch_skeletons[b_idx],
                     remove_point=winning_vertex, target_point=MAP_stitch_point,
-                    else_point=MAP_stitch_point, meshparty_segment_size=meshparty_segment_size))
+                    else_point=MAP_stitch_point))
             else:
                 print(f"Not adjusting MP skeletons because keep_MP_stitch_static = {keep_MP_stitch_static}")
                 curr_MP_sk.append(curr_MP_branch_skeletons[b_idx])
@@ -2427,7 +2423,7 @@ def _stitch_map_and_mp(
                 curr_MAP_sk_final.append(_reroute_branch_endpoint(
                     map_skel,
                     remove_point=MAP_stitch_point, target_point=winning_vertex,
-                    else_point=winning_vertex, meshparty_segment_size=meshparty_segment_size))
+                    else_point=winning_vertex))
             curr_MAP_sk = copy.deepcopy(curr_MAP_sk_final)
 
 
@@ -2624,17 +2620,14 @@ def preprocess_limb(
     # min_distance_threshold — module-level constant (см. строку 39)
 
     # ── фиксированные константы (бывшие дефолты сигнатуры) ─────────────
-    meshparty_segment_size = 100
+    # meshparty_segment_size / move_MAP_stitch_to_end_or_branch / distance_to_move_point_threshold /
+    # prevent_MP_starter_branch_stitches / check_correspondence_branches — module-level constants now.
     distance_by_mesh_center = True
     perform_cleaning_checks = True
     combine_close_skeleton_nodes = True
     combine_close_skeleton_nodes_threshold = 700
     use_surface_after_CGAL = True
     error_on_bad_cgal_return = False
-    move_MAP_stitch_to_end_or_branch = True
-    distance_to_move_point_threshold = 500
-    prevent_MP_starter_branch_stitches = False
-    check_correspondence_branches = True
     filter_end_nodes_from_correspondence = True
     run_concept_network_checks = True
     print_fusion_steps = True
@@ -2758,13 +2751,7 @@ def preprocess_limb(
     # Only want to perform this step if both MP and MAP pieces
     if len(limb_correspondence_MAP)>0 and len(limb_correspondence_MP)>0:
         limb_correspondence_MAP, limb_correspondence_MP = _stitch_map_and_mp(
-            limb_correspondence_MAP, limb_correspondence_MP, limb_mesh_mparty, total_keep_endpoints,
-            move_MAP_stitch_to_end_or_branch=move_MAP_stitch_to_end_or_branch,
-            distance_to_move_point_threshold=distance_to_move_point_threshold,
-            meshparty_segment_size=meshparty_segment_size,
-            check_correspondence_branches=check_correspondence_branches,
-            prevent_MP_starter_branch_stitches=prevent_MP_starter_branch_stitches,
-        )
+            limb_correspondence_MAP, limb_correspondence_MP, limb_mesh_mparty, total_keep_endpoints)
     else:
         print("There were not both MAP and MP pieces so skipping the stitch resolving phase")
 
