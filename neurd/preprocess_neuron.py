@@ -2843,12 +2843,14 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
         floating_meshes: list of disconnected pieces
         soma_touching_vertices: list, one entry per branch_mesh;
             each entry is {soma_idx: [touching_vertex_array]} for preprocess_limb
+        soma_to_piece_connectivity: {0: [0..N-1]} (limbs index branch_meshes positionally)
+        branch_meshes_orig_idx: list parallel to branch_meshes -- each limb's faces in the
+            ORIGINAL neuron mesh (level-2 provenance carried from the split_significant SubMeshes)
+        soma_faces_idx: the soma's faces in the original neuron mesh (geometric faces_by_match)
     """
     soma_faces_idx = submesh_ops.faces_by_match(main_mesh, soma_mesh)
-    non_soma_mesh = main_mesh.submesh(
-        [np.delete(np.arange(len(main_mesh.faces)), soma_faces_idx)],
-        append=True, repair=False
-    )
+    non_soma_faces = np.delete(np.arange(len(main_mesh.faces)), soma_faces_idx)
+    non_soma_mesh = main_mesh.submesh([non_soma_faces], append=True, repair=False)
 
     sig_pieces_sm, insignificant_sm = submesh_ops.split_significant(
         non_soma_mesh, params.size_threshold_MAP, return_insignificant=True
@@ -2863,6 +2865,11 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     )
 
     branch_meshes = [sig_pieces[i] for i in connected_pieces]
+    # Phase B level-2 provenance: each limb's faces in the ORIGINAL neuron mesh, carried from the
+    # split_significant SubMeshes (root_face_idx into non_soma_mesh, composed through non_soma_faces).
+    # Lets preprocess supply limb_mehses_face_idx so neuron.py skips the geometric KDTree fallback for
+    # CLEAN (non-grown) limbs; grown (stitch-rebuilt) limbs fall back to the owned geometric match.
+    branch_meshes_orig_idx = [non_soma_faces[sig_pieces_sm[i].root_face_idx()] for i in connected_pieces]
     floating_meshes = [p for i, p in enumerate(sig_pieces) if i not in connected_pieces]
     floating_meshes.extend(insignificant_limbs)
 
@@ -2877,7 +2884,8 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     # the concept-network limb nodes (L2,L5,…) disagree with the data-bearing L0,L1,…
     # and blows up later as KeyError 'data'.
     soma_to_piece_connectivity = {0: list(range(len(branch_meshes)))}
-    return branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity
+    return (branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity,
+            branch_meshes_orig_idx, soma_faces_idx)
 
 def _drop_trimesh_caches(mesh):
     """Clear trimesh's lazy derived-array cache (triangles, edges, face_adjacency, ...).
@@ -3071,7 +3079,8 @@ def preprocess_neuron(
 
     soma_mesh, soma_sdf = _extract_single_soma(mesh, segment_id)
 
-    branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity = _segment_limbs_from_soma(
+    (branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity,
+     branch_meshes_orig_idx, soma_faces_idx) = _segment_limbs_from_soma(
         mesh, soma_mesh, params
     )
 
@@ -3100,6 +3109,17 @@ def preprocess_neuron(
     # any limb whose partition is no longer clean. Only broken (stitched) limbs are touched.
     branch_meshes = _rebuild_limb_frames(limb_correspondence_stitched, branch_meshes)
 
+    # Phase B (#3): supply the level-2 (limb/soma <-> original mesh) face maps so neuron.py skips its
+    # geometric KDTree fallbacks. CLEAN limbs (mesh unchanged by the rebuild -> same face count as the
+    # carried provenance) use the exact provenance; GROWN limbs (stitch-rebuilt, mesh gained foreign
+    # floating geometry) fall back to the owned geometric match. Soma reuses the faces_by_match already
+    # computed during segmentation (avoids neuron.py:2268 recomputing it).
+    limb_mehses_face_idx = [
+        np.sort(orig_idx) if len(orig_idx) == len(limb_mesh.faces)
+        else submesh_ops.faces_by_match(mesh, limb_mesh)
+        for limb_mesh, orig_idx in zip(branch_meshes, branch_meshes_orig_idx)
+    ]
+
     limb_concept_networks = _build_concept_networks(
         limb_correspondence_stitched,
         limb_network_starts
@@ -3115,6 +3135,8 @@ def preprocess_neuron(
         "soma_touching_vertices": soma_touching_vertices,
         "soma_to_piece_connectivity" : soma_to_piece_connectivity,
         "limb_meshes": branch_meshes,
+        "limb_mehses_face_idx": limb_mehses_face_idx,
+        "soma_meshes_face_idx": [soma_faces_idx],
         "floating_meshes": floating_meshes,
         "limb_correspondence": limb_correspondence_stitched,
         "limb_concept_networks": limb_concept_networks,
