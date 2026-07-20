@@ -2437,6 +2437,18 @@ def _overwrite_stitched_entries(ctx):
         limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
 
 
+def _assemble_sublimbs(limb_correspondence):
+    """Combine each sublimb's branch meshes/skeletons into per-sublimb (meshes, skeletons) lists.
+
+    Order-preserving: mirrors the two identical Part-11 loops it replaces (byte-identical).
+    """
+    meshes, skeletons = [], []
+    for _sublimb_key, sublimb_v in limb_correspondence.items():
+        meshes.append(tu.combine_meshes([bv["branch_mesh"] for bv in sublimb_v.values()]))
+        skeletons.append(sk.stack_skeletons([bv["branch_skeleton"] for bv in sublimb_v.values()]))
+    return meshes, skeletons
+
+
 def _stitch_map_and_mp(
     limb_correspondence_MAP,
     limb_correspondence_MP,
@@ -2452,21 +2464,8 @@ def _stitch_map_and_mp(
     # -------------(filtering connections to only MP to MAP edges)--------------- #
 
     # ---- Doing the mesh connectivity ---------#
-    sublimb_meshes_MP = []
-    sublimb_skeletons_MP = []
-
-    for sublimb_key,sublimb_v in limb_correspondence_MP.items():
-        sublimb_meshes_MP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
-        sublimb_skeletons_MP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
-
-
-    sublimb_meshes_MAP = []
-    sublimb_skeletons_MAP = []
-
-
-    for sublimb_key,sublimb_v in limb_correspondence_MAP.items():
-        sublimb_meshes_MAP.append(tu.combine_meshes([branch_v["branch_mesh"] for branch_v in sublimb_v.values()]))
-        sublimb_skeletons_MAP.append(sk.stack_skeletons([branch_v["branch_skeleton"] for branch_v in sublimb_v.values()]))
+    sublimb_meshes_MP,  sublimb_skeletons_MP  = _assemble_sublimbs(limb_correspondence_MP)
+    sublimb_meshes_MAP, sublimb_skeletons_MAP = _assemble_sublimbs(limb_correspondence_MAP)
 
     mesh_conn, mesh_conn_vertex_groups, connectivity_type = _resolve_mesh_connectivity(
         sublimb_meshes_MP,
