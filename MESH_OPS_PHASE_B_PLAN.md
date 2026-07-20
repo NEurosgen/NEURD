@@ -83,6 +83,13 @@ per branch instead of separate `branch_mesh`+`branch_face_idx`; `Branch` stores 
 `branch.root_face_idx()` → always limb-consistent → the guard (`neuron_utils:823`) and `_rebuild_limb_frames`
 become dead/removable, and the limb KDTree fallback (`neuron.py:2318`) is fed from provenance.
 
+**⚠️ Concatenated-parent contract (`:1526`, `:2340`).** Two of the four remaps have
+`parent_idx = np.concatenate(divided_submeshes_idx[...])` — the parent frame is itself an *assembled*
+index array, not a clean submesh extraction. `SubMesh(corr_input_mesh, parent_idx, limb_mesh)` is only
+valid when `corr_input_mesh == limb_mesh.submesh([parent_idx])` and `len(parent_idx) == len(corr_input_mesh.faces)`.
+For the concatenated frames that is NOT free — add an explicit assert (no overlap, no reorder) when the
+`SubMesh` is built (step 1), or `root_face_idx()` will diverge from the old `parent_idx[branch_face_idx]`.
+
 ## Incremental task list (each its own golden-gated commit; STOP-and-review between)
 0. **Coverage probe first.** Add the 4 remap sites + `_rebuild_limb_frames` + `neuron.py:2318` to a coverage
    probe (edit `scratchpad/gate_run.py` — it already monkeypatches; wrap the enclosing fns or add temporary
@@ -90,6 +97,16 @@ become dead/removable, and the limb KDTree fallback (`neuron.py:2318`) is fed fr
    partly CGAL-gated and the frame-desync only triggers on stitching neurons — the 2 current anchors may NOT
    exercise `:2281/:2340` or `_rebuild_limb_frames`. If so, add a **stitching** anchor (memory notes
    `neuron_2889815798` builds via the stitch path, ~66.7min) and its own baseline before touching stitch code.
+
+   **The stitch/floating path IS in scope — full B (incl. steps 3/5) is the plan of record.** Even though
+   the target is single-soma neurons, real target meshes have **torn / fragmented limbs** (some limbs arrive
+   in several disconnected pieces), so `_stitch_floating_pieces` fires and the frame-desync class (fragility
+   #2) is live in production — do NOT descope stitch. The probe's second purpose is therefore **not** a
+   go/no-go on 3/5 but a **readiness check for them**: confirm which remaps fire on the current anchors, and
+   confirm the **stitching anchor** (`neuron_2889815798`, ~66.7min) actually exercises `:2281/:2340` +
+   `_rebuild_limb_frames`, then baseline it — before touching stitch code in step 3. (The fragilities do
+   decompose — #1/#3 are killed without stitch — but that is a sequencing aid, not a reason to stop at a
+   "minimal B"; steps 3/5 are required for this workload.)
 1. **Non-stitch remap → composition (smallest real step):** pick a remap that fires on the current anchors
    (likely `:1399` MAP-sublimb and/or `:1526` MP-extension). Build a `SubMesh` at the correspondence-input
    mesh and replace `parent_idx[branch_face_idx]` with `sub.root_face_idx()`. `branch_face_idx` values are
@@ -100,11 +117,27 @@ become dead/removable, and the limb KDTree fallback (`neuron.py:2318`) is fed fr
 3. **Stitch remaps (`:2281/:2340`) via `SubMesh`** — needs the stitching anchor + RNG-replay gating. Replace
    `_rebuild_limb_frames`'s manual re-frame with `SubMesh` parent-relinking (the combined limb mesh becomes
    the new parent; branches are `.sub(range)` of it). Prove the guard `neuron_utils:823` can no longer fire.
+   ⚠️ **The `:2340` remap sits inside a bare `except:` (`preprocess_neuron.py:2341`) that silently reverts to
+   the original mesh assignments on ANY error.** A subtle SubMesh-threading exception is therefore swallowed
+   and the run falls into the fallback — the gate catches the resulting diff, but diagnosis is blind. For the
+   duration of step 3, temporarily re-raise / log inside that `except` so a threading bug surfaces at source.
 4. **`Branch` stores `SubMesh`:** `mesh_face_idx` → `@property` returning `self._sub.root_face_idx()`; update
    the 16 writers + 42 refs incrementally (keep `mesh_face_idx` read-compatible). Gate at each sub-step.
+   ⚠️ **Read-compat is not enough — resolve the write side first.** `mesh_face_idx` has **16 writers**,
+   including reassignments (`neuron_utils.py:864, 920`), and the name is **shared with `Soma`**
+   (`neuron.py:1954`), not just `Branch`. A bare `@property` breaks the writes; a setter that rebuilds a
+   `SubMesh` from a raw array loses the parent linkage and defeats the whole point. Decide up front: migrate
+   the 16 writers to write a `SubMesh`, or add a transitional "detached" setter (`parent = limb.mesh`) as a
+   bridge. **Scope the property to `Branch` only** — leave `Soma.mesh_face_idx` a plain attribute (its idx
+   is the soma KDTree, Plan A's domain, no provenance to carry).
 5. **Delete the dead scaffolding:** remove `_rebuild_limb_frames` + the `neuron_utils:823` guard (now
    structurally impossible), and feed `neuron.py:2318` limb face-idx from provenance so its KDTree fallback
    dies. Gate; confirm `tu.original_mesh_faces_map` is gone from all non-soma sites.
+   ⚠️ **`_rebuild_limb_frames` also skips refinement on rebuilt limbs as a side effect** (memory
+   `class-a-frame-desync`). Once `SubMesh` makes frames correct by construction and this step deletes the
+   rebuild, refinement **re-activates** on those limbs → a byte-diff even when the fix is correct. Separate
+   the two concerns: (a) frame correctness (the goal), (b) refinement behavior (an accidental side effect) —
+   otherwise the gate reddens for the right reason and blocks the deletion.
 
 ## Risks / notes
 - **Highest blast radius in the repo.** `neuron.py`/`neuron_utils.py` are consumed pipeline-wide; do steps 2/4
@@ -115,6 +148,10 @@ become dead/removable, and the limb KDTree fallback (`neuron.py:2318`) is fed fr
 - **`_rebuild_limb_frames` is load-bearing today** — do not delete (step 5) until step 3/4 make the frame
   correct by construction, verified on the stitching anchor.
 - Steps 1–2 are byte-identical index-preserving refactors (low risk); steps 3–5 are the invasive core.
+- **Half-migration risk.** Steps 1–2 are cosmetic *on their own* — the payoff only lands at steps 3–5. If
+  3–5 stall, the carried `SubMesh` becomes pure overhead with no fragility removed. Mitigation: don't commit
+  1–2 without a committed intent to reach step 3, **and** give 1–2 standalone value via the in-process
+  invariant assert (see Verification) so they at least harden the existing code while 3–5 is pending.
 
 ## Verification (unchanged harness)
 `scratchpad/gate_run.py` (seeded `np.random.seed(0)` + `OMP/MKL/OPENBLAS/VECLIB/NUMEXPR_NUM_THREADS=1`) →
@@ -122,6 +159,13 @@ become dead/removable, and the limb KDTree fallback (`neuron.py:2318`) is fed fr
 small-h01 `366280.26`/`291893`; big `1830470325` `1648072.07`/`1323533`; + a stitching anchor
 (`neuron_2889815798`) baseline for steps 3+. Plus `pytest tests/unit/test_submesh_ops.py -v`. Stitch-touching
 steps additionally gated by RNG-capture replay.
+
+**Belt-and-suspenders — in-process invariant (steps 1–3).** Byte-identity of final metrics only catches a
+frame error *downstream*, far from the cause. Cheaply catch it *at source*: while both paths coexist, keep a
+debug-assert `np.array_equal(sub.root_face_idx(), parent_idx[branch_face_idx])` right where the old remap
+runs. It fails exactly where a threading bug is introduced instead of as an opaque metric diff, and gives
+steps 1–2 standalone value (they harden the current code, not just prepare for step 3). Remove the asserts
+once the `SubMesh` path is the sole path and stable.
 
 ## Key references
 | what | where |
