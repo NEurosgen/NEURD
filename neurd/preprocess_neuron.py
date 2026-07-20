@@ -1509,6 +1509,10 @@ def _fix_mp_soma_extension(
             matching_branch_mesh_idx = np.array(divided_submeshes_idx)[match_sk_branches]
             extend_soma_mesh_idx = np.concatenate(matching_branch_mesh_idx)
             extend_soma_mesh = limb_mesh_mparty.submesh([extend_soma_mesh_idx], append=True, repair=False)
+            # Phase B: carry the correspondence-input mesh as an explicit SubMesh of the limb, so each
+            # branch's limb-frame face_idx falls out of composition (extend_soma_sub.sub(...).root_face_idx())
+            # instead of the manual extend_soma_mesh_idx[...] remap. Byte-identical by the composition law.
+            extend_soma_sub = submesh_ops.SubMesh(extend_soma_mesh, extend_soma_mesh_idx, limb_mesh_mparty)
 
             #4) Add newly created branch to skeleton and divide the skeleton into branches (could make 2 or 3)
             sk.check_skeleton_connected_component(sk.stack_skeletons(list(matching_branch_sk) + [br_new]))
@@ -1523,7 +1527,8 @@ def _fix_mp_soma_extension(
             )
 
             new_submeshes = [k["branch_mesh"] for k in local_correspondence_revised.values()]
-            new_submeshes_idx = [extend_soma_mesh_idx[k["branch_face_idx"]] for k in local_correspondence_revised.values()]
+            new_submeshes_idx = [extend_soma_sub.sub(k["branch_face_idx"]).root_face_idx()
+                                 for k in local_correspondence_revised.values()]
             new_skeletal_branches = [k["branch_skeleton"] for k in local_correspondence_revised.values()]
 
             #calculate the new width
