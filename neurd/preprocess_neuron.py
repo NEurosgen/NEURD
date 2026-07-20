@@ -216,7 +216,7 @@ def correspondence_1_to_1(
     
     """
     
-    if len(tu.split(mesh)[0])>1:
+    if len(submesh_ops.split(mesh))>1:
         su.compressed_pickle(mesh,"mesh")
         raise Exception("Mesh passed to correspondence_1_to_1 is not just one mesh")
     
