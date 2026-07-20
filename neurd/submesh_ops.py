@@ -182,3 +182,29 @@ def original_faces(sub: SubMesh) -> np.ndarray:
     replacement for ``tu.original_mesh_faces_map``'s KDTree face-midpoint matching.
     """
     return sub.root_face_idx()
+
+
+def faces_by_match(original_mesh, submesh, matching=True, match_threshold=1e-3, return_mesh=False):
+    """Face indices of ``original_mesh`` whose face-midpoint (does/doesn't) match a face of ``submesh``,
+    by KDTree on face midpoints.
+
+    The owned reimplementation of ``tu.original_mesh_faces_map``'s default (``exact_match=False``) path,
+    for pieces that have NO ``SubMesh`` provenance to the original -- e.g. poisson/SDF-reconstructed soma
+    meshes, whose geometry carries no index link back. (Where provenance DOES exist, use
+    ``root_face_idx`` / ``original_faces`` for the O(1) map instead of this geometric match.)
+
+    Uses the same ``pykdtree`` KDTree as ``tu`` and mirrors its exact behaviour: strict ``< threshold``,
+    ascending face indices, and ``return_mesh`` via ``submesh([...], append=True)`` (trimesh's default
+    ``repair=True``) -- so the result is byte-identical to ``tu.original_mesh_faces_map``.
+    """
+    from pykdtree.kdtree import KDTree
+    orig_mid = original_mesh.triangles_center
+    if submesh is None or len(getattr(submesh, "faces", [])) == 0:
+        faces = np.array([], dtype=np.int64) if matching else np.arange(len(orig_mid), dtype=np.int64)
+    else:
+        dist, _ = KDTree(submesh.triangles_center).query(orig_mid)
+        mask = dist < match_threshold if matching else dist >= match_threshold
+        faces = np.where(mask)[0].astype(np.int64)
+    if return_mesh:
+        return original_mesh.submesh([faces], append=True)   # match tu: repair defaults to True
+    return faces

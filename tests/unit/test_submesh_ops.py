@@ -244,3 +244,23 @@ def test_single_component_mesh():
     pieces = so.split(one)
     assert len(pieces) == 1
     assert pieces[0].n_faces == len(one.faces)
+
+
+def test_faces_by_match_matches_tu(synth, real):
+    """faces_by_match == tu.original_mesh_faces_map (default exact_match=False), incl. inverse + return_mesh."""
+    for mesh in (synth, real):
+        idx = np.arange(0, len(mesh.faces), 3)                     # a genuine subset of faces
+        child = mesh.submesh([idx], append=True, repair=False)
+        assert frozenset(so.faces_by_match(mesh, child).tolist()) == \
+               frozenset(int(x) for x in tu.original_mesh_faces_map(mesh, child))              # matching
+        assert frozenset(so.faces_by_match(mesh, child, matching=False).tolist()) == \
+               frozenset(int(x) for x in tu.original_mesh_faces_map(mesh, child, matching=False))  # inverse
+        mm = so.faces_by_match(mesh, child, return_mesh=True)
+        tm = tu.original_mesh_faces_map(mesh, child, return_mesh=True)
+        assert len(mm.faces) == len(tm.faces)                                                  # return_mesh
+
+
+def test_faces_by_match_empty_submesh():
+    m = trimesh.creation.icosphere(subdivisions=2)
+    assert len(so.faces_by_match(m, trimesh.Trimesh())) == 0
+    assert len(so.faces_by_match(m, trimesh.Trimesh(), matching=False)) == len(m.faces)
