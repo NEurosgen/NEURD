@@ -202,16 +202,22 @@ def correspondence_1_to_1(
     curr_soma_to_piece_touching_vertices=None,
     must_keep_labels=dict(),
     fill_to_soma_border=True,
-
+    input_sub=None,
                     ):
     """
     Will Fix the 1-to-1 Correspondence of the mesh
     correspondence for the limbs and make sure that the
-    endpoints that are designated as touching the soma then 
+    endpoints that are designated as touching the soma then
     make sure the mesh correspondnece reaches the soma limb border
-    
+
     has an optional argument must_keep_labels that will allow you to specify some labels that are a must keep
-    
+
+    Phase B: `input_sub` (a submesh_ops.SubMesh whose .mesh IS `mesh` and whose parent chain reaches
+    the limb) makes each branch's `branch_face_idx` come out in the LIMB frame by construction --
+    folding the split's input-frame indices through `input_sub.root_face_idx()`. This is the single
+    seam that replaces the callers' manual `parent_idx[branch_face_idx]` remaps (and, for the stitch
+    floating path, the frame-desync that `_rebuild_limb_frames` repairs post-hoc). When `input_sub`
+    is None the output stays in the input-mesh frame -- identical to the pre-Phase-B behaviour.
     """
     
     if len(submesh_ops.split(mesh))>1:
@@ -300,12 +306,21 @@ def correspondence_1_to_1(
     # -- splitting the mesh pieces into individual pieces
     divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(curr_limb_mesh,face_coloring_copy)
 
+    # Phase B: with input_sub, fold the split's input-frame indices to the LIMB frame by composition
+    # (branch_face_idx = input_sub.root_face_idx()[input_idx]); without it, keep the input-frame idx.
+    if input_sub is not None:
+        assert input_sub.mesh is curr_limb_mesh, \
+            "correspondence_1_to_1: input_sub.mesh must be the correspondence-input mesh"
+        _input_root = input_sub.root_face_idx()
+
     #-- check that all the split mesh pieces are one component --#
     local_correspondence_revised = deepcopy(local_correspondence)
     #save off the new data as branch mesh
     for k in local_correspondence_revised.keys():
+        _input_idx = divided_submeshes_idx[k]
         local_correspondence_revised[k]["branch_mesh"] = divided_submeshes[k]
-        local_correspondence_revised[k]["branch_face_idx"] = divided_submeshes_idx[k]
+        local_correspondence_revised[k]["branch_face_idx"] = (
+            _input_idx if input_sub is None else _input_root[_input_idx])
 
         #clean the limb correspondence that we do not need
         del local_correspondence_revised[k]["correspondence_mesh"]
@@ -1389,19 +1404,15 @@ def _decompose_map_piece(
         check_skeletonization_and_decomp(skeleton=cleaned_branch, local_correspondence=local_correspondence)
 
     # -------3) Finishing off the face correspondence so get 1-to-1 correspondence of mesh face to skeletal piece
+    # Phase B: pass map_sub as input_sub so branch_face_idx comes back in the LIMB frame by
+    # construction (the old :1399 mesh_idx[branch_face_idx] remap now lives inside correspondence_1_to_1).
     local_correspondence_revised = correspondence_1_to_1(
         mesh=mesh,
         local_correspondence=local_correspondence,
         curr_limb_endpoints_must_keep=curr_limb_endpoints_must_keep,
         curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices,
+        input_sub=map_sub,
     )
-
-    # -------3b) Fixing the mesh indices to correspond to the larger mesh as a whole
-    # Phase B: the limb-frame face_idx falls out of composition (map_sub.sub(bfi).root_face_idx())
-    # instead of the manual mesh_idx[bfi] remap. Byte-identical by the proven composition law.
-    for k, v in local_correspondence_revised.items():
-        _bfi = local_correspondence_revised[k]["branch_face_idx"]
-        local_correspondence_revised[k]["branch_face_idx"] = map_sub.sub(_bfi).root_face_idx()
 
     print(f"Total time for MAP sublimb #{sublimb_idx} mesh processing = {time.time() - mesh_start_time}")
     return local_correspondence_revised, curr_limb_endpoints_must_keep, curr_soma_to_piece_touching_vertices
@@ -1514,9 +1525,9 @@ def _fix_mp_soma_extension(
             matching_branch_mesh_idx = np.array(divided_submeshes_idx)[match_sk_branches]
             extend_soma_mesh_idx = np.concatenate(matching_branch_mesh_idx)
             extend_soma_mesh = limb_mesh_mparty.submesh([extend_soma_mesh_idx], append=True, repair=False)
-            # Phase B: carry the correspondence-input mesh as an explicit SubMesh of the limb, so each
-            # branch's limb-frame face_idx falls out of composition (extend_soma_sub.sub(...).root_face_idx())
-            # instead of the manual extend_soma_mesh_idx[...] remap. Byte-identical by the composition law.
+            # Phase B: the correspondence-input mesh as an explicit SubMesh of the limb; passed as
+            # input_sub to _run_mesh_correspondence so branch_face_idx comes back in the LIMB frame
+            # (the old extend_soma_mesh_idx[...] remap now lives inside correspondence_1_to_1).
             extend_soma_sub = submesh_ops.SubMesh(extend_soma_mesh, extend_soma_mesh_idx, limb_mesh_mparty)
 
             #4) Add newly created branch to skeleton and divide the skeleton into branches (could make 2 or 3)
@@ -1529,11 +1540,12 @@ def _fix_mp_soma_extension(
                 list(matching_branch_sk) + [br_new],
                 curr_limb_endpoints_must_keep=endpoints_must_keep_MP,
                 curr_soma_to_piece_touching_vertices=curr_soma_to_piece_touching_vertices_MP,
+                input_sub=extend_soma_sub,
             )
 
             new_submeshes = [k["branch_mesh"] for k in local_correspondence_revised.values()]
-            new_submeshes_idx = [extend_soma_sub.sub(k["branch_face_idx"]).root_face_idx()
-                                 for k in local_correspondence_revised.values()]
+            # branch_face_idx is already in the limb frame (input_sub above), so no remap here.
+            new_submeshes_idx = [k["branch_face_idx"] for k in local_correspondence_revised.values()]
             new_skeletal_branches = [k["branch_skeleton"] for k in local_correspondence_revised.values()]
 
             #calculate the new width
