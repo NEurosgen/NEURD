@@ -2826,9 +2826,7 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
         soma_touching_vertices: list, one entry per branch_mesh;
             each entry is {soma_idx: [touching_vertex_array]} for preprocess_limb
     """
-    soma_faces_idx = tu.original_mesh_faces_map(
-        original_mesh=main_mesh, submesh=soma_mesh, exact_match=False, matching=True
-    )
+    soma_faces_idx = submesh_ops.faces_by_match(main_mesh, soma_mesh)
     non_soma_mesh = main_mesh.submesh(
         [np.delete(np.arange(len(main_mesh.faces)), soma_faces_idx)],
         append=True, repair=False

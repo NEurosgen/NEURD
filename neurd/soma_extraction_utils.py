@@ -497,11 +497,8 @@ def original_mesh_soma(
 
 
     #6) Map to the original with a high distance threshold
-    prelim_soma_mesh = tu.original_mesh_faces_map(original_mesh=orig_mesh_to_map,
-                              submesh=mesh,
-                              matching=True,
-                              exact_match=False,
-                              match_threshold = match_distance_threshold,
+    prelim_soma_mesh = submesh_ops.faces_by_match(orig_mesh_to_map, mesh,
+                              match_threshold=match_distance_threshold,
                               return_mesh=True)
 
 
