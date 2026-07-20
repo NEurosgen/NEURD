@@ -1292,8 +1292,7 @@ def _resolve_mesh_connectivity(
 
 
 def _decompose_map_piece(
-    mesh,
-    mesh_idx,
+    map_sub,
     sublimb_idx,
     soma_touching_vertices_dict,
     filter_end_node_length,
@@ -1315,6 +1314,9 @@ def _decompose_map_piece(
     """
     print(f"--- Working on MAP piece {sublimb_idx}---")
     mesh_start_time = time.time()
+    # Phase B: map_sub is a submesh_ops.SubMesh (mesh + limb-frame face_idx + parent=limb_mesh_mparty).
+    # The rest of the body uses `mesh` unchanged; the :1399 remap now composes off map_sub's provenance.
+    mesh = map_sub.mesh
     curr_soma_to_piece_touching_vertices = filter_soma_touching_vertices_dict_by_mesh(
         mesh=mesh,
         curr_piece_to_soma_touching_vertices=soma_touching_vertices_dict,
@@ -1395,8 +1397,11 @@ def _decompose_map_piece(
     )
 
     # -------3b) Fixing the mesh indices to correspond to the larger mesh as a whole
+    # Phase B: the limb-frame face_idx falls out of composition (map_sub.sub(bfi).root_face_idx())
+    # instead of the manual mesh_idx[bfi] remap. Byte-identical by the proven composition law.
     for k, v in local_correspondence_revised.items():
-        local_correspondence_revised[k]["branch_face_idx"] = mesh_idx[local_correspondence_revised[k]["branch_face_idx"]]
+        _bfi = local_correspondence_revised[k]["branch_face_idx"]
+        local_correspondence_revised[k]["branch_face_idx"] = map_sub.sub(_bfi).root_face_idx()
 
     print(f"Total time for MAP sublimb #{sublimb_idx} mesh processing = {time.time() - mesh_start_time}")
     return local_correspondence_revised, curr_limb_endpoints_must_keep, curr_soma_to_piece_touching_vertices
@@ -1729,12 +1734,11 @@ def _safe_frame_faces(meshes, li):
 class _SublimbGrouping:
     """Parts 4-8 output: one limb's meshparty decomposition split into MAP and MP sublimbs.
 
-    MAP sublimbs (`mesh_pieces_for_MAP*`) are wide branches that need CGAL re-skeletonization,
+    MAP sublimbs (`map_subs`) are wide branches that need CGAL re-skeletonization,
     grouped by mesh+skeleton connectivity. MP sublimbs (`sublimb_*`) are everything else. When
     no MAP candidates survive, there is a single whole-limb MP sublimb and `MAP_flag` is False.
     """
-    mesh_pieces_for_MAP: list
-    mesh_pieces_for_MAP_face_idx: list
+    map_subs: list   # list[submesh_ops.SubMesh]: MAP sublimb mesh + limb-frame face_idx + parent
     sublimb_meshes_MP: list
     sublimb_mesh_branches_MP: list
     sublimb_mesh_idx_branches_MP: list
@@ -1772,8 +1776,10 @@ def _group_into_map_mp_sublimbs(
 
 
     print("Another print")
-    mesh_pieces_for_MAP = []
-    mesh_pieces_for_MAP_face_idx = []
+    # Phase B: map_subs bundles each MAP sublimb mesh + its limb-frame face_idx + parent
+    # (limb_mesh_mparty) into one submesh_ops.SubMesh, replacing the old parallel
+    # mesh_pieces_for_MAP / mesh_pieces_for_MAP_face_idx arrays.
+    map_subs = []
 
 
     if len(mesh_large_idx) > 0: #will only continue processing if found MAP candidates
@@ -1816,8 +1822,9 @@ def _group_into_map_mp_sublimbs(
             # --------------- Part 6: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
             #all the pieces that will require MAP mesh correspondence and skeletonization
             #(already organized into their components)
-            mesh_pieces_for_MAP = [limb_mesh_mparty.submesh([np.concatenate(divided_submeshes_idx[k])],append=True,repair=False) for k in filtered_pieces]
-            mesh_pieces_for_MAP_face_idx = [np.concatenate(divided_submeshes_idx[k]) for k in filtered_pieces]
+            _map_face_idx = [np.concatenate(divided_submeshes_idx[k]) for k in filtered_pieces]
+            map_subs = [submesh_ops.SubMesh(limb_mesh_mparty.submesh([idx], append=True, repair=False), idx, limb_mesh_mparty)
+                        for idx in _map_face_idx]
 
 
             # --------------- Part 7: If Found MAP sublimbs, Get the meshes and mesh_idxs of the sublimbs ------------- #
@@ -1852,7 +1859,7 @@ def _group_into_map_mp_sublimbs(
     #if no sublimbs need to be decomposed with MAP then just reassign all of the previous MP processing to the sublimb_MPs
 
 
-    if len(mesh_pieces_for_MAP) == 0:
+    if len(map_subs) == 0:
         print('no MAP pieces')
         sublimb_meshes_MP = [limb_mesh_mparty] #trimesh pieces that have already been passed through MP skeletonization (may not need)
         # -- the decomposition information ---
@@ -1866,8 +1873,7 @@ def _group_into_map_mp_sublimbs(
         MAP_flag = True
 
     return _SublimbGrouping(
-        mesh_pieces_for_MAP=mesh_pieces_for_MAP,
-        mesh_pieces_for_MAP_face_idx=mesh_pieces_for_MAP_face_idx,
+        map_subs=map_subs,
         sublimb_meshes_MP=sublimb_meshes_MP,
         sublimb_mesh_branches_MP=sublimb_mesh_branches_MP,
         sublimb_mesh_idx_branches_MP=sublimb_mesh_idx_branches_MP,
@@ -1978,8 +1984,7 @@ def _decompose_mp_sublimbs(
 
 
 def _decompose_map_sublimbs(
-    mesh_pieces_for_MAP,
-    mesh_pieces_for_MAP_face_idx,
+    map_subs,
     soma_touching_vertices_dict,
     *,
     filter_end_node_length,
@@ -2005,14 +2010,13 @@ def _decompose_map_sublimbs(
     soma_touching_additions = []
     global_start_time = time.time()
 
-    for sublimb_idx, (mesh, mesh_idx) in enumerate(zip(mesh_pieces_for_MAP, mesh_pieces_for_MAP_face_idx)):
+    for sublimb_idx, map_sub in enumerate(map_subs):
         (
             local_correspondence_revised,
             curr_limb_endpoints_must_keep,
             curr_soma_to_piece_touching_vertices,
         ) = _decompose_map_piece(
-            mesh=mesh,
-            mesh_idx=mesh_idx,
+            map_sub=map_sub,
             sublimb_idx=sublimb_idx,
             soma_touching_vertices_dict=soma_touching_vertices_dict,
             filter_end_node_length=filter_end_node_length,
@@ -2689,8 +2693,7 @@ def preprocess_limb(
         width_threshold_MAP,
         size_threshold_MAP,
     )
-    mesh_pieces_for_MAP = _grp.mesh_pieces_for_MAP
-    mesh_pieces_for_MAP_face_idx = _grp.mesh_pieces_for_MAP_face_idx
+    map_subs = _grp.map_subs
     sublimb_meshes_MP = _grp.sublimb_meshes_MP
     sublimb_mesh_branches_MP = _grp.sublimb_mesh_branches_MP
     sublimb_mesh_idx_branches_MP = _grp.sublimb_mesh_idx_branches_MP
@@ -2702,8 +2705,7 @@ def preprocess_limb(
 
     # -------------- Part 9: Doing the MAP decomposition ------------------ #
     limb_correspondence_MAP, _map_endpoints_add, _map_soma_touching_add = _decompose_map_sublimbs(
-        mesh_pieces_for_MAP,
-        mesh_pieces_for_MAP_face_idx,
+        map_subs,
         soma_touching_vertices_dict,
         filter_end_node_length=filter_end_node_length,
         perform_cleaning_checks=perform_cleaning_checks,
