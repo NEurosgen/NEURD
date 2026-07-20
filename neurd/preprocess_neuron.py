@@ -161,9 +161,7 @@ def check_skeletonization_and_decomp(
     divided_skeleton_graph_recovered = sk.convert_graph_to_skeleton(divided_skeleton_graph)
 
     cleaned_limb_skeleton = cleaned_branch
-    if divided_skeleton_graph_recovered.shape != cleaned_limb_skeleton.shape:
-        print(f"****divided_skeleton_graph_recovered and cleaned_limb_skeleton shapes not match: "
-                        f"{divided_skeleton_graph_recovered.shape} vs. {cleaned_limb_skeleton.shape} *****")
+ 
 
 
     #check that it is all one component
