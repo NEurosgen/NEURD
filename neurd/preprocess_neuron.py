@@ -2820,7 +2820,7 @@ def preprocess_limb(
 
 def _extract_single_soma(mesh, segment_id):
     """Заменяет оригинальную Фазу 1 и 2. Ищет строго одну сому."""
-    (soma_mesh_list, _, total_soma_list_sdf, _, _) = extract_soma_center(
+    (soma_mesh_list, _, total_soma_list_sdf) = extract_soma_center(
         segment_id, mesh.vertices, mesh.faces
     )
 

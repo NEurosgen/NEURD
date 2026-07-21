@@ -25,11 +25,6 @@ _BASE = dict(
     # neuron_utils
     skeletal_length_max_n_spines=3000,
     # soma_extraction_utils
-    nucleus_min=700,
-    nucleus_max=None,
-    glia_volume_threshold_in_um=2500,
-    glia_n_faces_threshold=400_000,
-    glia_n_faces_min=100_000,
     outer_decimation_ratio=0.25,
     large_mesh_threshold=20_000,
     large_mesh_threshold_inner=13_000,
@@ -117,8 +112,6 @@ _H01 = dict(
     # neuron_utils
     skeletal_length_max_n_spines=6_000,
     # soma_extraction_utils
-    glia_n_faces_threshold=3_000_000,
-    glia_n_faces_min=3_000_000,
     large_mesh_threshold=40_000,
     large_mesh_threshold_inner=20_000,
     soma_size_threshold=15_000,
