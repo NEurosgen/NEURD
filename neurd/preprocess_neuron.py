@@ -304,23 +304,22 @@ def correspondence_1_to_1(
 
 
     # -- splitting the mesh pieces into individual pieces
-    divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(curr_limb_mesh,face_coloring_copy)
-
-    # Phase B: with input_sub, fold the split's input-frame indices to the LIMB frame by composition
-    # (branch_face_idx = input_sub.root_face_idx()[input_idx]); without it, keep the input-frame idx.
+    # Phase B: split the colouring into SubMeshes, so provenance travels WITH the geometry. The
+    # parent is input_sub when the caller supplied it (branch_face_idx then folds to the LIMB frame
+    # by composition) and the raw input mesh otherwise (face_idx stays input-frame) -- one
+    # expression for both, no frame special-case.
     if input_sub is not None:
         assert input_sub.mesh is curr_limb_mesh, \
             "correspondence_1_to_1: input_sub.mesh must be the correspondence-input mesh"
-        _input_root = input_sub.root_face_idx()
+    branch_subs = submesh_ops.split_into_face_groups(
+        input_sub if input_sub is not None else curr_limb_mesh, face_coloring_copy)
 
     #-- check that all the split mesh pieces are one component --#
     local_correspondence_revised = deepcopy(local_correspondence)
     #save off the new data as branch mesh
     for k in local_correspondence_revised.keys():
-        _input_idx = divided_submeshes_idx[k]
-        local_correspondence_revised[k]["branch_mesh"] = divided_submeshes[k]
-        local_correspondence_revised[k]["branch_face_idx"] = (
-            _input_idx if input_sub is None else _input_root[_input_idx])
+        local_correspondence_revised[k]["branch_mesh"] = branch_subs[k].mesh
+        local_correspondence_revised[k]["branch_face_idx"] = branch_subs[k].root_face_idx()
 
         #clean the limb correspondence that we do not need
         del local_correspondence_revised[k]["correspondence_mesh"]
@@ -1059,8 +1058,8 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
 
     #6) Get the divided meshes and face idx from waterfilling
     # -- splitting the mesh pieces into individual pieces
-    divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(limb_mesh_mparty,face_coloring_copy,
-                                                                            return_dict=False)
+    branch_subs = submesh_ops.split_into_face_groups(limb_mesh_mparty, face_coloring_copy,
+                                                     return_dict=False)
 
 
     #7) Store everything back inside a correspondence dictionary
@@ -1068,8 +1067,8 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
     for j,curr_sk in enumerate(cleaned_branches):
         local_dict = dict(branch_skeleton=curr_sk,
                           width_from_skeleton=new_width_from_skeletons[j],
-                         branch_mesh=divided_submeshes[j],
-                         branch_face_idx=divided_submeshes_idx[j])
+                         branch_mesh=branch_subs[j].mesh,
+                         branch_face_idx=branch_subs[j].root_face_idx())
         limb_correspondence_individual_filtered[j] = local_dict
 
 
