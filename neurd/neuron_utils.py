@@ -910,14 +910,15 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
                   f"(refinement could not resolve {len(original_labels)} branches: {e})")
             continue
 
-        divided_submeshes,divided_submeshes_idx = tu.split_mesh_into_face_groups(ex_limb.mesh,face_coloring_copy)
+        from neurd import submesh_ops  # local import: neuron_utils is an intra-package sink
+        branch_subs = submesh_ops.split_into_face_groups(ex_limb.mesh, face_coloring_copy)
 
         #now reassign the new divided supmeshes
         for branch_idx in ex_limb.concept_network.nodes():
             ex_branch = ex_limb.concept_network.nodes[branch_idx]["data"]
 
-            ex_branch.mesh = divided_submeshes[branch_idx]
-            ex_branch.mesh_face_idx = divided_submeshes_idx[branch_idx]
+            ex_branch.mesh = branch_subs[branch_idx].mesh
+            ex_branch.mesh_face_idx = branch_subs[branch_idx].root_face_idx()
             ex_branch.mesh_center = tu.mesh_center_vertex_average(ex_branch.mesh)
 
             #need to change the preprocessed_data to reflect the change
