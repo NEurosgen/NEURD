@@ -1312,6 +1312,99 @@ class Soma:
 
     #     ):
 
+def _soma_piece_graph(soma_to_piece_connectivity):
+    """The networkx graph that holds most of a Neuron's data, from soma connectivity."""
+    if isinstance(soma_to_piece_connectivity, nx.Graph):
+        return soma_to_piece_connectivity
+    if isinstance(soma_to_piece_connectivity, dict):
+        return convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity)
+    raise Exception(f"Recieved an incompatible type of {type(soma_to_piece_connectivity)} for the concept_network")
+
+
+def _attach_somas(concept_network, preprocessed_data, soma_volume_ratios):
+    """Create the Soma objects and hang them off the "S<j>" nodes as ["data"]."""
+    soma_meshes = preprocessed_data["soma_meshes"]
+    # soma_meshes_face_idx is supplied by preprocess_neuron since 63d2584 -- the
+    # geometric KDTree fallback that used to regenerate it is gone
+    for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio) in enumerate(zip(
+            soma_meshes,
+            preprocessed_data["soma_meshes_face_idx"],
+            preprocessed_data["soma_sdfs"],
+            soma_volume_ratios)):
+        soma_obj = Soma(curr_soma,
+                        mesh_face_idx=curr_soma_face_idx,
+                        sdf=current_sdf,
+                        volume_ratio=curr_volume_ratio,
+                        volume=None)
+
+        soma_name = f"S{j}"
+        # a soma is not necessarily already a node of the connectivity graph
+        if soma_name in concept_network.nodes():
+            xu.set_node_data(curr_network=concept_network,
+                             node_name=soma_name,
+                             curr_data=soma_obj,
+                             curr_data_label="data")
+        else:
+            print(f"Did not have {soma_name} in concept network so adding it")
+            concept_network.add_node(soma_name,data=soma_obj)
+
+
+def _attach_limbs(concept_network, preprocessed_data):
+    """Create the Limb objects and hang them off the "L<j>" nodes as ["data"].
+
+    Each limb takes its correspondence and concept networks by index, so the four
+    preprocessed lists stay aligned.
+    """
+    limb_correspondence = preprocessed_data["limb_correspondence"]
+    limb_concept_networks = preprocessed_data["limb_concept_networks"]
+
+    for j,(curr_limb_mesh,curr_limb_mesh_face_idx) in enumerate(zip(
+            preprocessed_data["limb_meshes"],
+            preprocessed_data["limb_mehses_face_idx"])):
+        limb_obj = Limb(
+                            mesh=curr_limb_mesh,
+                            curr_limb_correspondence=limb_correspondence[j],
+                            concept_network_dict=limb_concept_networks[j],
+                            mesh_face_idx=curr_limb_mesh_face_idx,
+                        )
+
+        limb_name = f"L{j}"
+        if limb_name not in concept_network.nodes():
+            concept_network.add_node(limb_name)
+
+        xu.set_node_data(curr_network=concept_network,
+                         node_name=limb_name,
+                         curr_data=limb_obj,
+                         curr_data_label="data")
+
+
+def _refine_neuron(neuron_obj, calculate_spines=False):
+    """Everything after the objects exist: correspondence, spines, widths, cleanup."""
+    print(f"--- 5) Doing the adaptive mesh correspondence on the meshparty preprocessing ---")
+    nru.apply_adaptive_mesh_correspondence_to_neuron(neuron_obj)
+
+    print(f"self.n_limbs = {neuron_obj.n_limbs}")
+    if neuron_obj.n_limbs > 0:
+        if calculate_spines and not neuron_obj.spines_already_computed():
+            print("7a) calculating spines because didn't exist")
+            spu.calculate_spines_on_neuron(neuron_obj)
+
+        for w in ["no_spine_median_mesh_center"]:
+            print(w)
+            wu.calculate_new_width_for_neuron_obj(neuron_obj,width_name=w)
+
+        nru.clean_neuron_all_concept_network_data(neuron_obj)
+    else:
+        print("Skipping the width and spine calculation because no limbs")
+
+    nru.recalculate_endpoints_and_order_skeletons_over_neuron(neuron_obj)
+
+    try:
+        bu.set_branches_endpoints_upstream_downstream_idx(neuron_obj)
+    except:
+        pass
+
+
 class Neuron:
     """
     Neuron class docstring:
@@ -1349,139 +1442,39 @@ class Neuron:
 
     """
     def __init__(self,mesh,segment_id = None, calculate_spines = False):
+        """Decompose `mesh` into somas and limbs of branches.
 
-        """here would be calling any super classes inits
-        Ex: Parent.__init(self)
-
-        Class can act like a dictionary and can d
+        The heavy lifting is `preprocess_neuron`; this turns its output into the
+        object graph (`concept_network`, with Soma/Limb objects as node "data") and
+        then refines it.
         """
+        neuron_start_time = time.time()
 
-        #covering the scenario where the data was recieved was actually another neuron class
-        neuron_start_time =time.time()
-
-        #in order to become an iterable
-        self._index = -1
-
+        self._index = -1          # in order to become an iterable
         self.mesh = mesh
         self._mesh_kdtree = None
 
         if segment_id is None:
             segment_id = np.random.randint(100000000)
             print(f"picking a random 7 digit segment id: {segment_id}")
-
         self.segment_id = segment_id
 
         print("--- 0) Having to preprocess the Neuron becuase no preprocessed data\nPlease wait this could take a while.....")
-
         from neurd import preprocess_neuron as pre  # P3: local import breaks neuron<->preprocess_neuron cycle
-        preprocessed_data = pre.preprocess_neuron(
-                                    mesh,segment_id=segment_id)
+        preprocessed_data = pre.preprocess_neuron(mesh,segment_id=segment_id)
 
         self.nucleus_id = preprocessed_data.get("nucleus_id",None)
         self.split_index = preprocessed_data.get("split_index",None)
-
         self.preprocessed_data = preprocessed_data
 
-        limb_concept_networks = preprocessed_data["limb_concept_networks"]
-        limb_correspondence = preprocessed_data["limb_correspondence"]
-        limb_meshes = preprocessed_data["limb_meshes"]
-
-        soma_meshes = preprocessed_data["soma_meshes"]
-        soma_sdfs = preprocessed_data["soma_sdfs"]
-        soma_to_piece_connectivity = preprocessed_data["soma_to_piece_connectivity"]
-
-        soma_volumes = [None]*len(soma_sdfs)
-
         # preprocess_neuron does not return soma_volume_ratios, so they are always computed here
-        preprocessed_data["soma_volume_ratios"] = [sm.soma_volume_ratio(j) for j in soma_meshes]
-
-        # -------- 6/9 addition: synapses that are saved off--------
-
-        soma_volume_ratios = preprocessed_data["soma_volume_ratios"]
-
+        soma_volume_ratios = [sm.soma_volume_ratio(j) for j in preprocessed_data["soma_meshes"]]
+        preprocessed_data["soma_volume_ratios"] = soma_volume_ratios
         print(f"--- 1) Finished unpacking preprocessed materials: {time.time() - neuron_start_time}")
-        neuron_start_time =time.time()
 
-        # builds the networkx graph where we will store most of the data
-        if type(soma_to_piece_connectivity) == type(nx.Graph()):
-            self.concept_network = soma_to_piece_connectivity
-        elif type(soma_to_piece_connectivity) == dict:
-            concept_network = convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity)
-            self.concept_network = concept_network
-        else:
-            raise Exception(f"Recieved an incompatible type of {type(soma_to_piece_connectivity)} for the concept_network")
-
-        print(f"--- 2) Finished creating neuron connectivity graph: {time.time() - neuron_start_time}")
-        neuron_start_time =time.time()
-
-        # 2) Creat the soma meshes
-        # a. Create soma mesh objects
-        # b. Add the soma objects as ["data"] attribute of all of the soma nodes
-
-        # supplied by preprocess_neuron since 63d2584 -- the geometric KDTree fallback is gone
-        soma_meshes_face_idx = preprocessed_data["soma_meshes_face_idx"]
-
-        for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes)):
-            Soma_obj = Soma(curr_soma,
-                            mesh_face_idx=curr_soma_face_idx,
-                            sdf=current_sdf,
-                            volume_ratio=curr_volume_ratio,
-                            volume=curr_volume)
-
-            print(f"--- 3b) Finished soma creation: {time.time() - neuron_start_time}")
-            neuron_start_time =time.time()
-
-            soma_name = f"S{j}"
-            #Add the soma object as data in
-
-            # --- 11/21 adaption that accounts for if soma is not in the concept network
-            if soma_name in self.concept_network.nodes():
-                xu.set_node_data(curr_network=self.concept_network,
-                                        node_name=soma_name,
-                                        curr_data=Soma_obj,
-                                        curr_data_label="data")
-            else:
-                print(f"Did not have {soma_name} in concept network so adding it")
-                self.concept_network.add_node(soma_name,data=Soma_obj)
-
-        print(f"--- 3) Finshed generating soma objects and adding them to concept graph: {time.time() - neuron_start_time}")
-        neuron_start_time =time.time()
-
-        # 3) Add the limbs to the graph:
-        # a. Create the limb objects and their associated names
-        # (use an index to iterate through limb_correspondence,current_mesh_data and limb_concept_network/lables)
-        # b. Add the limbs to the neuron concept graph nodes
-
-        limb_mehses_face_idx = preprocessed_data["limb_mehses_face_idx"]
-
-#         return
-
-        for j,(curr_limb_mesh,curr_limb_mesh_face_idx) in enumerate(zip(limb_meshes,limb_mehses_face_idx)):
-            """
-            will just find the curr_limb_concept_network, curr_limb_label by indexing
-            """
-            curr_limb_correspondence = limb_correspondence[j]
-            curr_limb_concept_networks = limb_concept_networks[j]
-
-            print(f"curr_limb_concept_networks= {curr_limb_concept_networks}")
-
-            Limb_obj = Limb(
-                                mesh=curr_limb_mesh,
-                                curr_limb_correspondence=curr_limb_correspondence,
-                                concept_network_dict=curr_limb_concept_networks,
-                                mesh_face_idx=curr_limb_mesh_face_idx,
-                            )
-
-            limb_name = f"L{j}"
-            #Add the soma object as data in
-            if limb_name not in self.concept_network.nodes():
-                self.concept_network.add_node(limb_name)
-
-            xu.set_node_data(curr_network=self.concept_network,
-                                    node_name=limb_name,
-                                    curr_data=Limb_obj,
-                                    curr_data_label="data")
-
+        self.concept_network = _soma_piece_graph(preprocessed_data["soma_to_piece_connectivity"])
+        _attach_somas(self.concept_network, preprocessed_data, soma_volume_ratios)
+        _attach_limbs(self.concept_network, preprocessed_data)
         print(f"--- 4) Finshed generating Limb objects and adding them to concept graph: {time.time() - neuron_start_time}")
 
         # Drop large preprocessed_data keys that are now fully materialised into
@@ -1490,44 +1483,7 @@ class Neuron:
         for _stale_key in ("limb_meshes", "limb_concept_networks", "soma_meshes"):
             preprocessed_data.pop(_stale_key, None)
 
-        widths_to_calculate=["no_spine_median_mesh_center"]
-        neuron_start_time =time.time()
-        print(f"--- 5) Doing the adaptive mesh correspondence on the meshparty preprocessing ---")
-        nru.apply_adaptive_mesh_correspondence_to_neuron(self)
-        print(f"--- 5) Finished Doing the adaptive mesh correspondence on the meshparty preprocessing: {time.time() - neuron_start_time}")
-
-        # printing what concept network looks like
-        print(f"self.n_limbs = {self.n_limbs}")
-
-        if self.n_limbs > 0:
-
-            if calculate_spines:
-                #check to see that spines don't already exist
-                print("7) Calculating the spines for the neuorn if do not already exist")
-                if not self.spines_already_computed():
-                    print("7a) calculating spines because didn't exist")
-                    # spines_kwargs was a removed __init__ param (single-soma specialization
-                    # dropped it); the spine path was never exercised since spines were off, so
-                    # this NameError was latent. calculate_spines_on_neuron's args are all
-                    # optional (query/volume/etc. default sensibly) — call with defaults.
-                    spu.calculate_spines_on_neuron(self)
-
-            for w in widths_to_calculate:
-                print(w)
-                wu.calculate_new_width_for_neuron_obj(self,width_name=w)
-
-            # ----------- 1/25 Addition that cleans the concept networks ------- #
-            nru.clean_neuron_all_concept_network_data(self)
-        else:
-            print("Skipping the width and spine calculation because no limbs")
-
-        nru.recalculate_endpoints_and_order_skeletons_over_neuron(self)
-
-        try:
-            bu.set_branches_endpoints_upstream_downstream_idx(self,)
-        except:
-            pass
-
+        _refine_neuron(self, calculate_spines=calculate_spines)
         self._clear_mesh_caches()
 
     def _clear_mesh_caches(self):
