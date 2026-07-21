@@ -326,3 +326,45 @@ def test_split_into_face_groups_carries_provenance(real):
 def test_split_into_face_groups_rejects_wrong_length(real):
     with pytest.raises(ValueError):
         so.split_into_face_groups(real, np.zeros(len(real.faces) - 1, dtype=int))
+
+
+# --------------------------------------------------------------------------- #
+# combine  (vs tu.combine_meshes)  -- the inverse of split_into_face_groups
+# --------------------------------------------------------------------------- #
+def test_combine_matches_tu(synth, real):
+    """combine == tu.combine_meshes: same geometry, with and without vertex merging."""
+    for mesh in (synth, real):
+        pieces = [s.mesh for s in so.split(mesh)[:3]]
+        for merge in (True, False):
+            ours = so.combine(pieces, merge_vertices=merge)
+            theirs = tu.combine_meshes(pieces, merge_vertices=merge)
+            assert len(ours.faces) == len(theirs.faces)
+            assert len(ours.vertices) == len(theirs.vertices)
+            assert np.array_equal(ours.faces, theirs.faces)
+
+
+def test_combine_provenance_recovers_each_piece(synth, real):
+    """return_pieces=True: each piece's contiguous range recovers exactly that piece's faces."""
+    for mesh in (synth, real):
+        pieces = [s.mesh for s in so.split(mesh)[:3]]
+        combined, subs = so.combine(pieces, return_pieces=True)
+        assert len(subs) == len(pieces)
+        offset = 0
+        for piece, sub in zip(pieces, subs):
+            n = len(piece.faces)
+            assert sub.face_idx.tolist() == list(range(offset, offset + n))   # contiguous range
+            assert sub.root_face_idx().tolist() == sub.face_idx.tolist()      # parent is the combined mesh
+            assert len(sub.mesh.faces) == n
+            # the range addresses the SAME triangles in the combined mesh as the piece itself
+            assert np.allclose(np.sort(combined.triangles_center[sub.face_idx], axis=0),
+                               np.sort(piece.triangles_center, axis=0))
+            offset += n
+        assert offset == len(combined.faces)                                   # ranges tile the result
+
+
+def test_combine_empty_and_single():
+    m = trimesh.creation.icosphere(subdivisions=2)
+    assert len(so.combine([]).faces) == 0
+    combined, subs = so.combine([m], return_pieces=True)
+    assert len(combined.faces) == len(m.faces)
+    assert subs[0].face_idx.tolist() == list(range(len(m.faces)))
