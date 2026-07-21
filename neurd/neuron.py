@@ -1,5 +1,4 @@
 
-from copy import deepcopy as dc
 import networkx as nx
 from scipy.spatial import KDTree
 import sys
@@ -56,32 +55,7 @@ def convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity):
     return concept_network 
 
     
-def dc_check(current_object,attribute,default_value = None):
-    try:
-        return getattr(current_object,attribute)
-    except:
-        return default_value
 
-def copy_concept_network(curr_network):
-    # Build a fresh graph of the same type WITHOUT deepcopying Branch/Soma objects first.
-    # The previous dc(curr_network) created N wasteful Branch copies (with full mesh arrays)
-    # that were immediately thrown away when class_constructor rebuilt them below.
-    # Now: one copy per node instead of two, halving peak RAM for the copy operation.
-    copy_network = curr_network.__class__()
-    copy_network.graph.update(dc(curr_network.graph))
-
-    for n, attrs in curr_network.nodes(data=True):
-        copy_network.add_node(n, **{k: dc(v) for k, v in attrs.items() if k != "data"})
-
-    for u, v, edge_attrs in curr_network.edges(data=True):
-        copy_network.add_edge(u, v, **dc(edge_attrs))
-
-    for n in curr_network.nodes():
-        original = curr_network.nodes[n]["data"]
-        class_constructor = getattr(current_module, original.__class__.__name__)
-        copy_network.nodes[n]["data"] = class_constructor(original)
-
-    return copy_network
 
 class Branch:
     """
@@ -97,99 +71,6 @@ class Branch:
                  labels=[] #for any labels of that branch
         ):
         
-        if str(type(skeleton)) == str(Branch):
-            #print("Recived Branch object so copying object")
-            #self = copy.deepcopy(skeleton)
-            self.skeleton = dc(skeleton.skeleton).reshape(-1,2,3)
-            self.mesh=dc(skeleton.mesh)
-            self.width = dc(skeleton.width)
-            self.mesh_face_idx = dc(skeleton.mesh_face_idx)
-            
-            #self.endpoints = dc(skeleton.endpoints)
-            #doing the new storage and ordering skeletons
-            self.calculate_endpoints()
-            self.order_skeleton_by_smallest_endpoint()
-            self._skeleton_graph = dc_check(skeleton,"_skeleton_graph")
-            self._endpoints_nodes = dc_check(skeleton,"_endpoints_nodes")
-            self.endpoints_upstream_downstream_idx = dc_check(skeleton,"endpoints_upstream_downstream_idx")
-                
-            
-            
-            self.mesh_center = dc(skeleton.mesh_center)
-
-            
-            
-            
-            if not self.mesh is None:
-                self.mesh_center = tu.mesh_center_vertex_average(self.mesh)
-            self.labels=dc(skeleton.labels)
-            if not nu.is_array_like(self.labels):
-                self.labels=[self.labels]
-                
-                
-            self.spines = dc_check(skeleton,"spines")
-            self.boutons = dc_check(skeleton,"boutons")
-            self.boutons_cdfs = dc_check(skeleton,"boutons_cdfs")
-            self.web = dc_check(skeleton,"web")
-            self.web_cdf = dc_check(skeleton,"web_cdf")
-            
-            self.spines_volume = dc_check(skeleton,"spines_volume")
-            self.boutons_volume = dc_check(skeleton,"boutons_volume")
-            
-            self.width_new = dc_check(skeleton,"width_new")
-            
-            if self.width_new is None:
-                self.width_new = dict()
-            self.width_array = dc_check(skeleton,"width_array")
-            if self.width_array is None:
-                self.width_array = dict()
-                
-            self.width_array_skeletal_lengths = dc_check(skeleton,"width_array_skeletal_lengths")
-                
-            
-            self.spines_obj = dc_check(skeleton,"spines_obj")
-            if self.spines_obj is None:
-                self.spines_obj = []
-                
-            self.head_neck_shaft_idx = dc_check(skeleton,"head_neck_shaft_idx")
-            self._mesh_volume = dc_check(skeleton,"_mesh_volume")
-            #self._mesh_area = dc_check(skeleton,"_mesh_area")
-                
-            if self.spines_volume is not None:
-                self.spines_volume = list(self.spines_volume)
-            if self.spines is not None:
-                self.spines = list(self.spines)
-                
-                
-            self._skeleton_vector_upstream = dc_check(skeleton,"_skeleton_vector_upstream")
-            self._skeleton_vector_downstream = dc_check(skeleton,"_skeleton_vector_downstream")
-            self._width_downstream = dc_check(skeleton,"_width_downstream")
-            self._width_upstream = dc_check(skeleton,"_width_upstream")
-            
-            # 5/2: adding a skeleton_smooth
-            self._skeleton_smooth = dc_check(skeleton,"_skeleton_smooth")
-            
-            self._skeleton_vector_upstream = dc_check(skeleton,"_skeleton_vector_upstream")
-            self._skeleton_vector_downstream = dc_check(skeleton,"_skeleton_vector_downstream")
-            self._width_downstream = dc_check(skeleton,"_width_downstream")
-            self._width_upstream = dc_check(skeleton,"_width_upstream")
-            
-            
-            # extra offsets and smooth skeleton vectors
-            skeleton_vector_atts = [
-                "_skeleton_vector_upstream_extra_offset",
-                "_skeleton_vector_downstream_extra_offset",
-                "_width_downstream_extra_offset",
-                "_width_upstream_extra_offset",
-                "_skeleton_smooth_vector_downstream_extra_offset",
-                "_skeleton_smooth_vector_upstream_extra_offset",
-                "_skeleton_smooth_vector_downstream",
-                "_skeleton_smooth_vector_upstream",
-            ]
-            for kk in skeleton_vector_atts:
-                setattr(self,kk,dc_check(skeleton,kk))
-            
-            return 
             
         self.skeleton=skeleton.reshape(-1,2,3)
         self._skeleton_smooth = None
@@ -666,46 +547,6 @@ class Limb:
         if branch_objects is None:
             branch_objects = dict()
         
-        if str(type(mesh)) == str(Limb):
-            #print("Recived Limb object so copying object")
-            # properties we are copying: [k for k in dir(example_limb) if "__" not in k]
-            
-            self.all_concept_network_data = dc(mesh.all_concept_network_data)
-            self.concept_network=copy_concept_network(mesh.concept_network)
-            #want to do and copy the meshes in each of the networks to make sure their properties update
-            self.concept_network_directional = copy_concept_network(mesh.concept_network_directional)
-            #want to do and copy the meshes in each of the networks to make sure their properties update
-            self.current_starting_coordinate = dc(mesh.current_starting_coordinate)
-            self.current_starting_endpoints = dc(mesh.current_starting_endpoints)
-            self.current_starting_node = dc(mesh.current_starting_node)
-            
-            
-            
-            attributes_to_set = dict(current_touching_soma_vertices=None,
-                                current_soma_group_idx = None,
-                                deleted_edges = [],
-                                created_edges = [])
-            for attr,attr_v in attributes_to_set.items():
-                if hasattr(mesh,attr):
-                    setattr(self,attr,dc(getattr(mesh,attr)))
-                else:
-                    setattr(self,attr,attr_v)
-
-            self.current_starting_soma = dc(mesh.current_starting_soma)
-            self.labels = dc(mesh.labels)
-            if not nu.is_array_like(self.labels):
-                self.labels=[self.labels]
-            self.mesh = dc(mesh.mesh)
-            self.mesh_center = dc(mesh.mesh_center)
-            self.mesh_face_idx = dc(mesh.mesh_face_idx)
-            self._index = -1
-            
-            # axon spines and short thick endnodes
-            self.axon_spines = dc_check(mesh,"axon_spines",default_value = np.array([]))
-            self.short_thick_endnodes = dc_check(mesh,"short_thick_endnodes",default_value = np.array([]))
-            
-            
-            return 
         
         debug_edges = False
         
@@ -1657,28 +1498,6 @@ class Soma:
     def __init__(self,mesh,mesh_face_idx=None,sdf=None,volume_ratio=None,
                 volume=None,synapses=None):
         #Accounting for the fact that could recieve soma object
-        if str(type(mesh)) == str(Soma):
-            #print("Recived Soma object so copying object")
-            # properties we are copying: [k for k in dir(example_limb) if "__" not in k]
-            
-            self.mesh = dc(mesh.mesh)
-            self.sdf=dc(mesh.sdf)
-            self.mesh_face_idx = dc(mesh.mesh_face_idx)
-            self.volume_ratio = dc(mesh.volume_ratio)
-            self.side_length_ratios = dc(mesh.side_length_ratios)
-            self.mesh_center = dc(mesh.mesh_center)
-            
-            try:
-                self._volume = dc(mesh._volume)
-            except:
-                self._volume = None
-                
-                
-            self.synapses = dc_check(mesh,"synapses")
-            if self.synapses is None:
-                self.synapses = []
-            
-            return 
         
         #print("bypassing soma object initialization")
         self.mesh=mesh
