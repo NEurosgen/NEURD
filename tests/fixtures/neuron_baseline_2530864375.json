@@ -1,0 +1,28 @@
+{
+  "n_somas": 1,
+  "soma_total_faces": 241215,
+  "soma_faces": [
+    241215
+  ],
+  "soma_centers": [
+    [
+      3441461.588,
+      868861.045,
+      24768.392
+    ]
+  ],
+  "soma_volume_ratios": [
+    2.2847
+  ],
+  "n_limbs": 5,
+  "n_branches_total": 28,
+  "branches_per_limb": [
+    3,
+    3,
+    4,
+    6,
+    12
+  ],
+  "skeleton_length_total": 366280.26,
+  "branch_mesh_faces_total": 291893
+}
