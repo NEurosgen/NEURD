@@ -36,7 +36,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import networkx as nx
+import trimesh
 from trimesh.graph import connected_components as _trimesh_connected_components
+from trimesh.util import concatenate as _trimesh_concatenate
 
 
 def _submesh(mesh, faces):
@@ -245,6 +247,36 @@ def split_into_face_groups(parent, labels, return_dict=True, check_connected=Fal
         # mesh parent terminates it.
         out[lab] = SubMesh(_submesh_single(base, faces), faces, parent)
     return out if return_dict else list(out.values())
+
+
+def combine(pieces, merge_vertices=True, return_pieces=False):
+    """Concatenate meshes into one -- optionally reporting WHERE each piece landed.
+
+    The owned replacement for ``tu.combine_meshes``, which returns only the merged mesh and throws
+    the provenance away. Concatenation preserves face order and count, so piece ``i`` occupies the
+    contiguous face range ``[offset, offset + len(piece.faces))`` of the result -- exactly the
+    bookkeeping callers otherwise redo by hand (rebuilding a stitched limb frame, assembling
+    sublimbs). With ``return_pieces=True`` those ranges come back as ``SubMesh`` values parented on
+    the combined mesh, making ``combine`` the inverse of :func:`split_into_face_groups`.
+
+    Mirrors ``tu.combine_meshes`` exactly: ``concatenate(list(pieces) + [empty])`` followed by
+    ``merge_vertices()`` when asked. Merging touches vertices only -- face order and count are
+    untouched, so the reported ranges stay valid.
+    """
+    pieces = list(pieces)
+    combined = _trimesh_concatenate(
+        pieces + [trimesh.Trimesh(vertices=np.array([]), faces=np.array([]))])
+    if merge_vertices:
+        combined.merge_vertices()
+    if not return_pieces:
+        return combined
+
+    subs, offset = [], 0
+    for p in pieces:
+        n = len(p.faces)
+        subs.append(SubMesh(p, np.arange(offset, offset + n, dtype=np.int64), combined))
+        offset += n
+    return combined, subs
 
 
 def original_faces(sub: SubMesh) -> np.ndarray:
