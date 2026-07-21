@@ -11,6 +11,7 @@ Purpose of this file: To help the development of the neuron object
 
 '''
 import copy
+from collections import Counter
 from copy import deepcopy
 import networkx as nx
 
@@ -434,14 +435,10 @@ def branches_to_concept_network(curr_branch_skeletons,
 
     # 0) convert each branch to one segment and build a graph from it
 
-    curr_branch_meshes_downsampled = []
-    for i,b in enumerate(curr_branch_skeletons):
-        try:
-            curr_branch_meshes_downsampled.append(sk.resize_skeleton_branch(b,n_segments=1))
-        except:
-            if verbose:
-                print(f"The following branch {i} could not be downsampled: {b}")
-            raise Exception("not downsampled branch")
+    # the original wrapped this in try/except and re-raised Exception("not downsampled
+    # branch"), which threw away the traceback that says WHY the resize failed
+    curr_branch_meshes_downsampled = [sk.resize_skeleton_branch(b,n_segments=1)
+                                      for b in curr_branch_skeletons]
 
     downsampled_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
 
@@ -452,7 +449,6 @@ def branches_to_concept_network(curr_branch_skeletons,
 
     reshaped_indices = np.sort(indices.reshape(-1,2),axis=1)
     unique_edges,unique_edges_indices = np.unique(reshaped_indices,axis = 0,return_inverse=True)
-    from collections import Counter
     multiplicity_edge_counter = dict(Counter(unique_edges_indices))
     #this will give the unique edge that appears multiple times
     duplicate_edge_identifiers = [k for k,v in multiplicity_edge_counter.items() if v > 1]
@@ -504,6 +500,7 @@ def branches_to_concept_network(curr_branch_skeletons,
     for k in starting_edge:
         edge_coeff.append(xu.get_nodes_with_attributes_dict(branches_graph,dict(coordinates=k))[0])
 
+    starting_node_edge = None
     for curr_edge,edge_enpt in edge_endpoints_to_process:
         if not np.array_equal(np.sort(curr_edge),np.sort(edge_coeff)):
             #add to the concept graph
@@ -560,9 +557,12 @@ def branches_to_concept_network(curr_branch_skeletons,
         new_edge_idx = original_idxs[edge_idx]
         curr_enpoints = np.array(xu.get_node_attributes(branches_graph,node_list=curr_branch_graph_edge)).reshape(-1,3)
         node_endpoints_dict[new_edge_idx] = dict(endpoints=curr_enpoints)
-        xu.set_node_attributes_dict(concept_network,node_endpoints_dict)
+    xu.set_node_attributes_dict(concept_network,node_endpoints_dict)
 
     #add the starting coordinate to the corresponding node
+    if starting_node_edge is None:
+        raise Exception(f"No edge incident on the starting node matched starting_edge "
+                        f"{starting_edge}")
     starting_order = xu.get_edge_attributes(branches_graph,edge_list=[starting_node_edge])
     if len(starting_order) != 1:
         raise Exception(f"Only one starting edge index was not found,starting_order={starting_order} ")
