@@ -407,43 +407,33 @@ def branches_to_concept_network(curr_branch_skeletons,
 
     if verbose:
         print(f"Starting_edge inside branches_to_conept = {starting_edge}")
-    
+
     start_time = time.time()
     processed_nodes = []
     edge_endpoints_to_process = []
     concept_network_edges = []
 
-    """
-    If there is only one branch then just pass back a one-node graph 
-    with no edges
-    """
     if len(curr_branch_skeletons) == 0:
         raise Exception("Passed no branches to be turned into concept network")
-    
+
     if len(curr_branch_skeletons) == 1:
         concept_network = xu.GraphOrderedEdges()
         concept_network.add_node(0)
-        
+
         starting_node = 0
-        #print("setting touching_soma_vertices 1")
         attrs = {starting_node:{"starting_coordinate":starting_coordinate,
                                 "endpoints":Branch(starting_edge).endpoints,
                                "touching_soma_vertices":touching_soma_vertices,
                                 "soma_group_idx":soma_group_idx,
                                "starting_soma":starting_soma}
                                 }
-        
+
         xu.set_node_attributes_dict(concept_network,attrs)
-        #print(f"Recovered touching vertices after 1 = {xu.get_all_nodes_with_certain_attribute_key(concept_network,'touching_soma_vertices')}")
-        
-        #add the endpoints 
+
         return concept_network
 
     # 0) convert each branch to one segment and build a graph from it
-    
-    
-    # 8-29 debug
-    #curr_branch_meshes_downsampled = [sk.resize_skeleton_branch(b,n_segments=1) for b in curr_branch_skeletons]
+
     curr_branch_meshes_downsampled = []
     for i,b in enumerate(curr_branch_skeletons):
         try:
@@ -452,45 +442,24 @@ def branches_to_concept_network(curr_branch_skeletons,
             if verbose:
                 print(f"The following branch {i} could not be downsampled: {b}")
             raise Exception("not downsampled branch")
-        
-    
-    """
-    In order to solve the problem that once resized there could be repeat edges
-    
-    Pseudocode: 
-    1) predict the branches that are repeats and then create a map 
-    of the non-dom (to be replaced) and dominant (the ones to replace)
-    2) Get an arange list of the branch idxs and then delete the non-dominant ones
-    3) Run the whole concept map process
-    4) At the end for each non-dominant one, at it in (with it's idx) and copy
-    the edges of the dominant one that it was mapped to
-    
-    
-    """
-    
-    downsampled_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
-    # curr_sk_graph_debug = sk.convert_skeleton_to_graph_old(downsampled_skeleton)
-    # nx.draw(curr_sk_graph_debug,with_labels = True)
 
-    #See if touching row matches the original: 
-    
+    downsampled_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
+
+    #See if touching row matches the original:
 
     all_skeleton_vertices = downsampled_skeleton.reshape(-1,3)
     unique_rows,indices = np.unique(all_skeleton_vertices,return_inverse=True,axis=0)
-    
+
     reshaped_indices = np.sort(indices.reshape(-1,2),axis=1)
     unique_edges,unique_edges_indices = np.unique(reshaped_indices,axis = 0,return_inverse=True)
     from collections import Counter
     multiplicity_edge_counter = dict(Counter(unique_edges_indices))
     #this will give the unique edge that appears multiple times
-    duplicate_edge_identifiers = [k for k,v in multiplicity_edge_counter.items() if v > 1] 
-    
+    duplicate_edge_identifiers = [k for k,v in multiplicity_edge_counter.items() if v > 1]
+
     #for keeping track of original indexes
     original_idxs = np.arange(0,len(curr_branch_meshes_downsampled))
-    
-    """
-    This will delete any branches that have the same two common endpoints
-    """
+
     if len(duplicate_edge_identifiers) > 0:
         if verbose:
             print(f"There were {len(duplicate_edge_identifiers)} duplication nodes found")
@@ -506,55 +475,35 @@ def branches_to_concept_network(curr_branch_skeletons,
                 domination_map[n_dom] = dom_node
         if verbose:
             print(f"domination_map = {domination_map}")
-        
 
         to_delete_rows = list(domination_map.keys())
 
         #delete all of the non dominant rows from the indexes and the skeletons
         original_idxs = np.delete(original_idxs,to_delete_rows,axis=0)
         curr_branch_meshes_downsampled = [k for i,k in enumerate(curr_branch_meshes_downsampled) if i not in to_delete_rows]
-    
-    #print(f"curr_branch_meshes_downsampled[24] = {curr_branch_meshes_downsampled[24]}")
+
     curr_stacked_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
-    #print(f"curr_stacked_skeleton[24] = {curr_stacked_skeleton[24]}")
 
     branches_graph = sk.convert_skeleton_to_graph(curr_stacked_skeleton) #can recover the original skeleton
-#     print(f"len(curr_stacked_skeleton) = {len(curr_stacked_skeleton)}")
-#     print(f"len(branches_graph.edges_ordered()) = {len(branches_graph.edges_ordered())}")
-#     print(f"(branches_graph.edges_ordered())[24] = {(branches_graph.edges_ordered())[24]}")
-#     print(f"coordinates = (branches_graph.edges_ordered())[24] = {xu.get_node_attributes(branches_graph,node_list=(branches_graph.edges_ordered())[24])}")
-
-
-    #************************ need to just make an edges lookup dictionary*********#
-
 
     #1) Identify the starting node on the starting branch
     starting_node = xu.get_nodes_with_attributes_dict(branches_graph,dict(coordinates=starting_coordinate))
-    
+
     if verbose:
         print(f"At the start, starting_node (in terms of the skeleton, that shouldn't match the starting edge) = {starting_node}")
     if len(starting_node) != 1:
         raise Exception(f"The number of starting nodes found was not exactly one: {starting_node}")
     #1b) Add all edges incident and their other node label to a list to check (add the first node to processed nodes list)
     incident_edges = xu.node_to_edges(branches_graph,starting_node)
-    #print(f"incident_edges = {incident_edges}")
-    # #incident_edges_idx = edge_to_index(incident_edges)
 
-    # #adding them to the list to be processed (gets the edge and the downstream edge)
     edge_endpoints_to_process = [(edges,edges[edges != starting_node ]) for edges in incident_edges]
     processed_nodes.append(starting_node)
 
     #need to add all of the newly to look edges and the current edge to the concept_network_edges
-    """
-    Pseudocode: 
-    1) convert starting edge to the node identifiers
-    2) iterate through all the edges to process and add the combos where the edge does not match
-    """
     edge_coeff= []
     for k in starting_edge:
         edge_coeff.append(xu.get_nodes_with_attributes_dict(branches_graph,dict(coordinates=k))[0])
-    
-    
+
     for curr_edge,edge_enpt in edge_endpoints_to_process:
         if not np.array_equal(np.sort(curr_edge),np.sort(edge_coeff)):
             #add to the concept graph
@@ -564,10 +513,8 @@ def branches_to_concept_network(curr_branch_skeletons,
             if verbose:
                 print("printing out current edge:")
                 print(xu.get_node_attributes(branches_graph,node_list=starting_node_edge))
-        
-    
+
     for i in range(max_iterations):
-        #print(f"==\n\n On iteration {i}==")
         if len(edge_endpoints_to_process) == 0:
             if verbose:
                 print(f"edge_endpoints_to_process was empty so exiting loop after {i} iterations")
@@ -575,17 +522,13 @@ def branches_to_concept_network(curr_branch_skeletons,
 
         #2) Pop the edge edge number,endpoint of the stack
         edge,endpt = edge_endpoints_to_process.pop(0)
-        #print(f"edge,endpt = {(edge,endpt)}")
         #- if edge already been processed then continue
         if endpt in processed_nodes:
-            #print(f"Already processed endpt = {endpt} so skipping")
             continue
         #a. Find all edges incident on this node
         incident_edges = xu.node_to_edges(branches_graph,endpt)
-        #print(f"incident_edges = {incident_edges}")
 
         considering_edges = [k for k in incident_edges if not np.array_equal(k,edge) and not np.array_equal(k,np.flip(edge))]
-        #print(f"considering_edges = {considering_edges}")
         #b. Create edges from curent edge to those edges incident with it
         concept_network_edges += [(edge,k) for k in considering_edges]
 
@@ -595,27 +538,21 @@ def branches_to_concept_network(curr_branch_skeletons,
         #d. For each edge incident add the edge and the other connecting node to the list
         new_edge_processing = [(e,e[e != endpt ]) for e in considering_edges]
         edge_endpoints_to_process = edge_endpoints_to_process + new_edge_processing
-        #print(f"edge_endpoints_to_process = {edge_endpoints_to_process}")
 
     if len(edge_endpoints_to_process)>0:
         raise Exception(f"Reached max_interations of {max_iterations} and the edge_endpoints_to_process not empty")
 
     #flattening the connections so we can get the indexes of these edges
     flattened_connections = np.array(concept_network_edges).reshape(-1,2)
-    
+
     orders = xu.get_edge_attributes(branches_graph,edge_list=flattened_connections)
-    #******
-    
+
     fixed_idx_orders = original_idxs[orders]
     concept_network_edges_fixed = np.array(fixed_idx_orders).reshape(-1,2)
 
-    
-    # # edge_endpoints_to_process
-    #print(f"concept_network_edges_fixed = {concept_network_edges_fixed}")
     concept_network = xu.GraphOrderedEdges()
-    #print("type(concept_network) = {type(concept_network)}")
     concept_network.add_edges_from([k for k in concept_network_edges_fixed])
-    
+
     #add the endpoints as attributes to each of the nodes
     node_endpoints_dict = dict()
     old_ordered_edges = branches_graph.edges_ordered()
@@ -624,54 +561,36 @@ def branches_to_concept_network(curr_branch_skeletons,
         curr_enpoints = np.array(xu.get_node_attributes(branches_graph,node_list=curr_branch_graph_edge)).reshape(-1,3)
         node_endpoints_dict[new_edge_idx] = dict(endpoints=curr_enpoints)
         xu.set_node_attributes_dict(concept_network,node_endpoints_dict)
-    
-    
-    
-    
+
     #add the starting coordinate to the corresponding node
-    #print(f"starting_node_edge right before = {starting_node_edge}")
-    starting_order = xu.get_edge_attributes(branches_graph,edge_list=[starting_node_edge]) 
-    #print(f"starting_order right before = {starting_order}")
+    starting_order = xu.get_edge_attributes(branches_graph,edge_list=[starting_node_edge])
     if len(starting_order) != 1:
         raise Exception(f"Only one starting edge index was not found,starting_order={starting_order} ")
-    
+
     starting_edge_index = original_idxs[starting_order[0]]
     if verbose:
         print(f"starting_node in concept map (that should match the starting edge) = {starting_edge_index}")
-    #attrs = {starting_node[0]:{"starting_coordinate":starting_coordinate}} #old way that think uses the wrong starting_node
-    attrs = {starting_edge_index:{"starting_coordinate":starting_coordinate,"touching_soma_vertices":touching_soma_vertices,"soma_group_idx":soma_group_idx,"starting_soma":starting_soma}} 
-    #print("setting touching_soma_vertices 2")
+    attrs = {starting_edge_index:{"starting_coordinate":starting_coordinate,"touching_soma_vertices":touching_soma_vertices,"soma_group_idx":soma_group_idx,"starting_soma":starting_soma}}
     xu.set_node_attributes_dict(concept_network,attrs)
-    #print(f"Recovered touching vertices after 2 = {xu.get_all_nodes_with_certain_attribute_key(concept_network,'touching_soma_vertices')}")
-    
-    #want to set all of the edge endpoints on the nodes as well just for a check
-    
-    
+
     if verbose:
         print(f"Total time for branches to concept conversion = {time.time() - start_time}\n")
-    
-    
+
     # Add back the nodes that were deleted
     if len(duplicate_edge_identifiers) > 0:
         if verbose:
             print("Working on adding back the edges that were duplicates")
         for non_dom,dom in domination_map.items():
-            #print(f"Re-adding: {non_dom}")
-            #get the endpoints attribute
-            # local_node_endpoints_dict
-            
-            curr_neighbors = xu.get_neighbors(concept_network,dom)  
+
+            curr_neighbors = xu.get_neighbors(concept_network,dom)
             new_edges = np.vstack([np.ones(len(curr_neighbors))*non_dom,curr_neighbors]).T
             concept_network.add_edges_from(new_edges)
-            
-            curr_endpoint = xu.get_node_attributes(concept_network,attribute_name="endpoints",node_list=[dom])[0]
-            #print(f"curr_endpoint in add back = {curr_endpoint}")
-            add_back_attribute_dict = {non_dom:dict(endpoints=curr_endpoint)}
-            #print(f"To add dict = {add_back_attribute_dict}")
-            xu.set_node_attributes_dict(concept_network,add_back_attribute_dict)
-            
-    return concept_network
 
+            curr_endpoint = xu.get_node_attributes(concept_network,attribute_name="endpoints",node_list=[dom])[0]
+            add_back_attribute_dict = {non_dom:dict(endpoints=curr_endpoint)}
+            xu.set_node_attributes_dict(concept_network,add_back_attribute_dict)
+
+    return concept_network
 
 # --------------  END OF COMPRESSION OF NEURON ---------------- #
 
