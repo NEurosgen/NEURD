@@ -2858,17 +2858,24 @@ def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     insignificant_limbs = [s.mesh for s in insignificant_sm]
 
     
+    # Phase B level-2 provenance: each significant piece's faces in the ORIGINAL neuron mesh,
+    # carried from the split_significant SubMeshes (root_face_idx into non_soma_mesh, composed
+    # through non_soma_faces). Sorted so it equals what a geometric face-midpoint match returns.
+    sig_pieces_orig_idx = [np.sort(non_soma_faces[s.root_face_idx()]) for s in sig_pieces_sm]
+
+    # Hand mesh_pieces_connectivity the FACE INDICES instead of the meshes: given meshes it
+    # recovers exactly these by KDTree face-midpoint matching (one original_mesh_faces_map per
+    # periphery piece plus one for the soma). We know them exactly from provenance, so pass them
+    # and skip the geometry entirely -- same inputs to the connectivity test, no guessing.
     connected_pieces, connected_vertices = tu.mesh_pieces_connectivity(
-        main_mesh=main_mesh, central_piece=soma_mesh, periphery_pieces=sig_pieces,
+        main_mesh=main_mesh, central_piece=soma_faces_idx, periphery_pieces=sig_pieces_orig_idx,
         return_vertices=True
     )
 
     branch_meshes = [sig_pieces[i] for i in connected_pieces]
-    # Phase B level-2 provenance: each limb's faces in the ORIGINAL neuron mesh, carried from the
-    # split_significant SubMeshes (root_face_idx into non_soma_mesh, composed through non_soma_faces).
-    # Lets preprocess supply limb_mehses_face_idx so neuron.py skips the geometric KDTree fallback for
-    # CLEAN (non-grown) limbs; grown (stitch-rebuilt) limbs fall back to the owned geometric match.
-    branch_meshes_orig_idx = [non_soma_faces[sig_pieces_sm[i].root_face_idx()] for i in connected_pieces]
+    # Lets preprocess supply limb_mehses_face_idx so neuron.py skips the geometric KDTree fallback
+    # for CLEAN (non-grown) limbs; grown (stitch-rebuilt) limbs fall back to the owned geometric match.
+    branch_meshes_orig_idx = [sig_pieces_orig_idx[i] for i in connected_pieces]
     floating_meshes = [p for i, p in enumerate(sig_pieces) if i not in connected_pieces]
     floating_meshes.extend(insignificant_limbs)
 
