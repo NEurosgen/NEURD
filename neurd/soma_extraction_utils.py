@@ -14,9 +14,6 @@ from datasci_tools import numpy_dep as np
 
 
 soma_connectivity="edges"
-"""
-Checking the new validation checks
-"""
 def side_length_ratios(current_mesh):
     """
     Will compute the ratios of the bounding box sides
@@ -212,62 +209,6 @@ def filter_away_inside_soma_pieces(
 
 # subtacting the soma
 
-''' old version 
-def subtract_soma(current_soma,main_mesh,
-                 significance_threshold=200,
-                 distance_threshold = 550):
-    print("\ninside Soma subtraction")
-    start_time = time.time()
-    face_midpoints_soma = np.mean(current_soma.vertices[current_soma.faces],axis=1)
-
-
-    curr_mesh_bbox_restriction,faces_bbox_inclusion = (
-                    tu.bbox_mesh_restriction(main_mesh,
-                                             current_soma.bounds,
-                                            mult_ratio=1.3)
-    )
-
-    face_midpoints_neuron = np.mean(curr_mesh_bbox_restriction.vertices[curr_mesh_bbox_restriction.faces],axis=1)
-
-    soma_kdtree = KDTree(face_midpoints_soma)
-
-    distances,closest_node = soma_kdtree.query(face_midpoints_neuron)
-
-    distance_passed_faces  = distances<distance_threshold
-    
-    """ Older way of doing difference
-    
-    
-    faces_to_keep = np.array(list(set(np.arange(0,len(main_mesh.faces))).difference(set(faces_bbox_inclusion[distance_passed_faces]))))
-    """
-    
-    #newer way: using numpy functions
-    faces_to_keep = np.delete(np.arange(len(main_mesh.faces)),
-                                    faces_bbox_inclusion[distance_passed_faces])
-
-    """
-    #didn't work
-    distance_passed_faces  = distances>=distance_threshold
-    faces_to_keep = faces_bbox_inclusion[distance_passed_faces]
-    
-    """
-    
-    
-    without_soma_mesh = main_mesh.submesh([faces_to_keep],append=True)
-    
-    
-    
-
-    #get the significant mesh pieces
-    mesh_pieces = split_significant_pieces(without_soma_mesh,significance_threshold=significance_threshold)
-    print(f"mesh pieces in subtact soma BEFORE the filtering inside pieces = {mesh_pieces}")
-    
-    mesh_pieces = filter_away_inside_soma_pieces(current_soma,mesh_pieces,
-                                                           significance_threshold=significance_threshold)
-    print(f"mesh pieces in subtact soma AFTER the filtering inside pieces = {mesh_pieces}")
-    print(f"Total Time for soma mesh cancellation = {np.round(time.time() - start_time,3)}")
-    return mesh_pieces
-'''
 
 def subtract_soma(current_soma_list,main_mesh,
                  significance_threshold=200,
@@ -303,22 +244,10 @@ def subtract_soma(current_soma_list,main_mesh,
 
     distance_passed_faces  = distances<distance_threshold
 
-    """ Older way of doing difference
-
-
-    faces_to_keep = np.array(list(set(np.arange(0,len(main_mesh.faces))).difference(set(faces_bbox_inclusion[distance_passed_faces]))))
-    """
-
     #newer way: using numpy functions
     faces_to_keep = np.delete(np.arange(len(main_mesh.faces)),
                                     faces_bbox_inclusion[distance_passed_faces])
 
-    """
-    #didn't work
-    distance_passed_faces  = distances>=distance_threshold
-    faces_to_keep = faces_bbox_inclusion[distance_passed_faces]
-
-    """
 
 
     without_soma_mesh = main_mesh.submesh([faces_to_keep],append=True)
@@ -427,9 +356,6 @@ def grouping_containing_mesh_indices(containing_mesh_indices):
 
 
 
-""" ---------- 9/23: Addition to help filter away false somas"""
-
-
 def original_mesh_soma(
     mesh,
     original_mesh,
@@ -472,27 +398,6 @@ def original_mesh_soma(
     #2) Remove all interior pieces
     orig_mesh_to_map,inside_pieces = tu.remove_mesh_interior(restr_mesh_to_test,return_removed_pieces=True,size_threshold_to_remove=300)
 
-    """ Old way that did a lot of splits: but not doing splits anymore
-#     split_meshes = tu.split_significant_pieces(restr_without_interior,
-#                                                significance_threshold=mesh_significance_threshold,connectivity="edges")
-
-#     split_meshes = [restr_without_interior]
-
-
-#     #5) Find the Meshes that contain the soma
-#     containing_mesh_indices = find_soma_centroid_containing_meshes(soma_mesh_list,
-#                                                 split_meshes,
-#                                                 verbose=True)
-
-#     soma_containing_meshes = grouping_containing_mesh_indices(containing_mesh_indices)
-
-#     soma_touching_meshes = [split_meshes[k] for k in soma_containing_meshes.keys()]
-
-#     if len(soma_touching_meshes) != 1:
-#         raise Exception(f"soma_touching_meshes not of size 1 {soma_touching_meshes}")
-
-#     orig_mesh_to_map = soma_touching_meshes[0]
-    """
 
 
     #6) Map to the original with a high distance threshold
@@ -837,55 +742,7 @@ def extract_soma_center(
                         print(f"\n    --- On segmentation loop {ii} --")
                         print(f"largest_mesh_path_inner_decimated_clean = {largest_mesh_path_inner_decimated_clean}\n")
 
-                        '''
-                        faces = np.array(largest_mesh_path_inner_decimated_clean.faces)
-                        verts = np.array(largest_mesh_path_inner_decimated_clean.vertices)
 
-                        # may need to do some processing
-
-
-                        segment_id_new = int(str(segment_id) + f"{i}{j}")
-                        #print(f"Before the classifier the pymeshfix_clean = {pymeshfix_clean}")
-                        verts_labels, faces_labels, soma_value,classifier = wcda.extract_branches_whole_neuron(
-                                                import_Off_Flag=False,
-                                                segment_id=segment_id_new,
-                                                vertices=verts,
-                                                 triangles=faces,
-                                                pymeshfix_Flag=False,
-                                                 import_CGAL_Flag=False,
-                                                 return_Only_Labels=True,
-                                                 clusters=3,
-                                                 smoothness=0.2,
-                                                soma_only=True,
-                                                return_classifier = True
-                                                )
-                        print(f"soma_sdf_value = {soma_value}")
-
-
-                        #total_poisson_list.append(largest_mesh_path_inner_decimated)
-
-                        # Save all of the portions that resemble a soma
-                        median_values = np.array([v["median"] for k,v in classifier.sdf_final_dict.items()])
-                        segmentation = np.array([k for k,v in classifier.sdf_final_dict.items()])
-
-                        #order the compartments by greatest to smallest
-                        sorted_medians = np.flip(np.argsort(median_values))
-                        print(f"segmentation[sorted_medians],median_values[sorted_medians] = {(segmentation[sorted_medians],median_values[sorted_medians])}")
-                        print(f"Sizes = {[classifier.sdf_final_dict[g]['n_faces'] for g in segmentation[sorted_medians]]}")
-                        print(f"soma_size_threshold = {soma_size_threshold}")
-                        print(f"soma_size_threshold_max={soma_size_threshold_max}")
-
-                        valid_soma_segments_width = [g for g,h in zip(segmentation[sorted_medians],median_values[sorted_medians]) if ((h > soma_width_threshold)
-                                                                            and (classifier.sdf_final_dict[g]["n_faces"] > soma_size_threshold)
-                                                                            and (classifier.sdf_final_dict[g]["n_faces"] < soma_size_threshold_max))]
-                        valid_soma_segments_sdf = [h for g,h in zip(segmentation[sorted_medians],median_values[sorted_medians]) if ((h > soma_width_threshold)
-                                                                            and (classifier.sdf_final_dict[g]["n_faces"] > soma_size_threshold)
-                                                                            and (classifier.sdf_final_dict[g]["n_faces"] < soma_size_threshold_max))]
-
-                        print("valid_soma_segments_width")
-                        '''
-
-                        """# ----------- 1/14 Addition that will just use the trimesh segmentation function ------------"""
                         
                         print(f"largest_mesh_path_inner_decimated_clean = {largest_mesh_path_inner_decimated_clean}")
                         print(f"soma_size_threshold = {soma_size_threshold}")
@@ -906,7 +763,6 @@ def extract_soma_center(
 
 
 
-                        """# =------------- 1/12: Addition that will repeat this loop --------------"""
                         if len(valid_soma_meshes) > 0:
                             break
                         else:
@@ -940,52 +796,6 @@ def extract_soma_center(
                                 to_add_list.append(soma_mesh)
                                 to_add_list_sdf.append(sdf)
 
-                                """  -----------Removed 1/12: When trying to force a split between them 
-                                possible_smoothness = [0.2,0.05,0.01]
-                                for smooth_value in possible_smoothness:
-                                    #1) Run th esegmentation algorithm again to segment the mesh (had to run the higher smoothing to seperate some)
-                                    mesh_extra, mesh_extra_sdf = tu.mesh_segmentation(soma_mesh,clusters=3,smoothness=smooth_value,verbose=True)
-                                    mesh_extra = np.array(mesh_extra)
-
-                                    #2) Filter out meshes by sizs and sdf threshold
-                                    mesh_extra_lens = np.array([len(kk.faces) for kk in mesh_extra])
-                                    filtered_meshes_idx = np.where((mesh_extra_lens >= soma_size_threshold) & (mesh_extra_lens <= soma_size_threshold_max) & (mesh_extra_sdf>soma_width_threshold))[0]
-
-                                    if len(filtered_meshes_idx) >= 2:
-                                        if verbose:
-                                            print(f"Breakin on smoothness: {smooth_value}")
-                                        break
-
-                                if len(filtered_meshes_idx) >= 2:
-                                    filtered_meshes = mesh_extra[filtered_meshes_idx]
-                                    filtered_meshes_sdf = mesh_extra_sdf[filtered_meshes_idx]
-
-                                    to_add_list_retry = []
-                                    to_add_list_sdf_retry = []
-
-                                    for f_m,f_m_sdf in zip(filtered_meshes,filtered_meshes_sdf):
-                                        curr_side_len_check_retry = side_length_check(f_m,side_length_ratio_threshold)
-                                        curr_volume_check_retry = soma_volume_check(f_m,volume_mulitplier)
-
-                                        if curr_side_len_check_retry and curr_volume_check_retry:
-                                            to_add_list_retry.append(f_m)
-                                            to_add_list_sdf_retry.append(f_m_sdf)
-
-                                    if len(to_add_list_retry)>1:
-                                        if verbose:
-                                            print("Using the new feature that split the soma further into more groups")
-                                        to_add_list += to_add_list_retry
-                                        to_add_list_sdf += to_add_list_sdf_retry
-
-                                    else:
-                                        to_add_list.append(soma_mesh)
-                                        to_add_list_sdf.append(sdf)
-
-
-                                else:
-                                    to_add_list.append(soma_mesh)
-                                    to_add_list_sdf.append(sdf)
-                                """
 
                             else:
                                 # ---------- 1/7 Addition: Trying one more additional cgal segmentation to see if there is actually a soma ---
@@ -1072,13 +882,10 @@ def extract_soma_center(
         #import shutil
         #shutil.rmtree(directory)
 
-        """
-        Running the extra tests that depend on
-        - border vertices
-        - how well the poisson matches the backtracked soma to the real mesh
-        - other size checks
-
-        """
+        # Running the extra tests that depend on
+        # - border vertices
+        # - how well the poisson matches the backtracked soma to the real mesh
+        # - other size checks
         filtered_soma_list = []
         filtered_soma_list_sdf = []
 
@@ -1155,24 +962,17 @@ def extract_soma_center(
                 filtered_soma_list += soma_mesh_filtered
                 filtered_soma_list_sdf += soma_mesh_sdf_filtered
 
-        """
-        Need to delete all files in the temp folder *****
-        """
 
         # ----------- 11 /11 Addition that does a last step segmentation of the soma --------- #
         #return total_soma_list, run_time
         #return total_soma_list_revised,run_time,total_soma_list_revised_sdf
 
-        """
-        Things we should ask about the segmentation:
-
-        Advantages: 
-        1) could help filter away negatives
-
-        Disadvantages:
-        1) Can actually cut up the soma and then filter away the soma (not what we want)
-        2) Could introduce a big hole (don't think can guard against this)
-        """
+        # Things we should ask about the segmentation:
+        # Advantages:
+        # 1) could help filter away negatives
+        # Disadvantages:
+        # 1) Can actually cut up the soma and then filter away the soma (not what we want)
+        # 2) Could introduce a big hole (don't think can guard against this)
 
 
         #filtered_soma_list_saved = copy.deepcopy(filtered_soma_list)
@@ -1245,11 +1045,7 @@ def extract_soma_center(
             filtered_soma_list = np.array(filtered_soma_list_revised)
             filtered_soma_list_sdf = np.array(filtered_soma_list_sdf_revised)
 
-            """
-            # ----------- 1/7/21 ---------------#
-            Now was to stitch the somas together if they are touching
-
-            """
+            # Now stitch the somas together if they are touching
             if len(filtered_soma_list)>1:
                 connected_meshes_components = tu.mesh_list_connectivity(meshes=filtered_soma_list,
                                          main_mesh=recov_orig_mesh,
