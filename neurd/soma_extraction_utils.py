@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 from scipy.spatial import KDTree
@@ -427,6 +428,96 @@ def original_mesh_soma(
 
 
     
+@dataclass(frozen=True)
+class SomaParams:
+    """Tuning for `extract_soma_center`, resolved once instead of 15 `is None` blocks.
+
+    Every field up to `second_pass_size_threshold` is sourced from `neurd.parameters`
+    (see `_FROM_PARAMS`); the rest are constants that never had a parameters entry.
+    """
+
+    # -- decimation; NOTE all face-count thresholds below are scaled by these,
+    #    see scaled_for_decimation()
+    outer_decimation_ratio: float      # 1st round of decimation
+    inner_decimation_ratio: float      # 2nd round, after poisson reconstruction
+
+    # -- mesh pieces to even consider
+    large_mesh_threshold: float        # min faces after the 1st decimation
+    large_mesh_threshold_inner: float  # min faces after poisson reconstruction + split
+    max_fail_loops: int                # give up after this many soma-less pieces in a row
+    size_threshold_to_remove: int      # min faces of an interior piece worth removing
+
+    # -- what counts as a soma after segmentation
+    soma_width_threshold: float        # min sdf of a segment
+    soma_size_threshold: float         # min faces of a segment
+    soma_size_threshold_max: float     # max faces of a segment
+
+    # -- "is this blob sphere-like enough" checks
+    volume_mulitplier: float           # max bounding-box-volume / mesh-volume skew
+    side_length_ratio_threshold: float # max x/y/z side-length skew
+
+    # -- backtracking the poisson soma onto the original mesh
+    backtrack_soma_size_threshold: float  # min faces of a backtracked soma
+
+    # -- final filters
+    last_size_threshold: float         # min faces at the very end
+    largest_hole_threshold: float      # max hole length allowing the end-segmentation split
+    second_pass_size_threshold: float  # if set, retry the whole search with these sizes
+
+    # -- constants (never came from neurd.parameters)
+    segmentation_clusters: int = 3
+    segmentation_smoothness: float = 0.2
+    backtrack_match_distance_threshold: float = 1500
+    delete_files: bool = True          # wipe the meshlab scratch folder when done
+    filter_inside_somas: bool = True
+
+    #: fields taken from `neurd.parameters.params` unless explicitly overridden
+    _FROM_PARAMS = (
+        "outer_decimation_ratio", "inner_decimation_ratio",
+        "large_mesh_threshold", "large_mesh_threshold_inner",
+        "max_fail_loops", "size_threshold_to_remove",
+        "soma_width_threshold", "soma_size_threshold", "soma_size_threshold_max",
+        "volume_mulitplier", "side_length_ratio_threshold",
+        "backtrack_soma_size_threshold",
+        "last_size_threshold", "largest_hole_threshold", "second_pass_size_threshold",
+    )
+
+    @classmethod
+    def from_params(cls, **overrides):
+        """Build from `neurd.parameters.params`, with keyword overrides on top."""
+        values = {n: getattr(parameters.params, n) for n in cls._FROM_PARAMS}
+        values.update(overrides)
+
+        # Experimental speed knobs (default = unchanged): the soma is a big smooth blob
+        # and its accuracy is not a target here, so decimating the soma-detection mesh
+        # harder cheapens the WHOLE soma stage at once (Poisson + SDF segmentation +
+        # meshlab Decimator/Interior). Smaller = fewer faces kept = faster, but risks
+        # falling below soma_size_threshold -> "No Somas".
+        for env_name, field in (("NEURD_SOMA_OUTER_DECIM", "outer_decimation_ratio"),
+                                ("NEURD_SOMA_INNER_DECIM", "inner_decimation_ratio")):
+            env_value = os.environ.get(env_name)
+            if env_value:
+                values[field] = float(env_value)
+
+        return cls(**values)
+
+    def scaled_for_decimation(self):
+        """Rescale the face-count thresholds to the decimated meshes they are tested on.
+
+        The thresholds are expressed in ORIGINAL-mesh faces, but every comparison happens
+        after decimation -- the outer one for the piece thresholds, both for the segment
+        thresholds (segments come from the twice-decimated poisson mesh).
+        """
+        outer, inner = self.outer_decimation_ratio, self.inner_decimation_ratio
+        return replace(
+            self,
+            large_mesh_threshold=self.large_mesh_threshold * outer,
+            large_mesh_threshold_inner=self.large_mesh_threshold_inner * outer,
+            soma_size_threshold=self.soma_size_threshold * outer * inner,
+            soma_size_threshold_max=self.soma_size_threshold_max * outer * inner,
+        )
+
+
 def extract_soma_center(
     segment_id=12345,
     current_mesh_verts=None,
@@ -436,147 +527,25 @@ def extract_soma_center(
     max_somas=None,  # if set (e.g. 1 for single-neuron files), stop the multi-piece
                      # search once this many somas are found, skipping the per-piece
                      # interior-removal/segmentation of the remaining mesh pieces.
-    outer_decimation_ratio= None,
-    large_mesh_threshold = None,#60000,
-    large_mesh_threshold_inner = None, #was changed so dont filter away som somas
-    soma_width_threshold = None,
-    soma_size_threshold = None, #changed this to smaller so didn't filter some somas away
-    inner_decimation_ratio = None,
-
-    segmentation_clusters =3,
-    segmentation_smoothness = 0.2,
-
-    volume_mulitplier=None,
-    #side_length_ratio_threshold=3
-    side_length_ratio_threshold=None,
-    soma_size_threshold_max=None,#240000,#192000, #this puts at 12000 once decimated, another possible is 256000
-    delete_files=True,
-
-    #------- 11/12 Additions --------------- #
-
-    #these arguments are for removing inside pieces
-    size_threshold_to_remove=None, #size accounting for the decimation
-
-
-    last_size_threshold = None,#1300,
-
-    largest_hole_threshold = None,
-    max_fail_loops = None,#np.inf,
     verbose=False,
-
-    backtrack_soma_size_threshold=None,
-    backtrack_match_distance_threshold=1500,
-
-    filter_inside_somas=True,
-
-    second_pass_size_threshold = None,
-
-    **kwargs
+    **param_overrides
     ):
-    
-    # -------- Soma parameters -----------
-    if outer_decimation_ratio is None:
-        outer_decimation_ratio = parameters.params.outer_decimation_ratio
+    """Find the soma mesh(es) in `mesh` (or in current_mesh_verts/faces).
 
-    if large_mesh_threshold is None:
-        large_mesh_threshold = parameters.params.large_mesh_threshold
-
-    if large_mesh_threshold_inner is None:
-        large_mesh_threshold_inner = parameters.params.large_mesh_threshold_inner
-
-    if inner_decimation_ratio is None:
-        inner_decimation_ratio = parameters.params.inner_decimation_ratio
-
-    # Experimental speed knobs (default = unchanged): the soma is a big smooth blob and
-    # its accuracy is not a target here, so decimating the soma-detection mesh harder
-    # cheapens the WHOLE soma stage at once (Poisson + SDF segmentation + meshlab
-    # Decimator/Interior). NEURD_SOMA_OUTER_DECIM / NEURD_SOMA_INNER_DECIM override the
-    # 0.25 ratios (smaller = fewer faces kept = faster, but risks falling below the
-    # soma_size_threshold -> "No Somas").
-    import os as _os
-    _eo = _os.environ.get("NEURD_SOMA_OUTER_DECIM")
-    if _eo:
-        outer_decimation_ratio = float(_eo)
-    _ei = _os.environ.get("NEURD_SOMA_INNER_DECIM")
-    if _ei:
-        inner_decimation_ratio = float(_ei)
-        
-        
-    if max_fail_loops is None:
-        max_fail_loops = parameters.params.max_fail_loops
-    if size_threshold_to_remove is None:
-        size_threshold_to_remove = parameters.params.size_threshold_to_remove
-    if soma_width_threshold is None:
-        soma_width_threshold = parameters.params.soma_width_threshold
-    if soma_size_threshold is None:
-        soma_size_threshold = parameters.params.soma_size_threshold
-    if soma_size_threshold_max is None:
-        soma_size_threshold_max = parameters.params.soma_size_threshold_max
-    if volume_mulitplier is None:
-        volume_mulitplier = parameters.params.volume_mulitplier
-    if side_length_ratio_threshold is None:
-        side_length_ratio_threshold = parameters.params.side_length_ratio_threshold
-    if backtrack_soma_size_threshold is None:
-        backtrack_soma_size_threshold = parameters.params.backtrack_soma_size_threshold
-    if last_size_threshold is None:
-        last_size_threshold = parameters.params.last_size_threshold
-    if largest_hole_threshold is None:
-        largest_hole_threshold = parameters.params.largest_hole_threshold
-    if second_pass_size_threshold is None:
-        second_pass_size_threshold = parameters.params.second_pass_size_threshold
-        
-    
-    
+    Returns (soma_meshes, run_time, soma_sdfs). Tuning lives in `SomaParams`; anything
+    passed as a keyword here overrides the value `neurd.parameters` supplies.
     """
-    Purpose: To extract the soma features
 
-    Arguments for soma extraction:
-    # **Note: All of the thresholds get scaled by the decimation ratios applied before
-
-    outer_decimation_ratio= 0.25 #decimation ratio for 1st round of decimation
-    large_mesh_threshold = 20000 #minimum face count threshold after 1st round of decimation
-    large_mesh_threshold_inner = 13000 #minimum face count threshold after poisson reconstruction and split
-    inner_decimation_ratio = 0.25 #decimation ratio for 2nd round of decimation after poisson reconstruction
-    max_fail_loops = 10 #number of times soma finding can fail in finding an invalid soma in the outer/inner decimation loop
-
-    # other cleaning methods to run on segments after first decimation
-    size_threshold_to_remove=1000, #minium number of faces of mesh piece to remove
-
-    #after 2nd round of decimation and mesh segmentation is applied
-    soma_width_threshold = 0.32 # minimuum sdf values of mesh segments
-    soma_size_threshold = 9000 # minimum face count threshold of mesh segments
-    soma_size_threshold_max=1_200_000# maximum face count threshold of mesh segments
-
-    #parameters for checking possible viable somas after mesh segmentation
-    volume_mulitplier=8 #for soma_volume_check funcion that makes sure not highly skewed bounding box volume to mesh volume 
-    side_length_ratio_threshold=6 #for side_length_check function making sure not highly swkewed x,y,z side length ratios
-    delete_files=True #deletes all files in temp folder
-
-    backtrack_soma_size_threshold=8000 #minimum number of faces for a backtracked mesh
-
-    #filters at the very end for meshes that made it thorugh
-    last_size_threshold = 2000 #min faces count
-    largest_hole_threshold = 17000 #maximum hole length for a soma to allow the segmentaiton split at end
-    """
+    p = SomaParams.from_params(**param_overrides).scaled_for_decimation()
 
     global_start_time = time.time()
 
-    #Adjusting the thresholds based on the decimations
-    large_mesh_threshold = large_mesh_threshold*outer_decimation_ratio
-    large_mesh_threshold_inner = large_mesh_threshold_inner*outer_decimation_ratio
-    soma_size_threshold = soma_size_threshold*outer_decimation_ratio
-    soma_size_threshold_max = soma_size_threshold_max*outer_decimation_ratio
-
-    #adjusting for inner decimation
-    soma_size_threshold = soma_size_threshold*inner_decimation_ratio
-    soma_size_threshold_max = soma_size_threshold_max*inner_decimation_ratio
-    
-    print(f"Current Arguments Using (adjusted for decimation):\n large_mesh_threshold= {large_mesh_threshold}"
-                 f" \nlarge_mesh_threshold_inner = {large_mesh_threshold_inner}"
-                  f" \nsoma_size_threshold = {soma_size_threshold}"
-                 f" \nsoma_size_threshold_max = {soma_size_threshold_max}"
-                 f"\nouter_decimation_ratio = {outer_decimation_ratio}"
-                 f"\ninner_decimation_ratio = {inner_decimation_ratio}")
+    print(f"Current Arguments Using (adjusted for decimation):\n large_mesh_threshold= {p.large_mesh_threshold}"
+                 f" \nlarge_mesh_threshold_inner = {p.large_mesh_threshold_inner}"
+                  f" \nsoma_size_threshold = {p.soma_size_threshold}"
+                 f" \nsoma_size_threshold_max = {p.soma_size_threshold_max}"
+                 f"\nouter_decimation_ratio = {p.outer_decimation_ratio}"
+                 f"\ninner_decimation_ratio = {p.inner_decimation_ratio}")
 
 
     # ------------------------------
@@ -588,8 +557,8 @@ def extract_soma_center(
     temp_object.mkdir(parents=True,exist_ok=True)
 
     #making the decimation and poisson objections
-    Dec_outer = meshlab.Decimator(outer_decimation_ratio,temp_folder,overwrite=True)
-    Dec_inner = meshlab.Decimator(inner_decimation_ratio,temp_folder,overwrite=True)
+    Dec_outer = meshlab.Decimator(p.outer_decimation_ratio,temp_folder,overwrite=True)
+    Dec_inner = meshlab.Decimator(p.inner_decimation_ratio,temp_folder,overwrite=True)
     Poisson_obj = meshlab.Poisson(temp_folder,overwrite=True)
 
     if mesh is None:
@@ -619,14 +588,14 @@ def extract_soma_center(
     total_mesh_split_lengths = [len(k.faces) for k in mesh_splits]
     sort_idx = np.flip(np.argsort(total_mesh_split_lengths)).tolist()
     ordered_mesh_splits = [mesh_splits[i] for i in sort_idx]
-    list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > large_mesh_threshold]
+    list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > p.large_mesh_threshold]
 
     print(f"Total found significant pieces before Poisson = {list_of_largest_mesh}")
 
     #if no significant pieces were found then will use smaller threshold
     if len(list_of_largest_mesh)<=0:
-        print(f"Using smaller large_mesh_threshold because no significant pieces found with {large_mesh_threshold}")
-        list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > large_mesh_threshold/2]
+        print(f"Using smaller large_mesh_threshold because no significant pieces found with {p.large_mesh_threshold}")
+        list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > p.large_mesh_threshold/2]
 
     total_soma_list = []
     total_poisson_list = []
@@ -635,11 +604,11 @@ def extract_soma_center(
     filtered_soma_list_components = []
 
     for i in range(2):
-        if len(filtered_soma_list_components)>0 or (i==1 and second_pass_size_threshold is None):
+        if len(filtered_soma_list_components)>0 or (i==1 and p.second_pass_size_threshold is None):
             if verbose:
                 print(f"Not need to do a second pass because already found a soma")
                 
-            if delete_files:
+            if p.delete_files:
                 #now erase all of the files used
                 from shutil import rmtree
 
@@ -659,9 +628,10 @@ def extract_soma_center(
             if verbose:
                 print(f"Using backup size thresholds")
 
-            soma_size_threshold = second_pass_size_threshold
-            last_size_threshold = second_pass_size_threshold
-            backtrack_soma_size_threshold = second_pass_size_threshold
+            p = replace(p,
+                        soma_size_threshold=p.second_pass_size_threshold,
+                        last_size_threshold=p.second_pass_size_threshold,
+                        backtrack_soma_size_threshold=p.second_pass_size_threshold)
 
 
         
@@ -677,7 +647,7 @@ def extract_soma_center(
 
             try:
                 largest_mesh = tu.remove_mesh_interior(largest_mesh,
-                                                       size_threshold_to_remove=size_threshold_to_remove,
+                                                       size_threshold_to_remove=p.size_threshold_to_remove,
                                                       try_hole_close=False)
             except:
                 print("Unable to remove inside pieces in list_of_largest_mesh")
@@ -703,7 +673,7 @@ def extract_soma_center(
                 sort_idx_inner = np.flip(np.argsort(total_mesh_split_lengths_inner)).tolist()
                 ordered_mesh_splits_inner = [mesh_splits_inner[i] for i in sort_idx_inner]
 
-                list_of_largest_mesh_inner = [k for k in ordered_mesh_splits_inner if len(k.faces) > large_mesh_threshold_inner]
+                list_of_largest_mesh_inner = [k for k in ordered_mesh_splits_inner if len(k.faces) > p.large_mesh_threshold_inner]
             else:
                 list_of_largest_mesh_inner = []
             print(f"Total found significant pieces AFTER Poisson = {list_of_largest_mesh_inner}")
@@ -745,17 +715,17 @@ def extract_soma_center(
 
                         
                         print(f"largest_mesh_path_inner_decimated_clean = {largest_mesh_path_inner_decimated_clean}")
-                        print(f"soma_size_threshold = {soma_size_threshold}")
-                        print(f"soma_size_threshold_max = {soma_size_threshold_max}")
-                        print(f"soma_width_threshold = {soma_width_threshold}")
+                        print(f"soma_size_threshold = {p.soma_size_threshold}")
+                        print(f"soma_size_threshold_max = {p.soma_size_threshold_max}")
+                        print(f"soma_width_threshold = {p.soma_width_threshold}")
                         
-                        divided_meshes,divided_meshes_sdf = tu.mesh_segmentation(mesh=largest_mesh_path_inner_decimated_clean,clusters=segmentation_clusters,
-                                                                                 smoothness=segmentation_smoothness)
+                        divided_meshes,divided_meshes_sdf = tu.mesh_segmentation(mesh=largest_mesh_path_inner_decimated_clean,clusters=p.segmentation_clusters,
+                                                                                 smoothness=p.segmentation_smoothness)
 
                         divided_meshes_len = np.array([len(k.faces) for k in divided_meshes])
-                        valid_indexes = np.where((divided_meshes_len > soma_size_threshold) & 
-                                                 (divided_meshes_len < soma_size_threshold_max) & 
-                                                (np.array(divided_meshes_sdf) > soma_width_threshold))[0]
+                        valid_indexes = np.where((divided_meshes_len > p.soma_size_threshold) & 
+                                                 (divided_meshes_len < p.soma_size_threshold_max) & 
+                                                (np.array(divided_meshes_sdf) > p.soma_width_threshold))[0]
 
                         valid_soma_meshes = [divided_meshes[k] for k in valid_indexes]
                         valid_soma_segments_width = [divided_meshes_sdf[k] for k in valid_indexes]
@@ -787,8 +757,8 @@ def extract_soma_center(
                             # ---------- No longer doing the extra checks in here --------- #
 
 
-                            curr_side_len_check = side_length_check(soma_mesh,side_length_ratio_threshold)
-                            curr_volume_check = soma_volume_check(soma_mesh,volume_mulitplier)
+                            curr_side_len_check = side_length_check(soma_mesh,p.side_length_ratio_threshold)
+                            curr_volume_check = soma_volume_check(soma_mesh,p.volume_mulitplier)
 
 
                             if curr_side_len_check and curr_volume_check:
@@ -815,7 +785,7 @@ def extract_soma_center(
 
                                 #2) Filter out meshes by sizs and sdf threshold
                                 mesh_extra_lens = np.array([len(kk.faces) for kk in mesh_extra])
-                                filtered_meshes_idx = np.where((mesh_extra_lens >= soma_size_threshold) & (mesh_extra_lens <= soma_size_threshold_max) & (mesh_extra_sdf>soma_width_threshold))[0]
+                                filtered_meshes_idx = np.where((mesh_extra_lens >= p.soma_size_threshold) & (mesh_extra_lens <= p.soma_size_threshold_max) & (mesh_extra_sdf>p.soma_width_threshold))[0]
 
 
                                 if len(filtered_meshes_idx) > 0:
@@ -826,8 +796,8 @@ def extract_soma_center(
                                     soma_mesh_retry = filtered_meshes[sdf_winning_index]
                                     sdf_retry = filtered_meshes_sdf[sdf_winning_index]
 
-                                    curr_side_len_check_retry = side_length_check(soma_mesh_retry,side_length_ratio_threshold)
-                                    curr_volume_check_retry = soma_volume_check(soma_mesh_retry,volume_mulitplier)
+                                    curr_side_len_check_retry = side_length_check(soma_mesh_retry,p.side_length_ratio_threshold)
+                                    curr_volume_check_retry = soma_volume_check(soma_mesh_retry,p.volume_mulitplier)
 
                                     if curr_side_len_check_retry and curr_volume_check_retry:
                                         to_add_list.append(soma_mesh_retry)
@@ -850,16 +820,16 @@ def extract_soma_center(
                 total_soma_list += to_add_list
 
                 # --------------- KEEP TRACK IF FAILED TO FIND SOMA (IF TOO MANY FAILS THEN BREAK)
-                if n_failed_inner_soma_loops >= max_fail_loops:
-                    print(f"breaking inner loop because {max_fail_loops} soma fails in a row")
+                if n_failed_inner_soma_loops >= p.max_fail_loops:
+                    print(f"breaking inner loop because {p.max_fail_loops} soma fails in a row")
                     break
 
 
             # --------------- KEEP TRACK IF FAILED TO FIND SOMA (IF TOO MANY FAILS THEN BREAK)
             if somas_found_in_big_loop == False:
                 no_somas_found_in_big_loop += 1
-                if no_somas_found_in_big_loop >= max_fail_loops:
-                    print(f"breaking because {max_fail_loops} fails in a row in big loop")
+                if no_somas_found_in_big_loop >= p.max_fail_loops:
+                    print(f"breaking because {p.max_fail_loops} fails in a row in big loop")
                     break
 
             else:
@@ -897,12 +867,12 @@ def extract_soma_center(
 
             try:
                 if verbose:
-                    print(f"backtrack_soma_size_threshold = {backtrack_soma_size_threshold}")
+                    print(f"backtrack_soma_size_threshold = {p.backtrack_soma_size_threshold}")
                 soma_mesh_list,_ = original_mesh_soma(
                                                 original_mesh = recov_orig_mesh,
                                                 mesh=soma_mesh_poisson,
-                                                soma_size_threshold=backtrack_soma_size_threshold,
-                                                match_distance_threshold=backtrack_match_distance_threshold,
+                                                soma_size_threshold=p.backtrack_soma_size_threshold,
+                                                match_distance_threshold=p.backtrack_match_distance_threshold,
                                                 verbose = verbose)
 
             except:
@@ -924,8 +894,8 @@ def extract_soma_center(
                 if verbose:
                     print(f"\n--- working on backtrack soma {rr}: {soma_mesh}")
 
-                curr_side_len_check = side_length_check(soma_mesh,side_length_ratio_threshold)
-                curr_volume_check = soma_volume_check(soma_mesh,volume_mulitplier)
+                curr_side_len_check = side_length_check(soma_mesh,p.side_length_ratio_threshold)
+                curr_volume_check = soma_volume_check(soma_mesh,p.volume_mulitplier)
 
 
                 # -------- 1/12 Addition: Does a second round of segmentation after to see if can split somas at all ---- #
@@ -938,9 +908,9 @@ def extract_soma_center(
 
                     for m_test,m_test_sdf in zip(mesh_tests,mesh_tests_sdf):
 
-                        if len(m_test.faces) >= backtrack_soma_size_threshold and m_test_sdf >=soma_width_threshold:
+                        if len(m_test.faces) >= p.backtrack_soma_size_threshold and m_test_sdf >=p.soma_width_threshold:
 
-                            if side_length_check(m_test,side_length_ratio_threshold) and soma_volume_check(m_test,volume_mulitplier):
+                            if side_length_check(m_test,p.side_length_ratio_threshold) and soma_volume_check(m_test,p.volume_mulitplier):
 
                                 soma_mesh_filtered.append(m_test)
                                 soma_mesh_sdf_filtered.append(m_test_sdf)
@@ -983,13 +953,13 @@ def extract_soma_center(
             for f_soma,f_soma_sdf in zip(filtered_soma_list,filtered_soma_list_sdf):
 
                 print("Skipping the segmentatio filter at end")
-                if not (len(f_soma.faces) >= last_size_threshold and f_soma_sdf >= soma_width_threshold):
-                    print(f"Soma (size = {len(f_soma.faces)}, width={soma_width_threshold}) did not pass thresholds (size threshold={last_size_threshold}, width threshold = {soma_width_threshold}) ")
+                if not (len(f_soma.faces) >= p.last_size_threshold and f_soma_sdf >= p.soma_width_threshold):
+                    print(f"Soma (size = {len(f_soma.faces)}, width={p.soma_width_threshold}) did not pass thresholds (size threshold={p.last_size_threshold}, width threshold = {p.soma_width_threshold}) ")
                     continue
 
 
                 print("removing mesh interior before segmentation")
-                f_soma = tu.remove_mesh_interior(f_soma,size_threshold_to_remove=size_threshold_to_remove)
+                f_soma = tu.remove_mesh_interior(f_soma,size_threshold_to_remove=p.size_threshold_to_remove)
 
                 print("Doing the soma segmentation filter at end")
 
@@ -999,13 +969,13 @@ def extract_soma_center(
                 )
 
                 #applying the soma width and the soma size threshold
-                above_width_threshold_mask = meshes_split_sdf>=soma_width_threshold
+                above_width_threshold_mask = meshes_split_sdf>=p.soma_width_threshold
                 meshes_split_sizes = np.array([len(k.faces) for k in meshes_split])
-                above_size_threshold_mask = meshes_split_sizes >= last_size_threshold
+                above_size_threshold_mask = meshes_split_sizes >= p.last_size_threshold
 
                 above_width_threshold_idx = np.where(above_width_threshold_mask & above_size_threshold_mask)[0]
                 if len(above_width_threshold_idx) == 0:
-                    print(f"No split meshes were above the width threshold ({soma_width_threshold}) and size threshold ({last_size_threshold}) so continuing")
+                    print(f"No split meshes were above the width threshold ({p.soma_width_threshold}) and size threshold ({p.last_size_threshold}) so continuing")
                     print(f"So just going with old somas")
 
                     f_soma_final = f_soma
@@ -1028,7 +998,7 @@ def extract_soma_center(
                     if largest_hole_before_seg > 0:
                           print(f"\nratio = {largest_hole_after_seg/largest_hole_before_seg}, difference = {largest_hole_after_seg - largest_hole_before_seg}")
 
-                    if largest_hole_after_seg < largest_hole_threshold:
+                    if largest_hole_after_seg < p.largest_hole_threshold:
                         f_soma_final = meshes_split_filtered[top_candidate]
                         f_soma_sdf_final = meshes_split_sdf_filtered[top_candidate]
                     else:
@@ -1073,8 +1043,8 @@ def extract_soma_center(
 
         for soma_mesh, soma_mesh_sdf in zip(filtered_soma_list_components,filtered_soma_list_sdf_components):
             # --------- 1/9: Extra Size Threshold For Somas ------------- #
-            if len(soma_mesh.faces) < backtrack_soma_size_threshold:
-                print(f"--->This soma mesh with size {len(soma_mesh.faces)} was not bigger than the threshold {backtrack_soma_size_threshold}")
+            if len(soma_mesh.faces) < p.backtrack_soma_size_threshold:
+                print(f"--->This soma mesh with size {len(soma_mesh.faces)} was not bigger than the threshold {p.backtrack_soma_size_threshold}")
                 continue
             else:
                 filtered_soma_list_components_new.append(soma_mesh)
@@ -1083,7 +1053,7 @@ def extract_soma_center(
         filtered_soma_list_components = filtered_soma_list_components_new
         filtered_soma_list_sdf_components = np.array(filtered_soma_list_sdf_components_new)
 
-        if filter_inside_somas:
+        if p.filter_inside_somas:
             if len(filtered_soma_list_components)>1:
                 keep_indices = tu.filter_away_inside_meshes(mesh_list = filtered_soma_list_components,
                                             distance_type="shortest_vertex_distance",
