@@ -75,7 +75,7 @@ def soma_volume_ratio(current_mesh,
     """
     bounding_box_oriented: rotates the box to be less volume
     bounding_box : does not rotate the box and makes it axis aligned
-    
+
     ** checks to see if closed mesh and if not then make closed **
     """
     poisson_temp_folder = Path.cwd() / "Poisson_temp"
@@ -100,24 +100,24 @@ def soma_volume_ratio(current_mesh,
                 fill_hole_obj = meshlab.FillHoles(max_hole_size=2000,
                                                  self_itersect_faces=False)
 
-                mesh_filled_holes,fillholes_file_obj = fill_hole_obj(   
+                mesh_filled_holes,fillholes_file_obj = fill_hole_obj(
                                                     vertices=lrg_mesh.vertices,
                                                      faces=lrg_mesh.faces,
                                                      return_mesh=True,
                                                      delete_temp_files=True,
                                                     )
                 lrg_mesh = largest_mesh_piece(mesh_filled_holes)
-                
-                    
+
+
             else:
                 raise Exception(f"Unimplemented watertight_method requested: {watertight_method}")
 
-        #turn the mesh into a closed mesh based on 
+        #turn the mesh into a closed mesh based on
         print(f"mesh.is_watertight = {lrg_mesh.is_watertight}")
-        
+
         if not lrg_mesh.is_watertight:
             lrg_mesh = lrg_mesh.convex_hull
-        
+
         ratio_val = lrg_mesh.bounding_box.volume/lrg_mesh.volume
     #     if ratio_val < 1:
     #         raise Exception("Less than 1 value in volume ratio computation")
@@ -150,33 +150,33 @@ def filter_away_inside_soma_pieces(
                             ):
     if not nu.is_array_like(main_mesh_total):
         main_mesh_total = [main_mesh_total]
-    
+
     if not nu.is_array_like(pieces_to_test):
         pieces_to_test = [pieces_to_test]
-        
+
     if len(pieces_to_test) == 0:
         print("pieces_to_test was empty so returning empty list or pieces")
         return pieces_to_test
-    
+
     significant_pieces = [m for m in pieces_to_test if len(m.faces) >= significance_threshold]
-    
+
     print(f"There were {len(significant_pieces)} pieces found after size threshold")
     if len(significant_pieces) <=0:
         print("THERE WERE NO MESH PIECES GREATER THAN THE significance_threshold")
         return []
-    
+
     final_mesh_pieces = []
     inside_pieces = []
-    
 
-    
+
+
     for i,mesh in enumerate(significant_pieces):
         outside_flag = True
         for j,main_mesh in enumerate(main_mesh_total):
             #gets the number of samples on the mesh to test (only the indexes)
             idx = np.random.choice(len(mesh.vertices),n_sample_points , replace=False)
-            
-            
+
+
             #gets the sample's vertices
             points = mesh.vertices[idx,:]
 
@@ -187,23 +187,23 @@ def filter_away_inside_soma_pieces(
             # Points inside the mesh will be positive
             signed_distance = trimesh.proximity.signed_distance(main_mesh,points)
 
-            #gets the 
+            #gets the
             outside_percentage = sum(signed_distance <= 0)/n_sample_points
-            
+
             if print_flag:
                 print(f"Mesh piece {i} has outside_percentage {outside_percentage}, idx = {idx}")
-            
+
             if outside_percentage < required_outside_percentage:
-                if print_flag: 
+                if print_flag:
                     print(f"Mesh piece {i} ({mesh}) inside mesh {j} :( ")
                 outside_flag = False
                 inside_pieces.append(mesh)
                 break
         if outside_flag:
-            if print_flag: 
+            if print_flag:
                 print(f"Mesh piece {i} OUTSIDE all meshes (corrected)")
             final_mesh_pieces.append(mesh)
-        
+
     if return_inside_pieces:
         return final_mesh_pieces,inside_pieces
     else:
@@ -220,18 +220,18 @@ def subtract_soma(current_soma_list,main_mesh,
                  ):
     if type(current_soma_list) == type(trimesh.Trimesh()):
         current_soma_list = [current_soma_list]
-    
+
     if type(current_soma_list) != list:
         raise Exception("Subtract soma was not passed a trimesh object or list for it's soma parameter")
 
-        
+
     print("\ninside Soma subtraction")
     start_time = time.time()
     current_soma = tu.combine_meshes(current_soma_list)
     face_midpoints_soma = current_soma.triangles_center
 
     all_bounds = [k.bounds for k in  current_soma_list]
-    
+
 
     curr_mesh_bbox_restriction,faces_bbox_inclusion = (
                     tu.bbox_mesh_restriction(main_mesh,
@@ -261,7 +261,7 @@ def subtract_soma(current_soma_list,main_mesh,
     #get the significant mesh pieces
     mesh_pieces = tu.split_significant_pieces(without_soma_mesh,significance_threshold=significance_threshold,
                                              connectivity=connectivity)
-    
+
     # ----- 11/22 turns out weren't even using this part --------- #
 #     print(f"mesh pieces in subtact soma BEFORE the filtering inside pieces = {mesh_pieces}")
 
@@ -271,8 +271,8 @@ def subtract_soma(current_soma_list,main_mesh,
 #                                                         required_outside_percentage=0.9)
 #     print(f"mesh pieces in subtact soma AFTER the filtering inside pieces = {mesh_pieces}")
     print(f"Total Time for soma mesh cancellation = {np.round(time.time() - start_time,3)}")
-    
-    
+
+
     return mesh_pieces
 
 def find_soma_centroids(soma_mesh_list):
@@ -291,14 +291,14 @@ def find_soma_centroid_containing_meshes(soma_mesh_list,
                                             split_meshes,
                                         verbose=False):
     """
-    Purpose: Will find the mesh piece that most likely has the 
+    Purpose: Will find the mesh piece that most likely has the
     soma that was found by the poisson soma finding process
-    
+
     """
     containing_mesh_indices=dict([(i,[]) for i,sm_c in enumerate(soma_mesh_list)])
     for k,sm_mesh in enumerate(soma_mesh_list):
         sm_center = tu.mesh_center_vertex_average(sm_mesh)
-        viable_meshes = np.array([j for j,m in enumerate(split_meshes) 
+        viable_meshes = np.array([j for j,m in enumerate(split_meshes)
                  if trimesh.bounds.contains(m.bounds,sm_center.reshape(-1,3))
                         ])
         if verbose:
@@ -323,38 +323,38 @@ def find_soma_centroid_containing_meshes(soma_mesh_list,
             containing_mesh_indices[k] = viable_meshes[np.argmin(min_distances_to_soma)]
 
     return containing_mesh_indices
-    
+
 def grouping_containing_mesh_indices(containing_mesh_indices):
     """
-    Purpose: To take a dictionary that maps the soma indiece to the 
+    Purpose: To take a dictionary that maps the soma indiece to the
              mesh piece containing the indices: {0: 0, 1: 0}
-             
+
              and to rearrange that to a dictionary that maps the mesh piece
-             to a list of all the somas contained inside of it 
-             
-    Pseudocode: 
+             to a list of all the somas contained inside of it
+
+    Pseudocode:
     1) get all the unique mesh pieces and create a dictionary with an empty list
     2) iterate through the containing_mesh_indices dictionary and add each
        soma index to the list of the containing mesh index
     3) check that none of the lists are empty or else something has failed
-             
+
     """
-    
+
     unique_meshes = np.unique(list(containing_mesh_indices.values()))
     mesh_groupings = dict([(i,[]) for i in unique_meshes])
-    
+
     #2) iterate through the containing_mesh_indices dictionary and add each
     #   soma index to the list of the containing mesh index
-    
+
     for soma_idx, mesh_idx in containing_mesh_indices.items():
         mesh_groupings[mesh_idx].append(soma_idx)
-    
+
     #3) check that none of the lists are empty or else something has failed
     len_lists = [len(k) for k in mesh_groupings.values()]
-    
+
     if 0 in len_lists:
         raise Exception("One of the lists is empty when grouping somas lists")
-        
+
     return mesh_groupings
 
 
@@ -374,7 +374,7 @@ def original_mesh_soma(
     Purpose: To take an approximation of the soma mesh (usually from a poisson surface reconstruction)
     and map it to faces on the original mesh
 
-    Pseudocode: 
+    Pseudocode:
     1) restrict the larger mesh with a bounding box or current
     2) Remove all interior pieces
     3) Save the interior pieces if asked for a pass-back
@@ -416,7 +416,7 @@ def original_mesh_soma(
     if verbose:
         print(f"split_meshes_after_backtrack = {split_meshes_after_backtrack}")
         print(f"soma_size_threshold = {soma_size_threshold}")
-        
+
     if len(split_meshes_after_backtrack) == 0:
         return_mesh = None
     else:
@@ -429,7 +429,7 @@ def original_mesh_soma(
         return return_mesh
 
 
-    
+
 class ShapeCheck(NamedTuple):
     """Whether a candidate blob is sphere-like enough to be a soma.
 
@@ -487,6 +487,145 @@ def _cleanup_temp_files(segment_id, temp_object):
     for f in Path("./temp").glob('**/*'):
         if str(segment_id) in str(f):
             f.unlink()
+
+
+def _validate_candidate(soma_mesh, sdf, p):
+    """Accept a segment as a soma, or try once more to find a soma inside it.
+
+    A segment that is not sphere-like gets re-segmented; the highest-sdf piece of that
+    re-segmentation is then held to the same shape checks. Returns [(mesh, sdf)] on
+    success, [] on rejection.
+    """
+    shape = _soma_shape_ok(soma_mesh,p)
+    if shape:
+        return [(soma_mesh, sdf)]
+
+    print(f"->Attempting retry of soma because failed first checks: "
+             f"soma_mesh = {soma_mesh}, curr_side_len_check = {shape.side_ok}, curr_volume_check = {shape.volume_ok}")
+    retry = _segment_and_filter(
+        soma_mesh, clusters=3, smoothness=0.2,
+        size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
+        sdf_min=p.soma_width_threshold, inclusive=True, verbose=True)
+
+    if len(retry.soma_meshes) == 0:
+        print(f"Could not find valid soma mesh in retry")
+        return []
+
+    winner = np.argmax(retry.soma_sdfs)
+    soma_mesh_retry, sdf_retry = retry.soma_meshes[winner], retry.soma_sdfs[winner]
+
+    shape_retry = _soma_shape_ok(soma_mesh_retry,p)
+    if shape_retry:
+        return [(soma_mesh_retry, sdf_retry)]
+
+    print(f"--->This soma mesh was not added because failed retry of sphere validation:\n "
+         f"soma_mesh = {soma_mesh_retry}, curr_side_len_check = {shape_retry.side_ok}, curr_volume_check = {shape_retry.volume_ok}")
+    return []
+
+
+class PieceResult(NamedTuple):
+    """What one poisson piece yielded.
+
+    `had_viable_segments` is deliberately NOT `bool(candidates)`: a piece can produce
+    segments that pass the size/sdf window but then fail the shape checks. The original
+    code counted that as a success for the outer fail-counter while adding nothing.
+    """
+    candidates: list
+    had_viable_segments: bool
+
+
+def _somas_from_poisson_piece(piece, p, dec_inner, mesh_filename):
+    """Decimate one poisson piece, segment it, and validate what looks soma-like.
+
+    Segmentation gets up to three attempts: when nothing in the size/sdf window comes
+    back, it retries on the largest segment of the previous attempt (i.e. it zooms in).
+    """
+    decimated,_ = dec_inner(vertices=piece.vertices,
+                            faces=piece.faces,
+                            mesh_filename=mesh_filename,
+                            return_mesh=True,
+                            delete_temp_files=False)
+
+    dec_splits = [sm.mesh for sm in submesh_ops.split_significant(
+        decimated, 15, connectivity=soma_connectivity)]
+    print(f"\n-------Splits after inner decimation len = {len(dec_splits)}--------\n")
+
+    if len(dec_splits) == 0:
+        print("There were no signifcant splits after inner decimation")
+        return PieceResult([], False)
+
+    print(f"done exporting decimated mesh: {mesh_filename}")
+    to_segment = dec_splits[0]
+
+    valid_soma_meshes, valid_soma_sdfs = [], []
+    for ii in range(3):
+        print(f"\n    --- On segmentation loop {ii} --")
+        print(f"largest_mesh_path_inner_decimated_clean = {to_segment}")
+        print(f"soma_size_threshold = {p.soma_size_threshold}")
+        print(f"soma_size_threshold_max = {p.soma_size_threshold_max}")
+        print(f"soma_width_threshold = {p.soma_width_threshold}")
+
+        segmentation = _segment_and_filter(
+            to_segment,
+            clusters=p.segmentation_clusters, smoothness=p.segmentation_smoothness,
+            size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
+            sdf_min=p.soma_width_threshold)
+        valid_soma_meshes = segmentation.soma_meshes
+        valid_soma_sdfs = segmentation.soma_sdfs
+
+        if len(valid_soma_meshes) > 0:
+            break
+        to_segment = segmentation.meshes[0]   # zoom in on the largest segment and retry
+
+    if len(valid_soma_sdfs) == 0:
+        return PieceResult([], False)
+
+    print(f"      ------ Found {len(valid_soma_sdfs)} viable somas: {valid_soma_sdfs}")
+    candidates = []
+    for soma_mesh,sdf in zip(valid_soma_meshes,valid_soma_sdfs):
+        candidates += _validate_candidate(soma_mesh, sdf, p)
+    return PieceResult(candidates, True)
+
+
+def _somas_from_mesh_piece(largest_mesh, p, poisson_obj, dec_inner, mesh_filename):
+    """Poisson-reconstruct one significant mesh piece and pull the somas out of it.
+
+    Returns (candidates, found_any) where `found_any` drives the caller's
+    consecutive-failure counter -- see PieceResult for why it is not just `bool(...)`.
+    """
+    try:
+        largest_mesh = tu.remove_mesh_interior(largest_mesh,
+                                               size_threshold_to_remove=p.size_threshold_to_remove,
+                                              try_hole_close=False)
+    except:
+        print("Unable to remove inside pieces in list_of_largest_mesh")
+
+    # ******* This ERRORED AND CALLED OUR NERUON NONE: 77697401493989254 *********
+    new_mesh_inner,poisson_file_obj = poisson_obj(vertices=largest_mesh.vertices,
+               faces=largest_mesh.faces,
+               return_mesh=True,
+               mesh_filename=mesh_filename,
+               delete_temp_files=False)
+
+    #splitting the Poisson into the largest pieces and ordering them
+    poisson_pieces = [k for k in _ordered_splits(new_mesh_inner)
+                      if len(k.faces) > p.large_mesh_threshold_inner]
+    print(f"Total found significant pieces AFTER Poisson = {poisson_pieces}")
+
+    inner_name = str(poisson_file_obj.stem) + "_largest_inner.off"
+    candidates, found_any, n_failed = [], False, 0
+    for j, piece in enumerate(poisson_pieces):
+        print(f"----- working on mesh after poisson #{j}: {piece}")
+        result = _somas_from_poisson_piece(piece, p, dec_inner, inner_name)
+        candidates += result.candidates
+        found_any = found_any or result.had_viable_segments
+
+        n_failed = 0 if result.had_viable_segments else n_failed + 1
+        if n_failed >= p.max_fail_loops:
+            print(f"breaking inner loop because {p.max_fail_loops} soma fails in a row")
+            break
+
+    return candidates, found_any
 
 
 def _ordered_splits(mesh):
@@ -758,9 +897,6 @@ def extract_soma_center(
                  f"\ninner_decimation_ratio = {p.inner_decimation_ratio}")
 
 
-    # ------------------------------
-
-
     temp_folder = f"./{segment_id}"
     temp_object = Path(temp_folder)
     #make the temp folder if it doesn't exist
@@ -783,10 +919,6 @@ def extract_soma_center(
              return_mesh=True,
              delete_temp_files=False)
 
-    # if remove_inside_pieces:
-    #     print("removing mesh interior after decimation")
-    #     new_mesh = tu.remove_mesh_interior(new_mesh,size_threshold_to_remove=size_threshold_to_remove)
-
     #preforming the splits of the decimated mesh
     ordered_mesh_splits = _ordered_splits(new_mesh)
     list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > p.large_mesh_threshold]
@@ -800,31 +932,29 @@ def extract_soma_center(
 
     total_soma_list = []
     total_soma_list_sdf = []
-
     filtered_soma_list_components = []
+    largest_file_name = str(output_obj.stem) + "_largest_piece.off"
 
-    for i in range(2):
-        if len(filtered_soma_list_components)>0 or (i==1 and p.second_pass_size_threshold is None):
+    # Two passes: if the first finds nothing and a backup (smaller) size threshold is
+    # configured for this dataset, redo the whole search with it.
+    for attempt in range(2):
+        if len(filtered_soma_list_components)>0 or (attempt==1 and p.second_pass_size_threshold is None):
             if verbose:
                 print(f"Not need to do a second pass because already found a soma")
-                
             if p.delete_files:
                 _cleanup_temp_files(segment_id, temp_object)
             break
-            
-        if i == 1:
+
+        if attempt == 1:
             if verbose:
                 print(f"Using backup size thresholds")
-
             p = replace(p,
                         soma_size_threshold=p.second_pass_size_threshold,
                         last_size_threshold=p.second_pass_size_threshold,
                         backtrack_soma_size_threshold=p.second_pass_size_threshold)
 
-
-        
-        #start iterating through where go through all pieces before the poisson reconstruction
-        no_somas_found_in_big_loop = 0
+        # --- find soma candidates on the poisson reconstruction of each big piece ---
+        n_failed = 0
         for i,largest_mesh in enumerate(list_of_largest_mesh):
             # single-neuron short-circuit: once enough somas are found, skip the
             # remaining pieces (each costs an interior-removal meshlab spawn + segmentation).
@@ -833,200 +963,24 @@ def extract_soma_center(
                 break
             print(f"----- working on large mesh #{i}: {largest_mesh}")
 
-            try:
-                largest_mesh = tu.remove_mesh_interior(largest_mesh,
-                                                       size_threshold_to_remove=p.size_threshold_to_remove,
-                                                      try_hole_close=False)
-            except:
-                print("Unable to remove inside pieces in list_of_largest_mesh")
+            candidates,found_any = _somas_from_mesh_piece(
+                largest_mesh, p, Poisson_obj, Dec_inner, largest_file_name)
+            total_soma_list += [m for m,_ in candidates]
+            total_soma_list_sdf += [sdf for _,sdf in candidates]
 
-            somas_found_in_big_loop = False
-
-            largest_file_name = str(output_obj.stem) + "_largest_piece.off"
-            # ******* This ERRORED AND CALLED OUR NERUON NONE: 77697401493989254 *********
-            new_mesh_inner,poisson_file_obj = Poisson_obj(vertices=largest_mesh.vertices,
-                       faces=largest_mesh.faces,
-                       return_mesh=True,
-                       mesh_filename=largest_file_name,
-                       delete_temp_files=False)
-
-
-            #splitting the Poisson into the largest pieces and ordering them
-            list_of_largest_mesh_inner = [k for k in _ordered_splits(new_mesh_inner)
-                                          if len(k.faces) > p.large_mesh_threshold_inner]
-            print(f"Total found significant pieces AFTER Poisson = {list_of_largest_mesh_inner}")
-
-            n_failed_inner_soma_loops = 0
-            for j, largest_mesh_inner in enumerate(list_of_largest_mesh_inner):
-                to_add_list = []
-                to_add_list_sdf = []
-
-                print(f"----- working on mesh after poisson #{j}: {largest_mesh_inner}")
-
-                largest_mesh_path_inner = str(poisson_file_obj.stem) + "_largest_inner.off"
-
-                #Decimate the inner poisson piece
-                largest_mesh_path_inner_decimated,_ = Dec_inner(
-                                    vertices=largest_mesh_inner.vertices,
-                                     faces=largest_mesh_inner.faces,
-                                    mesh_filename=largest_mesh_path_inner,
-                                     return_mesh=True,
-                                     delete_temp_files=False)
-
-                dec_splits = [s.mesh for s in submesh_ops.split_significant(
-                    largest_mesh_path_inner_decimated, 15, connectivity=soma_connectivity)]
-                print(f"\n-------Splits after inner decimation len = {len(dec_splits)}--------\n")
-
-                if len(dec_splits) == 0:
-                    print("There were no signifcant splits after inner decimation")
-                    n_failed_inner_soma_loops += 1
-                else:
-                    print(f"done exporting decimated mesh: {largest_mesh_path_inner}")
-
-                    largest_mesh_path_inner_decimated_clean = dec_splits[0]
-                    """ # ----------- 1/12: Addition that does the segmentation again -------------------- #"""
-
-                    for ii in range(3):
-                        print(f"\n    --- On segmentation loop {ii} --")
-                        print(f"largest_mesh_path_inner_decimated_clean = {largest_mesh_path_inner_decimated_clean}\n")
-
-
-                        
-                        print(f"largest_mesh_path_inner_decimated_clean = {largest_mesh_path_inner_decimated_clean}")
-                        print(f"soma_size_threshold = {p.soma_size_threshold}")
-                        print(f"soma_size_threshold_max = {p.soma_size_threshold_max}")
-                        print(f"soma_width_threshold = {p.soma_width_threshold}")
-                        
-                        segmentation = _segment_and_filter(
-                            largest_mesh_path_inner_decimated_clean,
-                            clusters=p.segmentation_clusters, smoothness=p.segmentation_smoothness,
-                            size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
-                            sdf_min=p.soma_width_threshold)
-                        valid_soma_meshes = segmentation.soma_meshes
-                        valid_soma_segments_width = segmentation.soma_sdfs
-                        
-
-
-
-                        if len(valid_soma_meshes) > 0:
-                            break
-                        else:
-                            """
-                            Pseudocode: 
-                            Get the largest mesh segment
-
-                            Old:
-                            new_mesh_try_faces = np.where(classifier.labels_list == nu.mode_1d(classifier.labels_list))[0]
-                            largest_mesh_path_inner_decimated_clean = largest_mesh_path_inner_decimated_clean.submesh([new_mesh_try_faces],append=True)
-                            """
-                            largest_mesh_path_inner_decimated_clean = segmentation.meshes[0]
-
-                    if len(valid_soma_segments_width) > 0:
-                        print(f"      ------ Found {len(valid_soma_segments_width)} viable somas: {valid_soma_segments_width}")
-                        somas_found_in_big_loop = True
-                        #get the meshes only if signfiicant length
-
-                        for soma_mesh,sdf in zip(valid_soma_meshes,valid_soma_segments_width):
-
-
-                            # ---------- No longer doing the extra checks in here --------- #
-
-
-                            shape = _soma_shape_ok(soma_mesh,p)
-
-                            if shape:
-                                #check if we can split this into two
-                                to_add_list.append(soma_mesh)
-                                to_add_list_sdf.append(sdf)
-
-
-                            else:
-                                # ---------- 1/7 Addition: Trying one more additional cgal segmentation to see if there is actually a soma ---
-                                """
-                                Pseudocode: 
-                                1) Run th esegmentation algorithm again to segment the mesh
-                                2) Filter out meshes by sizs and sdf threshold
-                                3) If there are any remaining meshes, pick the largest sdf mesh and test for volume and side length check
-                                --> if matches then adds
-                                """
-
-                                print(f"->Attempting retry of soma because failed first checks: "
-                                         f"soma_mesh = {soma_mesh}, curr_side_len_check = {shape.side_ok}, curr_volume_check = {shape.volume_ok}")
-                                #1) Run th esegmentation algorithm again to segment the mesh
-                                retry = _segment_and_filter(
-                                    soma_mesh, clusters=3, smoothness=0.2,
-                                    size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
-                                    sdf_min=p.soma_width_threshold, inclusive=True, verbose=True)
-                                filtered_meshes,filtered_meshes_sdf = retry.soma_meshes,retry.soma_sdfs
-
-                                if len(filtered_meshes) > 0:
-                                    sdf_winning_index = np.argmax(filtered_meshes_sdf)
-                                    soma_mesh_retry = filtered_meshes[sdf_winning_index]
-                                    sdf_retry = filtered_meshes_sdf[sdf_winning_index]
-
-                                    shape_retry = _soma_shape_ok(soma_mesh_retry,p)
-
-                                    if shape_retry:
-                                        to_add_list.append(soma_mesh_retry)
-                                        to_add_list_sdf.append(sdf_retry)
-                                    else:
-                                        print(f"--->This soma mesh was not added because failed retry of sphere validation:\n "
-                                             f"soma_mesh = {soma_mesh_retry}, curr_side_len_check = {shape_retry.side_ok}, curr_volume_check = {shape_retry.volume_ok}")
-                                        continue
-                                else:
-                                    print(f"Could not find valid soma mesh in retry")
-                                    continue
-
-
-                        n_failed_inner_soma_loops = 0
-
-                    else:
-                        n_failed_inner_soma_loops += 1
-
-                total_soma_list_sdf += to_add_list_sdf
-                total_soma_list += to_add_list
-
-                # --------------- KEEP TRACK IF FAILED TO FIND SOMA (IF TOO MANY FAILS THEN BREAK)
-                if n_failed_inner_soma_loops >= p.max_fail_loops:
-                    print(f"breaking inner loop because {p.max_fail_loops} soma fails in a row")
-                    break
-
-
-            # --------------- KEEP TRACK IF FAILED TO FIND SOMA (IF TOO MANY FAILS THEN BREAK)
-            if somas_found_in_big_loop == False:
-                no_somas_found_in_big_loop += 1
-                if no_somas_found_in_big_loop >= p.max_fail_loops:
-                    print(f"breaking because {p.max_fail_loops} fails in a row in big loop")
-                    break
-
-            else:
-                no_somas_found_in_big_loop = 0
-
-
-
-
-
-        total_soma_list_revised = total_soma_list
-        total_soma_list_revised_sdf = total_soma_list_sdf
+            n_failed = 0 if found_any else n_failed + 1
+            if n_failed >= p.max_fail_loops:
+                print(f"breaking because {p.max_fail_loops} fails in a row in big loop")
+                break
 
         run_time = time.time() - global_start_time
+        print(f"\n\n\n Total time for run = {run_time}")
+        print(f"Before Filtering the number of somas found = {len(total_soma_list)}")
 
-        print(f"\n\n\n Total time for run = {time.time() - global_start_time}")
-        print(f"Before Filtering the number of somas found = {len(total_soma_list_revised)}")
-
-
-        #need to erase all of the temporary files ******
-        #import shutil
-        #shutil.rmtree(directory)
-
-        # Running the extra tests that depend on
-        # - border vertices
-        # - how well the poisson matches the backtracked soma to the real mesh
-        # - other size checks
+        # --- map each poisson soma back onto the original mesh ---
         filtered_soma_list = []
         filtered_soma_list_sdf = []
-
-        for yy,(soma_mesh,curr_soma_sdf) in enumerate(zip(total_soma_list_revised,total_soma_list_revised_sdf)):
+        for yy,(soma_mesh,curr_soma_sdf) in enumerate(zip(total_soma_list,total_soma_list_sdf)):
             if verbose:
                 print(f"\n---Performing Soma Mesh Backtracking to original mesh for poisson soma {yy}")
             for backtracked,backtracked_sdf in _backtrack_to_original(
@@ -1034,21 +988,7 @@ def extract_soma_center(
                 filtered_soma_list.append(backtracked)
                 filtered_soma_list_sdf.append(backtracked_sdf)
 
-
-        # ----------- 11 /11 Addition that does a last step segmentation of the soma --------- #
-        #return total_soma_list, run_time
-        #return total_soma_list_revised,run_time,total_soma_list_revised_sdf
-
-        # Things we should ask about the segmentation:
-        # Advantages:
-        # 1) could help filter away negatives
-        # Disadvantages:
-        # 1) Can actually cut up the soma and then filter away the soma (not what we want)
-        # 2) Could introduce a big hole (don't think can guard against this)
-
-
-        #filtered_soma_list_saved = copy.deepcopy(filtered_soma_list)
-
+        # --- final size threshold + a last segmentation attempt on each survivor ---
         survivors = []
         for f_soma,f_soma_sdf in zip(filtered_soma_list,filtered_soma_list_sdf):
             if not (len(f_soma.faces) >= p.last_size_threshold and f_soma_sdf >= p.soma_width_threshold):
@@ -1059,16 +999,11 @@ def extract_soma_center(
         filtered_soma_list_components,filtered_soma_list_sdf_components = _stitch_touching_somas(
             [m for m,_ in survivors], [sdf for _,sdf in survivors], recov_orig_mesh)
 
-
-
         if verbose:
             print(f"filtered_soma_list_components = {filtered_soma_list_components}")
         filtered_soma_list_components,filtered_soma_list_sdf_components = _drop_small_and_inside(
             filtered_soma_list_components, filtered_soma_list_sdf_components, p)
 
-    
-
-    
     return list(filtered_soma_list_components),run_time,filtered_soma_list_sdf_components
 
 
@@ -1094,8 +1029,8 @@ def soma_indentification(
     )
 
     return soma_products
-    
-    
+
+
 #--- from mesh_tools ---
 from mesh_tools import meshlab
 from mesh_tools import trimesh_utils as tu
