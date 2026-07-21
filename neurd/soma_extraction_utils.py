@@ -1567,7 +1567,7 @@ def extract_soma_center(
                                          main_mesh=recov_orig_mesh_no_interior,
                                                             return_connected_components=True)
 
-                filtered_soma_list_components = np.array([tu.combine_meshes(filtered_soma_list[k]) for k in connected_meshes_components])
+                filtered_soma_list_components = np.array([submesh_ops.combine(filtered_soma_list[k]) for k in connected_meshes_components])
                 filtered_soma_list_sdf_components = np.array([np.mean(filtered_soma_list_sdf[k]) for k in connected_meshes_components])
             elif len(filtered_soma_list)==1:
                 filtered_soma_list_components = filtered_soma_list
