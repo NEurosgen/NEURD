@@ -48,6 +48,19 @@ def _submesh(mesh, faces):
     return mesh.submesh([np.asarray(faces, dtype=np.int64)], append=True, repair=False)
 
 
+def _submesh_single(mesh, faces):
+    """One face-group -> a standalone Trimesh, built the *non-appended* way.
+
+    ``tu.split_mesh_into_face_groups``'s default path uses
+    ``submesh([faces], append=False, only_watertight=False, repair=False)[0]`` -- trimesh builds
+    one mesh per entry of ``faces_sequence``, so a single entry always yields a length-1 list and
+    ``[0]`` is that mesh. Kept distinct from :func:`_submesh` (which appends/concatenates) so the
+    label-split composite reproduces ``tu``'s construction path exactly.
+    """
+    return mesh.submesh([np.asarray(faces, dtype=np.int64)],
+                        append=False, only_watertight=False, repair=False)[0]
+
+
 # --------------------------------------------------------------------------- #
 # Primitive 1 -- the composing value type                                     #
 # --------------------------------------------------------------------------- #
@@ -124,6 +137,27 @@ def connected_face_components(mesh, connectivity="vertices"):
 
 
 # --------------------------------------------------------------------------- #
+# Primitive 3 -- face groups from a per-face labeling (pure index algebra)      #
+# --------------------------------------------------------------------------- #
+def face_groups_by_label(labels):
+    """Partition face indices by a per-face label -> ``{label: face_idx}``, ascending label order.
+
+    ``labels`` is either a per-face sequence (``labels[i]`` = label of face ``i``) or a
+    ``{face_idx: label}`` dict (normalised by sorting on the key, matching ``tu``). No mesh is
+    involved -- this is pure index algebra, so it serves ANY face-labeling producer: the waterfill
+    colourings (``resolve_empty_conflicting_face_labels``), the CGAL/SDF ``mesh_segmentation``
+    labels used by spine detection, and one-off ``np.where(mapping == k)[0]`` lookups.
+
+    Mirrors the grouping half of ``tu.split_mesh_into_face_groups``: labels come back in
+    ``np.sort(np.unique(labels))`` order and each group is ``np.where(labels == lab)[0]``.
+    """
+    if isinstance(labels, dict):
+        labels = list(dict(sorted(labels.items())).values())
+    labels = np.asarray(labels)
+    return {lab: np.where(labels == lab)[0] for lab in np.sort(np.unique(labels))}
+
+
+# --------------------------------------------------------------------------- #
 # Composites -- each a few lines over the two primitives                       #
 # --------------------------------------------------------------------------- #
 def split(mesh, connectivity="vertices"):
@@ -175,6 +209,42 @@ def components_from_face_idx(sub: SubMesh):
     parent -- here the remap is automatic via ``SubMesh.sub`` / ``root_face_idx``.
     """
     return [sub.sub(c) for c in connected_face_components(sub.mesh, "vertices")]
+
+
+def split_into_face_groups(parent, labels, return_dict=True, check_connected=False):
+    """Split a mesh by a per-face labeling into one ``SubMesh`` per label (provenance carried).
+
+    The owned replacement for ``tu.split_mesh_into_face_groups``: composes
+    :func:`face_groups_by_label` (which faces carry each label) with :func:`_submesh_single`
+    (``tu``'s exact construction path), returning ``SubMesh`` values instead of the parallel
+    ``(submeshes, submeshes_idx)`` dicts -- so the face_idx travels WITH the geometry.
+
+    ``parent`` may be a raw ``Trimesh`` or a ``SubMesh``; the labels index the parent's OWN faces,
+    and passing the parent through keeps the chain -- with a ``SubMesh`` parent the children
+    compose, so ``root_face_idx()`` folds straight to the original mesh.
+
+    ``check_connected=True`` runs a REAL single-component check per group via
+    :func:`connected_face_components`. Note ``tu``'s ``check_connect_comp`` flag is vestigial --
+    it inspects ``submesh([faces], append=False)``, which trimesh builds as one mesh per
+    ``faces_sequence`` entry, so its length is always 1 and its ``raise`` can never fire. This
+    check therefore defaults to OFF: turning it on can legitimately raise where ``tu`` stayed
+    silent, which is a behaviour change, not a bug fix.
+    """
+    base = parent.mesh if isinstance(parent, SubMesh) else parent
+    groups = face_groups_by_label(labels)
+    n_labelled = sum(len(f) for f in groups.values())
+    if n_labelled != len(base.faces):
+        raise ValueError(f"face labeling covers {n_labelled} faces but mesh has {len(base.faces)}")
+
+    out = {}
+    for lab, faces in groups.items():
+        if check_connected and len(connected_face_components(_submesh_single(base, faces))) != 1:
+            raise ValueError(f"label {lab} is not a single connected component")
+        # NOTE: built via _submesh_single (not SubMesh.sub, which appends) so the geometry matches
+        # tu exactly. Passing `parent` through keeps the chain: a SubMesh parent composes, a raw
+        # mesh parent terminates it.
+        out[lab] = SubMesh(_submesh_single(base, faces), faces, parent)
+    return out if return_dict else list(out.values())
 
 
 def original_faces(sub: SubMesh) -> np.ndarray:

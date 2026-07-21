@@ -264,3 +264,65 @@ def test_faces_by_match_empty_submesh():
     m = trimesh.creation.icosphere(subdivisions=2)
     assert len(so.faces_by_match(m, trimesh.Trimesh())) == 0
     assert len(so.faces_by_match(m, trimesh.Trimesh(), matching=False)) == len(m.faces)
+
+
+# --------------------------------------------------------------------------- #
+# face_groups_by_label / split_into_face_groups  (vs tu.split_mesh_into_face_groups)
+# --------------------------------------------------------------------------- #
+def _labeling(mesh, n_labels):
+    """A per-face labeling that keeps each label's faces CONTIGUOUS (mirrors how the waterfill /
+    CGAL segmentation colourings arrive: one label per connected patch, all faces covered)."""
+    return np.repeat(np.arange(n_labels), np.ceil(len(mesh.faces) / n_labels).astype(int))[:len(mesh.faces)]
+
+
+def test_face_groups_by_label_is_pure_index_algebra():
+    """Grouping is mesh-free: ascending label order, np.where semantics, dict input normalised."""
+    labels = np.array([2, 0, 2, 1, 0])
+    groups = so.face_groups_by_label(labels)
+    assert list(groups.keys()) == [0, 1, 2]                       # ascending label order
+    assert groups[0].tolist() == [1, 4]
+    assert groups[1].tolist() == [3]
+    assert groups[2].tolist() == [0, 2]
+    # a {face_idx: label} dict is normalised by sorting on the key -> same result
+    assert so.face_groups_by_label({4: 0, 0: 2, 3: 1, 1: 0, 2: 2}).keys() == groups.keys()
+    for k in groups:
+        assert so.face_groups_by_label({4: 0, 0: 2, 3: 1, 1: 0, 2: 2})[k].tolist() == groups[k].tolist()
+
+
+def test_split_into_face_groups_matches_tu(synth, real):
+    """split_into_face_groups == tu.split_mesh_into_face_groups: same labels, same face_idx, same geometry."""
+    for mesh in (synth, real):
+        labels = _labeling(mesh, 4)
+        tu_meshes, tu_idx = tu.split_mesh_into_face_groups(mesh, labels)
+        ours = so.split_into_face_groups(mesh, labels)
+        assert sorted(ours.keys()) == sorted(tu_idx.keys())
+        for lab in tu_idx:
+            assert ours[lab].face_idx.tolist() == np.asarray(tu_idx[lab]).tolist()   # same face idx
+            assert len(ours[lab].mesh.faces) == len(tu_meshes[lab].faces)            # same geometry
+            assert np.allclose(ours[lab].mesh.vertices.shape, tu_meshes[lab].vertices.shape)
+
+
+def test_split_into_face_groups_return_dict_false_matches_tu(real):
+    """return_dict=False -> label-ordered list, mirroring tu's array form."""
+    labels = _labeling(real, 3)
+    _, tu_idx = tu.split_mesh_into_face_groups(real, labels, return_dict=False)
+    ours = so.split_into_face_groups(real, labels, return_dict=False)
+    assert len(ours) == len(tu_idx)
+    for sub, idx in zip(ours, tu_idx):
+        assert sub.face_idx.tolist() == np.asarray(idx).tolist()
+
+
+def test_split_into_face_groups_carries_provenance(real):
+    """A SubMesh parent composes: root_face_idx folds the label split back to the ORIGINAL mesh."""
+    parent = so.split(real)[0]                                   # a SubMesh of `real`
+    labels = _labeling(parent.mesh, 3)
+    groups = so.split_into_face_groups(parent, labels)
+    for sub in groups.values():
+        # composition law: child's root idx == parent's root idx indexed by the child's own faces
+        assert sub.root_face_idx().tolist() == parent.root_face_idx()[sub.face_idx].tolist()
+        assert len(sub.mesh.faces) == len(sub.face_idx)
+
+
+def test_split_into_face_groups_rejects_wrong_length(real):
+    with pytest.raises(ValueError):
+        so.split_into_face_groups(real, np.zeros(len(real.faces) - 1, dtype=int))
