@@ -1,5 +1,7 @@
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from shutil import rmtree
+from typing import NamedTuple
 import os
 from pathlib import Path
 from scipy.spatial import KDTree
@@ -428,6 +430,65 @@ def original_mesh_soma(
 
 
     
+class ShapeCheck(NamedTuple):
+    """Whether a candidate blob is sphere-like enough to be a soma.
+
+    Truthy only when both checks pass; the individual flags are kept so the rejection
+    messages can still say WHICH check failed.
+    """
+    side_ok: bool
+    volume_ok: bool
+
+    def __bool__(self):
+        return self.side_ok and self.volume_ok
+
+
+def _soma_shape_ok(mesh, p):
+    """Run both sphere-validation checks on `mesh`. See ShapeCheck."""
+    return ShapeCheck(side_length_check(mesh, p.side_length_ratio_threshold),
+                      soma_volume_check(mesh, p.volume_mulitplier))
+
+
+class Segmentation(NamedTuple):
+    """One CGAL segmentation, plus which of its segments look like somas.
+
+    `meshes`/`sdfs` are every segment (a caller that finds nothing soma-like retries on
+    the first one); `soma_meshes`/`soma_sdfs` are those inside the size/sdf window.
+    """
+    meshes: np.ndarray
+    sdfs: np.ndarray
+    soma_meshes: np.ndarray
+    soma_sdfs: np.ndarray
+
+
+def _segment_and_filter(mesh, clusters, smoothness, size_min, size_max, sdf_min,
+                        inclusive=False, verbose=False):
+    """CGAL-segment `mesh` and mark the segments inside the size/sdf window.
+
+    `inclusive` selects >=/<= instead of >/< on the SIZE bounds: the call sites
+    disagreed on this before the primitive existed, so the difference is preserved
+    rather than silently unified.
+    """
+    meshes, sdfs = tu.mesh_segmentation(mesh=mesh, clusters=clusters,
+                                        smoothness=smoothness, verbose=verbose)
+    meshes, sdfs = np.array(meshes), np.array(sdfs)
+    sizes = np.array([len(m.faces) for m in meshes])
+    if inclusive:
+        in_size = (sizes >= size_min) & (sizes <= size_max)
+    else:
+        in_size = (sizes > size_min) & (sizes < size_max)
+    keep = np.where(in_size & (sdfs > sdf_min))[0]
+    return Segmentation(meshes, sdfs, meshes[keep], sdfs[keep])
+
+
+def _cleanup_temp_files(segment_id, temp_object):
+    """Delete the meshlab scratch folder for this segment and its ./temp leftovers."""
+    rmtree(str(temp_object.absolute()))
+    for f in Path("./temp").glob('**/*'):
+        if str(segment_id) in str(f):
+            f.unlink()
+
+
 @dataclass(frozen=True)
 class SomaParams:
     """Tuning for `extract_soma_center`, resolved once instead of 15 `is None` blocks.
@@ -609,19 +670,7 @@ def extract_soma_center(
                 print(f"Not need to do a second pass because already found a soma")
                 
             if p.delete_files:
-                #now erase all of the files used
-                from shutil import rmtree
-
-                #remove the directory with the meshes
-                rmtree(str(temp_object.absolute()))
-
-                #removing the temporary files
-                temp_folder = Path("./temp")
-                temp_files = [x for x in temp_folder.glob('**/*')]
-                seg_temp_files = [x for x in temp_files if str(segment_id) in str(x)]
-
-                for f in seg_temp_files:
-                    f.unlink()
+                _cleanup_temp_files(segment_id, temp_object)
             break
             
         if i == 1:
@@ -719,16 +768,13 @@ def extract_soma_center(
                         print(f"soma_size_threshold_max = {p.soma_size_threshold_max}")
                         print(f"soma_width_threshold = {p.soma_width_threshold}")
                         
-                        divided_meshes,divided_meshes_sdf = tu.mesh_segmentation(mesh=largest_mesh_path_inner_decimated_clean,clusters=p.segmentation_clusters,
-                                                                                 smoothness=p.segmentation_smoothness)
-
-                        divided_meshes_len = np.array([len(k.faces) for k in divided_meshes])
-                        valid_indexes = np.where((divided_meshes_len > p.soma_size_threshold) & 
-                                                 (divided_meshes_len < p.soma_size_threshold_max) & 
-                                                (np.array(divided_meshes_sdf) > p.soma_width_threshold))[0]
-
-                        valid_soma_meshes = [divided_meshes[k] for k in valid_indexes]
-                        valid_soma_segments_width = [divided_meshes_sdf[k] for k in valid_indexes]
+                        segmentation = _segment_and_filter(
+                            largest_mesh_path_inner_decimated_clean,
+                            clusters=p.segmentation_clusters, smoothness=p.segmentation_smoothness,
+                            size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
+                            sdf_min=p.soma_width_threshold)
+                        valid_soma_meshes = segmentation.soma_meshes
+                        valid_soma_segments_width = segmentation.soma_sdfs
                         
 
 
@@ -744,7 +790,7 @@ def extract_soma_center(
                             new_mesh_try_faces = np.where(classifier.labels_list == nu.mode_1d(classifier.labels_list))[0]
                             largest_mesh_path_inner_decimated_clean = largest_mesh_path_inner_decimated_clean.submesh([new_mesh_try_faces],append=True)
                             """
-                            largest_mesh_path_inner_decimated_clean = divided_meshes[0]
+                            largest_mesh_path_inner_decimated_clean = segmentation.meshes[0]
 
                     if len(valid_soma_segments_width) > 0:
                         print(f"      ------ Found {len(valid_soma_segments_width)} viable somas: {valid_soma_segments_width}")
@@ -757,11 +803,9 @@ def extract_soma_center(
                             # ---------- No longer doing the extra checks in here --------- #
 
 
-                            curr_side_len_check = side_length_check(soma_mesh,p.side_length_ratio_threshold)
-                            curr_volume_check = soma_volume_check(soma_mesh,p.volume_mulitplier)
+                            shape = _soma_shape_ok(soma_mesh,p)
 
-
-                            if curr_side_len_check and curr_volume_check:
+                            if shape:
                                 #check if we can split this into two
                                 to_add_list.append(soma_mesh)
                                 to_add_list_sdf.append(sdf)
@@ -778,33 +822,27 @@ def extract_soma_center(
                                 """
 
                                 print(f"->Attempting retry of soma because failed first checks: "
-                                         f"soma_mesh = {soma_mesh}, curr_side_len_check = {curr_side_len_check}, curr_volume_check = {curr_volume_check}")
+                                         f"soma_mesh = {soma_mesh}, curr_side_len_check = {shape.side_ok}, curr_volume_check = {shape.volume_ok}")
                                 #1) Run th esegmentation algorithm again to segment the mesh
-                                mesh_extra, mesh_extra_sdf = tu.mesh_segmentation(soma_mesh,clusters=3,smoothness=0.2,verbose=True)
-                                mesh_extra = np.array(mesh_extra)
+                                retry = _segment_and_filter(
+                                    soma_mesh, clusters=3, smoothness=0.2,
+                                    size_min=p.soma_size_threshold, size_max=p.soma_size_threshold_max,
+                                    sdf_min=p.soma_width_threshold, inclusive=True, verbose=True)
+                                filtered_meshes,filtered_meshes_sdf = retry.soma_meshes,retry.soma_sdfs
 
-                                #2) Filter out meshes by sizs and sdf threshold
-                                mesh_extra_lens = np.array([len(kk.faces) for kk in mesh_extra])
-                                filtered_meshes_idx = np.where((mesh_extra_lens >= p.soma_size_threshold) & (mesh_extra_lens <= p.soma_size_threshold_max) & (mesh_extra_sdf>p.soma_width_threshold))[0]
-
-
-                                if len(filtered_meshes_idx) > 0:
-                                    filtered_meshes = mesh_extra[filtered_meshes_idx]
-                                    filtered_meshes_sdf = mesh_extra_sdf[filtered_meshes_idx]
-
+                                if len(filtered_meshes) > 0:
                                     sdf_winning_index = np.argmax(filtered_meshes_sdf)
                                     soma_mesh_retry = filtered_meshes[sdf_winning_index]
                                     sdf_retry = filtered_meshes_sdf[sdf_winning_index]
 
-                                    curr_side_len_check_retry = side_length_check(soma_mesh_retry,p.side_length_ratio_threshold)
-                                    curr_volume_check_retry = soma_volume_check(soma_mesh_retry,p.volume_mulitplier)
+                                    shape_retry = _soma_shape_ok(soma_mesh_retry,p)
 
-                                    if curr_side_len_check_retry and curr_volume_check_retry:
+                                    if shape_retry:
                                         to_add_list.append(soma_mesh_retry)
                                         to_add_list_sdf.append(sdf_retry)
                                     else:
                                         print(f"--->This soma mesh was not added because failed retry of sphere validation:\n "
-                                             f"soma_mesh = {soma_mesh_retry}, curr_side_len_check = {curr_side_len_check_retry}, curr_volume_check = {curr_volume_check_retry}")
+                                             f"soma_mesh = {soma_mesh_retry}, curr_side_len_check = {shape_retry.side_ok}, curr_volume_check = {shape_retry.volume_ok}")
                                         continue
                                 else:
                                     print(f"Could not find valid soma mesh in retry")
@@ -894,12 +932,10 @@ def extract_soma_center(
                 if verbose:
                     print(f"\n--- working on backtrack soma {rr}: {soma_mesh}")
 
-                curr_side_len_check = side_length_check(soma_mesh,p.side_length_ratio_threshold)
-                curr_volume_check = soma_volume_check(soma_mesh,p.volume_mulitplier)
+                shape = _soma_shape_ok(soma_mesh,p)
 
-
-                # -------- 1/12 Addition: Does a second round of segmentation after to see if can split somas at all ---- #
-                if (not curr_side_len_check) or (not curr_volume_check):
+                # a second round of segmentation, to see if the blob can be split into somas
+                if not shape:
                     print("Trying backtrack segmentation")
                     mesh_tests,mesh_tests_sdf = tu.mesh_segmentation(soma_mesh,clusters=3,smoothness=0.2)
 
@@ -910,14 +946,14 @@ def extract_soma_center(
 
                         if len(m_test.faces) >= p.backtrack_soma_size_threshold and m_test_sdf >=p.soma_width_threshold:
 
-                            if side_length_check(m_test,p.side_length_ratio_threshold) and soma_volume_check(m_test,p.volume_mulitplier):
+                            if _soma_shape_ok(m_test,p):
 
                                 soma_mesh_filtered.append(m_test)
                                 soma_mesh_sdf_filtered.append(m_test_sdf)
 
                     if len(soma_mesh_filtered) == 0:
                         print(f"--->This soma mesh was not added because it did not pass the sphere validation EVEN AFTER SEGMENTATION:\n "
-                         f"soma_mesh = {soma_mesh}, curr_side_len_check = {curr_side_len_check}, curr_volume_check = {curr_volume_check}")
+                         f"soma_mesh = {soma_mesh}, curr_side_len_check = {shape.side_ok}, curr_volume_check = {shape.volume_ok}")
                         continue
                 else:
 
