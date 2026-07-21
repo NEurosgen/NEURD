@@ -1454,7 +1454,7 @@ def _fix_mp_soma_extension(
             if len(matching_mesh_idx) <= 0:
                 raise Exception("None of branches were touching the border vertices when fixing MP pieces")
 
-            touch_mesh = tu.combine_meshes(divided_submeshes[matching_mesh_idx])
+            touch_mesh = submesh_ops.combine(divided_submeshes[matching_mesh_idx])
             touch_sk = sk.stack_skeletons(segment_branches[matching_mesh_idx])
 
             local_curr_soma_to_piece_touching_vertices = {sm_idx: [sm_bord_verts]}
@@ -2443,7 +2443,7 @@ def _assemble_sublimbs(limb_correspondence):
     """
     meshes, skeletons = [], []
     for _sublimb_key, sublimb_v in limb_correspondence.items():
-        meshes.append(tu.combine_meshes([bv["branch_mesh"] for bv in sublimb_v.values()]))
+        meshes.append(submesh_ops.combine([bv["branch_mesh"] for bv in sublimb_v.values()]))
         skeletons.append(sk.stack_skeletons([bv["branch_skeleton"] for bv in sublimb_v.values()]))
     return meshes, skeletons
 
@@ -3026,13 +3026,13 @@ def _rebuild_limb_frames(limb_correspondence, limb_meshes):
             continue
 
         ordered_keys = sorted(corr.keys())
-        branch_mesh_list = [corr[k]["branch_mesh"] for k in ordered_keys]
-        combined = tu.combine_meshes(branch_mesh_list)
-        offset = 0
-        for k in ordered_keys:
-            n = len(corr[k]["branch_mesh"].faces)
-            corr[k]["branch_face_idx"] = _np.arange(offset, offset + n)
-            offset += n
+        # combine(..., return_pieces=True) reports where each branch mesh landed in the combined
+        # limb, so the contiguous ranges come from the concatenation itself instead of being
+        # re-derived here by hand.
+        combined, pieces = submesh_ops.combine(
+            [corr[k]["branch_mesh"] for k in ordered_keys], return_pieces=True)
+        for k, piece in zip(ordered_keys, pieces):
+            corr[k]["branch_face_idx"] = piece.face_idx
         limb_meshes[li] = combined
         rebuilt += 1
         print(f"[rebuild-limb-frame] limb {li}: stitch-induced desync (stored {n_faces} faces, "
