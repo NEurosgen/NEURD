@@ -573,47 +573,17 @@ def extract_soma_center(
     perform_pairing = None,
     verbose=False,
 
-    return_glia_nuclei_pieces = True,
     backtrack_soma_size_threshold=None,
     backtrack_match_distance_threshold=1500,
 
-    filter_inside_meshes_after_glia_removal = False,
-    max_mesh_sized_filtered_away = 90000,
-
     filter_inside_somas=True,
     backtrack_segmentation_on_fail = True,
-
-    #arguments for the glia pieces
-    glia_pieces = None,
-    nuclei_pieces = None,
-    glia_volume_threshold_in_um = None, #minimum volume of glia mesh
-    glia_n_faces_threshold = None, #minimum number of faes for glia mesh if volume is not defined
-    glia_n_faces_min = None, #minimum number of faes for glia mesh if glia volume defined
-    nucleus_min = None, #minimum number of faces for nuclei mesh peices
-    nucleus_max = None, #maximum number of faces for nuclie mesh pieces if glia volume is not defined
 
     second_pass_size_threshold = None,
 
     **kwargs
     ):
     
-    # ------- Nuclei parameters -------------
-    if nucleus_min is None:
-        nucleus_min = parameters.params.nucleus_min
-        
-    if nucleus_max is None:
-        nucleus_max = parameters.params.nucleus_max
-        
-    # ------ Glia parameters ------------
-    if glia_volume_threshold_in_um is None:
-        glia_volume_threshold_in_um = parameters.params.glia_volume_threshold_in_um
-        
-    if glia_n_faces_threshold is None:
-        glia_n_faces_threshold = parameters.params.glia_n_faces_threshold
-        
-    if glia_n_faces_min is None:
-        glia_n_faces_min = parameters.params.glia_n_faces_min
-        
     # -------- Soma parameters -----------
     if outer_decimation_ratio is None:
         outer_decimation_ratio = parameters.params.outer_decimation_ratio
@@ -688,19 +658,9 @@ def extract_soma_center(
     
     
     """
-    Purpose: To extract the glia/neurons and soma fetures
-    
-    Argumetns for glia/nucleus extraction: 
-    glia_volume_threshold_in_um = 2500 #minimum volume of glia mesh
-    glia_n_faces_threshold = 400000 #minimum number of faes for glia mesh if volume is not defined
-    glia_n_faces_min = 100000 #minimum number of faes for glia mesh if glia volume defined
-    nucleus_min = 700 #minimum number of faces for nuclei mesh peices
-    nucleus_max = None #maximum number of faces for nuclie mesh pieces if glia volume is not defined
-    
-    
-    
-    
-    Arguments for soma extraction: 
+    Purpose: To extract the soma features
+
+    Arguments for soma extraction:
     # **Note: All of the thresholds get scaled by the decimation ratios applied before
 
     outer_decimation_ratio= 0.25 #decimation ratio for 1st round of decimation
@@ -758,7 +718,6 @@ def extract_soma_center(
     large_mesh_threshold_inner = large_mesh_threshold_inner*outer_decimation_ratio
     soma_size_threshold = soma_size_threshold*outer_decimation_ratio
     soma_size_threshold_max = soma_size_threshold_max*outer_decimation_ratio
-    max_mesh_sized_filtered_away = max_mesh_sized_filtered_away*outer_decimation_ratio
 
     #adjusting for inner decimation
     soma_size_threshold = soma_size_threshold*inner_decimation_ratio
@@ -769,8 +728,7 @@ def extract_soma_center(
                   f" \nsoma_size_threshold = {soma_size_threshold}"
                  f" \nsoma_size_threshold_max = {soma_size_threshold_max}"
                  f"\nouter_decimation_ratio = {outer_decimation_ratio}"
-                 f"\ninner_decimation_ratio = {inner_decimation_ratio}"
-         f"\nmax_mesh_sized_filtered_away = {max_mesh_sized_filtered_away}")
+                 f"\ninner_decimation_ratio = {inner_decimation_ratio}")
 
 
     # ------------------------------
@@ -790,34 +748,10 @@ def extract_soma_center(
         recov_orig_mesh = trimesh.Trimesh(vertices=current_mesh_verts,faces=current_mesh_faces)
     else:
         recov_orig_mesh = mesh
-    
-    
-    if glia_pieces is not None and nuclei_pieces is not None:
-        recov_orig_mesh_no_interior = tu.subtract_mesh(recov_orig_mesh,[glia_pieces,nuclei_pieces])
-    else:
-        try:
-            recov_orig_mesh_no_interior, glia_pieces, nuclei_pieces  = remove_nuclei_and_glia_meshes(
-                recov_orig_mesh,
-                verbose=True,
-                glia_volume_threshold_in_um = glia_volume_threshold_in_um,
-                glia_n_faces_threshold = glia_n_faces_threshold,
-                glia_n_faces_min = glia_n_faces_min,
-                nucleus_min= nucleus_min,
-                nucleus_max=nucleus_max,                                                                                
-
-                )
-        except:
-            print("**Unable to remove_nuclei_and_glia_meshes: so just continuing without doing so **")
-            recov_orig_mesh_no_interior = recov_orig_mesh
-            glia_pieces = []
-            nuclei_pieces = []
-    #recov_orig_mesh_no_interior = tu.remove_mesh_interior(recov_orig_mesh)
-
-    
 
     #Step 1: Decimate the Mesh and then split into the seperate pieces
-    new_mesh,output_obj = Dec_outer(vertices=recov_orig_mesh_no_interior.vertices,
-             faces=recov_orig_mesh_no_interior.faces,
+    new_mesh,output_obj = Dec_outer(vertices=recov_orig_mesh.vertices,
+             faces=recov_orig_mesh.faces,
              segment_id=segment_id,
              return_mesh=True,
              delete_temp_files=False)
@@ -840,14 +774,6 @@ def extract_soma_center(
     list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > large_mesh_threshold]
 
     print(f"Total found significant pieces before Poisson = {list_of_largest_mesh}")
-
-    # --------- 1/11 Addition: Filtering away large meshes that are inside another --------- #
-    if filter_inside_meshes_after_glia_removal:
-        print(f"Filtering away larger meshes that are inside others, before # of meshes = {len(list_of_largest_mesh)}")
-        list_of_largest_mesh = tu.filter_away_inside_meshes(list_of_largest_mesh,verbose=True,return_meshes=True,
-                                                           max_mesh_sized_filtered_away=max_mesh_sized_filtered_away)
-        print(f"After # of meshes = {len(list_of_largest_mesh)}")
-
 
     #if no significant pieces were found then will use smaller threshold
     if len(list_of_largest_mesh)<=0:
@@ -1316,7 +1242,6 @@ def extract_soma_center(
         filtered_soma_list_sdf = []
 
         for yy,(soma_mesh,curr_soma_sdf) in enumerate(zip(total_soma_list_revised,total_soma_list_revised_sdf)):
-            add_inside_pieces_flag = False
             if backtrack_soma_mesh_to_original:
                 if verbose:
                     print(f"\n---Performing Soma Mesh Backtracking to original mesh for poisson soma {yy}")
@@ -1326,8 +1251,8 @@ def extract_soma_center(
                 try:
                     if verbose:
                         print(f"backtrack_soma_size_threshold = {backtrack_soma_size_threshold}")
-                    soma_mesh_list,soma_mesh_inside_pieces = original_mesh_soma(
-                                                    original_mesh = recov_orig_mesh_no_interior,
+                    soma_mesh_list,_ = original_mesh_soma(
+                                                    original_mesh = recov_orig_mesh,
                                                     mesh=soma_mesh_poisson,
                                                     soma_size_threshold=backtrack_soma_size_threshold,
                                                     match_distance_threshold=backtrack_match_distance_threshold,
@@ -1446,13 +1371,6 @@ def extract_soma_center(
                     #If made it through all the checks then add to final list
                     filtered_soma_list += soma_mesh_filtered
                     filtered_soma_list_sdf += soma_mesh_sdf_filtered
-                    add_inside_pieces_flag = True #setting flag so will add inside pieces
-
-
-            if len(soma_mesh_inside_pieces) > 0 and add_inside_pieces_flag:
-                print(f"About to add the following inside nuclei pieces after soma backtrack: {nuclei_pieces}")
-                nuclei_pieces +=soma_mesh_inside_pieces
-
 
         """
         Need to delete all files in the temp folder *****
@@ -1564,7 +1482,7 @@ def extract_soma_center(
             """
             if len(filtered_soma_list)>1:
                 connected_meshes_components = tu.mesh_list_connectivity(meshes=filtered_soma_list,
-                                         main_mesh=recov_orig_mesh_no_interior,
+                                         main_mesh=recov_orig_mesh,
                                                             return_connected_components=True)
 
                 filtered_soma_list_components = np.array([submesh_ops.combine(filtered_soma_list[k]) for k in connected_meshes_components])
@@ -1621,13 +1539,7 @@ def extract_soma_center(
     
 
     
-    if return_glia_nuclei_pieces:
-        return list(filtered_soma_list_components),run_time,filtered_soma_list_sdf_components,glia_pieces, nuclei_pieces
-    else:
-        return list(filtered_soma_list_components),run_time,filtered_soma_list_sdf_components
-    
-
-    
+    return list(filtered_soma_list_components),run_time,filtered_soma_list_sdf_components
 
 
 def soma_indentification(
@@ -1636,13 +1548,10 @@ def soma_indentification(
     **soma_extraction_parameters
     ):
 
-    (total_soma_list, 
-     run_time, 
-     total_soma_list_sdf,
-     glia_pieces,
-     nuclei_pieces) = extract_soma_center(
+    (total_soma_list,
+     run_time,
+     total_soma_list_sdf) = extract_soma_center(
         mesh = mesh_decimated,
-        return_glia_nuclei_pieces=True,
         verbose = verbose,
         **soma_extraction_parameters
     )
@@ -1650,14 +1559,9 @@ def soma_indentification(
     soma_products = pipeline.StageProducts(
         soma_extraction_parameters = soma_extraction_parameters,
         soma_meshes=total_soma_list,
-        soma_run_time=run_time, 
+        soma_run_time=run_time,
         soma_sdfs=total_soma_list_sdf,
-        glia_meshes=glia_pieces,
-        nuclei_meshes=nuclei_pieces,
     )
-    
-
-
 
     return soma_products
     
