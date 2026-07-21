@@ -391,58 +391,31 @@ def convert_concept_network_to_directional(concept_network,
     return curr_limb_concept_network_directional
 
 
-def branches_to_concept_network(curr_branch_skeletons,
-                             starting_coordinate,
-                              starting_edge,
-                                touching_soma_vertices=None,
-                                soma_group_idx=None,
-                                starting_soma=None,
-                             max_iterations= 1000000,
-                               verbose=False):
+def _starting_node_attrs(starting_coordinate, touching_soma_vertices, soma_group_idx,
+                         starting_soma):
+    """The attributes marking which branch the limb hangs off the soma by."""
+    return {"starting_coordinate": starting_coordinate,
+            "touching_soma_vertices": touching_soma_vertices,
+            "soma_group_idx": soma_group_idx,
+            "starting_soma": starting_soma}
+
+
+def _dedupe_identical_branches(downsampled, verbose=False):
+    """Drop branches that collapse onto the same pair of endpoints when downsampled.
+
+    Two branches can differ in shape yet share both endpoints; once resized to a single
+    segment they become the same edge, which the skeleton graph cannot represent twice.
+    The first of each such group dominates and the rest are removed here, to be added
+    back onto the finished network by `_restore_duplicate_branches`.
+
+    Returns (kept_branches, original_idxs, domination_map) where `original_idxs` maps a
+    position in the reduced list back to the caller's branch index.
+
+    NOTE: `Counter` (insertion-ordered) is used rather than np.unique(return_counts) on
+    purpose -- the iteration order of `domination_map` decides the order edges are added
+    back, and GraphOrderedEdges records insertion order as data.
     """
-    Will change a list of branches into
-    """
-    # local import to break the neuron_utils <-> neuron module-load cycle (P1):
-    # Branch is the only thing neuron_utils needs from neuron, and only here.
-    from neurd.neuron import Branch
-
-    if verbose:
-        print(f"Starting_edge inside branches_to_conept = {starting_edge}")
-
-    start_time = time.time()
-    processed_nodes = []
-    edge_endpoints_to_process = []
-    concept_network_edges = []
-
-    if len(curr_branch_skeletons) == 0:
-        raise Exception("Passed no branches to be turned into concept network")
-
-    if len(curr_branch_skeletons) == 1:
-        concept_network = xu.GraphOrderedEdges()
-        concept_network.add_node(0)
-
-        starting_node = 0
-        attrs = {starting_node:{"starting_coordinate":starting_coordinate,
-                                "endpoints":Branch(starting_edge).endpoints,
-                               "touching_soma_vertices":touching_soma_vertices,
-                                "soma_group_idx":soma_group_idx,
-                               "starting_soma":starting_soma}
-                                }
-
-        xu.set_node_attributes_dict(concept_network,attrs)
-
-        return concept_network
-
-    # 0) convert each branch to one segment and build a graph from it
-
-    # the original wrapped this in try/except and re-raised Exception("not downsampled
-    # branch"), which threw away the traceback that says WHY the resize failed
-    curr_branch_meshes_downsampled = [sk.resize_skeleton_branch(b,n_segments=1)
-                                      for b in curr_branch_skeletons]
-
-    downsampled_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
-
-    #See if touching row matches the original:
+    downsampled_skeleton = sk.stack_skeletons(downsampled)
 
     all_skeleton_vertices = downsampled_skeleton.reshape(-1,3)
     unique_rows,indices = np.unique(all_skeleton_vertices,return_inverse=True,axis=0)
@@ -454,7 +427,8 @@ def branches_to_concept_network(curr_branch_skeletons,
     duplicate_edge_identifiers = [k for k,v in multiplicity_edge_counter.items() if v > 1]
 
     #for keeping track of original indexes
-    original_idxs = np.arange(0,len(curr_branch_meshes_downsampled))
+    original_idxs = np.arange(0,len(downsampled))
+    domination_map = dict()
 
     if len(duplicate_edge_identifiers) > 0:
         if verbose:
@@ -463,7 +437,6 @@ def branches_to_concept_network(curr_branch_skeletons,
         for d in duplicate_edge_identifiers:
             all_conn_comp.append(list(np.where(unique_edges_indices == [d] )[0]))
 
-        domination_map = dict()
         for curr_comp in all_conn_comp:
             dom_node = curr_comp[0]
             non_dom_nodes = curr_comp[1:]
@@ -476,11 +449,22 @@ def branches_to_concept_network(curr_branch_skeletons,
 
         #delete all of the non dominant rows from the indexes and the skeletons
         original_idxs = np.delete(original_idxs,to_delete_rows,axis=0)
-        curr_branch_meshes_downsampled = [k for i,k in enumerate(curr_branch_meshes_downsampled) if i not in to_delete_rows]
+        downsampled = [k for i,k in enumerate(downsampled) if i not in to_delete_rows]
 
-    curr_stacked_skeleton = sk.stack_skeletons(curr_branch_meshes_downsampled)
+    return downsampled, original_idxs, domination_map
 
-    branches_graph = sk.convert_skeleton_to_graph(curr_stacked_skeleton) #can recover the original skeleton
+
+def _traverse_branch_adjacency(branches_graph, starting_coordinate, starting_edge,
+                               max_iterations=1000000, verbose=False):
+    """Walk the skeleton graph and record which branches are adjacent.
+
+    Nodes of `branches_graph` are skeleton coordinates and its edges are branches, so
+    "branches that share a coordinate" is what becomes an edge of the concept network.
+    Returns (edge pairs in graph-edge terms, the edge that carries the starting
+    coordinate).
+    """
+    processed_nodes = []
+    concept_network_edges = []
 
     #1) Identify the starting node on the starting branch
     starting_node = xu.get_nodes_with_attributes_dict(branches_graph,dict(coordinates=starting_coordinate))
@@ -539,25 +523,100 @@ def branches_to_concept_network(curr_branch_skeletons,
     if len(edge_endpoints_to_process)>0:
         raise Exception(f"Reached max_interations of {max_iterations} and the edge_endpoints_to_process not empty")
 
-    #flattening the connections so we can get the indexes of these edges
-    flattened_connections = np.array(concept_network_edges).reshape(-1,2)
+    return concept_network_edges, starting_node_edge
 
-    orders = xu.get_edge_attributes(branches_graph,edge_list=flattened_connections)
 
-    fixed_idx_orders = original_idxs[orders]
-    concept_network_edges_fixed = np.array(fixed_idx_orders).reshape(-1,2)
-
-    concept_network = xu.GraphOrderedEdges()
-    concept_network.add_edges_from([k for k in concept_network_edges_fixed])
-
-    #add the endpoints as attributes to each of the nodes
+def _set_branch_endpoints(concept_network, branches_graph, original_idxs):
+    """Copy each branch's two skeleton endpoints onto its concept-network node."""
     node_endpoints_dict = dict()
-    old_ordered_edges = branches_graph.edges_ordered()
-    for edge_idx,curr_branch_graph_edge in enumerate(old_ordered_edges):
+    for edge_idx,curr_branch_graph_edge in enumerate(branches_graph.edges_ordered()):
         new_edge_idx = original_idxs[edge_idx]
         curr_enpoints = np.array(xu.get_node_attributes(branches_graph,node_list=curr_branch_graph_edge)).reshape(-1,3)
         node_endpoints_dict[new_edge_idx] = dict(endpoints=curr_enpoints)
     xu.set_node_attributes_dict(concept_network,node_endpoints_dict)
+
+
+def _restore_duplicate_branches(concept_network, domination_map, verbose=False):
+    """Re-attach the branches `_dedupe_identical_branches` removed.
+
+    Each one gets the edges and endpoints of the branch that dominated it, so it ends up
+    with the same neighbours in the concept network.
+    """
+    if len(domination_map) == 0:
+        return
+    if verbose:
+        print("Working on adding back the edges that were duplicates")
+    for non_dom,dom in domination_map.items():
+        curr_neighbors = xu.get_neighbors(concept_network,dom)
+        new_edges = np.vstack([np.ones(len(curr_neighbors))*non_dom,curr_neighbors]).T
+        concept_network.add_edges_from(new_edges)
+
+        curr_endpoint = xu.get_node_attributes(concept_network,attribute_name="endpoints",node_list=[dom])[0]
+        xu.set_node_attributes_dict(concept_network,{non_dom:dict(endpoints=curr_endpoint)})
+
+
+def branches_to_concept_network(curr_branch_skeletons,
+                             starting_coordinate,
+                              starting_edge,
+                                touching_soma_vertices=None,
+                                soma_group_idx=None,
+                                starting_soma=None,
+                             max_iterations= 1000000,
+                               verbose=False):
+    """Turn a limb's branch skeletons into its concept network.
+
+    Nodes are branch indices (into `curr_branch_skeletons`) and edges connect branches
+    that meet at a skeleton coordinate. The branch holding `starting_coordinate` is
+    marked with the soma-attachment attributes.
+    """
+    # local import to break the neuron_utils <-> neuron module-load cycle (P1):
+    # Branch is the only thing neuron_utils needs from neuron, and only here.
+    from neurd.neuron import Branch
+
+    if verbose:
+        print(f"Starting_edge inside branches_to_conept = {starting_edge}")
+    start_time = time.time()
+
+    if len(curr_branch_skeletons) == 0:
+        raise Exception("Passed no branches to be turned into concept network")
+
+    starting_attrs = _starting_node_attrs(starting_coordinate, touching_soma_vertices,
+                                          soma_group_idx, starting_soma)
+
+    if len(curr_branch_skeletons) == 1:
+        concept_network = xu.GraphOrderedEdges()
+        concept_network.add_node(0)
+        xu.set_node_attributes_dict(
+            concept_network,
+            {0: dict(starting_attrs, endpoints=Branch(starting_edge).endpoints)})
+        return concept_network
+
+    # 0) convert each branch to one segment and build a graph from it
+    # the original wrapped this in try/except and re-raised Exception("not downsampled
+    # branch"), which threw away the traceback that says WHY the resize failed
+    downsampled = [sk.resize_skeleton_branch(b,n_segments=1) for b in curr_branch_skeletons]
+
+    downsampled, original_idxs, domination_map = _dedupe_identical_branches(
+        downsampled, verbose=verbose)
+
+    #can recover the original skeleton
+    branches_graph = sk.convert_skeleton_to_graph(sk.stack_skeletons(downsampled))
+
+    concept_network_edges, starting_node_edge = _traverse_branch_adjacency(
+        branches_graph, starting_coordinate, starting_edge,
+        max_iterations=max_iterations, verbose=verbose)
+
+    # An edge's `order` in branches_graph IS its branch index, so mapping the traversal
+    # result back to branch numbers is a lookup of that attribute (then undoing the
+    # dedupe renumbering).
+    flattened_connections = np.array(concept_network_edges).reshape(-1,2)
+    orders = xu.get_edge_attributes(branches_graph,edge_list=flattened_connections)
+    concept_network_edges_fixed = np.array(original_idxs[orders]).reshape(-1,2)
+
+    concept_network = xu.GraphOrderedEdges()
+    concept_network.add_edges_from([k for k in concept_network_edges_fixed])
+
+    _set_branch_endpoints(concept_network, branches_graph, original_idxs)
 
     #add the starting coordinate to the corresponding node
     if starting_node_edge is None:
@@ -570,25 +629,12 @@ def branches_to_concept_network(curr_branch_skeletons,
     starting_edge_index = original_idxs[starting_order[0]]
     if verbose:
         print(f"starting_node in concept map (that should match the starting edge) = {starting_edge_index}")
-    attrs = {starting_edge_index:{"starting_coordinate":starting_coordinate,"touching_soma_vertices":touching_soma_vertices,"soma_group_idx":soma_group_idx,"starting_soma":starting_soma}}
-    xu.set_node_attributes_dict(concept_network,attrs)
+    xu.set_node_attributes_dict(concept_network,{starting_edge_index: starting_attrs})
 
     if verbose:
         print(f"Total time for branches to concept conversion = {time.time() - start_time}\n")
 
-    # Add back the nodes that were deleted
-    if len(duplicate_edge_identifiers) > 0:
-        if verbose:
-            print("Working on adding back the edges that were duplicates")
-        for non_dom,dom in domination_map.items():
-
-            curr_neighbors = xu.get_neighbors(concept_network,dom)
-            new_edges = np.vstack([np.ones(len(curr_neighbors))*non_dom,curr_neighbors]).T
-            concept_network.add_edges_from(new_edges)
-
-            curr_endpoint = xu.get_node_attributes(concept_network,attribute_name="endpoints",node_list=[dom])[0]
-            add_back_attribute_dict = {non_dom:dict(endpoints=curr_endpoint)}
-            xu.set_node_attributes_dict(concept_network,add_back_attribute_dict)
+    _restore_duplicate_branches(concept_network, domination_map, verbose=verbose)
 
     return concept_network
 
