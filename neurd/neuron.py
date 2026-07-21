@@ -510,7 +510,6 @@ class Limb:
                              concept_network_dict=None,
                              mesh_face_idx=None,
                             labels=None,
-                             branch_objects = None,#this will have a dictionary mapping to the branch objects if provided
                              deleted_edges = None,
                              created_edges = None,
                             verbose=False):
@@ -542,10 +541,6 @@ class Limb:
             
         if created_edges is None:
             created_edges = []
-        
-        
-        if branch_objects is None:
-            branch_objects = dict()
         
         
         debug_edges = False
@@ -627,22 +622,13 @@ class Limb:
         """
         suppress_disconnected_errors=False
         for j,branch_data in curr_limb_correspondence.items():
-            if (not branch_objects is None) and j in branch_objects:
-                #print(f"using existing branch object for node {j}")
-                branch_obj = branch_objects[j]
-            else:
-                curr_skeleton = branch_data["branch_skeleton"]
-                curr_width = branch_data["width_from_skeleton"]
-                curr_mesh = branch_data["branch_mesh"]
-                curr_face_idx = branch_data["branch_face_idx"]
-
-                branch_obj = Branch(
-                                    skeleton=curr_skeleton,
-                                    width=curr_width,
-                                    mesh=curr_mesh,
-                                   mesh_face_idx=curr_face_idx,
-                                    labels=[],
-                )
+            branch_obj = Branch(
+                                skeleton=branch_data["branch_skeleton"],
+                                width=branch_data["width_from_skeleton"],
+                                mesh=branch_data["branch_mesh"],
+                               mesh_face_idx=branch_data["branch_face_idx"],
+                                labels=[],
+            )
             
             if j not in self.concept_network:
                 self.concept_network.add_node(j)
@@ -1650,11 +1636,9 @@ class Neuron:
         self.mesh = mesh
         self._mesh_kdtree = None
 
-        description = ""
         if segment_id is None:
             segment_id = np.random.randint(100000000)
             print(f"picking a random 7 digit segment id: {segment_id}")
-            description += "_random_id"
         
 
 
@@ -1663,10 +1647,6 @@ class Neuron:
 
         print("--- 0) Having to preprocess the Neuron becuase no preprocessed data\nPlease wait this could take a while.....")
             
-        with su.suppress_stdout_stderr():
-            
-            print("Skipping the hole filling") # Был парметр fill_hole_size может он полезный , но по умолчанию он не работад
-
         from neurd import preprocess_neuron as pre  # P3: local import breaks neuron<->preprocess_neuron cycle
         preprocessed_data = pre.preprocess_neuron(
                                     mesh,segment_id=segment_id)
@@ -1688,11 +1668,8 @@ class Neuron:
 
         soma_volumes = [None]*len(soma_sdfs)
         
-        if "soma_volume_ratios" in preprocessed_data.keys() and (not preprocessed_data["soma_volume_ratios"] is None):
-            pass
-        else:
-            print("No soma volume ratios so computing them now")                                                          
-            preprocessed_data["soma_volume_ratios"] = [sm.soma_volume_ratio(j) for j in soma_meshes]
+        # preprocess_neuron does not return soma_volume_ratios, so they are always computed here
+        preprocessed_data["soma_volume_ratios"] = [sm.soma_volume_ratio(j) for j in soma_meshes]
             
         # -------- 6/9 addition: synapses that are saved off--------
 
@@ -1727,20 +1704,8 @@ class Neuron:
         b. Add the soma objects as ["data"] attribute of all of the soma nodes
         """
 
-        if "soma_meshes_face_idx" in list(preprocessed_data.keys()):
-            soma_meshes_face_idx = preprocessed_data["soma_meshes_face_idx"]
-            print("Using already existing soma_meshes_face_idx in preprocessed data ")
-        else:
-            print("Having to generate soma_meshes_face_idx because none in preprocessed data")
-            soma_meshes_face_idx = []
-            for curr_soma in soma_meshes:
-                curr_soma_meshes_face_idx = tu.original_mesh_faces_map(mesh, curr_soma,
-                        matching=True,
-                        print_flag=False)
-                soma_meshes_face_idx.append(curr_soma_meshes_face_idx)
-
-            print(f"--- 3a) Finshed generating soma_meshes_face_idx: {time.time() - neuron_start_time}")
-            neuron_start_time =time.time()
+        # supplied by preprocess_neuron since 63d2584 -- the geometric KDTree fallback is gone
+        soma_meshes_face_idx = preprocessed_data["soma_meshes_face_idx"]
 
         for j,(curr_soma,curr_soma_face_idx,current_sdf,curr_volume_ratio,curr_volume) in enumerate(zip(soma_meshes,soma_meshes_face_idx,soma_sdfs,soma_volume_ratios,soma_volumes)):
             Soma_obj = Soma(curr_soma,
@@ -1778,19 +1743,7 @@ class Neuron:
 
         """
 
-        if "limb_mehses_face_idx" in list(preprocessed_data.keys()):
-            limb_mehses_face_idx = preprocessed_data["limb_mehses_face_idx"]
-            print("Using already existing limb_mehses_face_idx in preprocessed data ")
-        else:
-            limb_mehses_face_idx = []
-            for curr_limb in limb_meshes:
-                curr_limb_meshes_face_idx = tu.original_mesh_faces_map(mesh, curr_limb,
-                        matching=True,
-                        print_flag=False)
-                limb_mehses_face_idx.append(curr_limb_meshes_face_idx)
-
-            print(f"--- 4a) Finshed generating curr_limb_meshes_face_idx: {time.time() - neuron_start_time}")
-            neuron_start_time =time.time()
+        limb_mehses_face_idx = preprocessed_data["limb_mehses_face_idx"]
 
 #         print("Returning so can debug")
 #         return
@@ -1803,7 +1756,6 @@ class Neuron:
             curr_limb_concept_networks = limb_concept_networks[j]
 
 
-            branch_objects = None
                 
 
             print(f"curr_limb_concept_networks= {curr_limb_concept_networks}")
@@ -1815,8 +1767,6 @@ class Neuron:
                                 curr_limb_correspondence=curr_limb_correspondence,
                                 concept_network_dict=curr_limb_concept_networks,
                                 mesh_face_idx=curr_limb_mesh_face_idx,
-                                
-                            branch_objects = branch_objects
                             )
 
 
