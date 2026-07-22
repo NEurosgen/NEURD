@@ -473,12 +473,6 @@ class Limb:
         if created_edges is None:
             created_edges = []
 
-        debug_edges = False
-
-        if debug_edges:
-            print(f"before set: deleted_edges={deleted_edges}")
-            print(f"before set: created_edges={created_edges}")
-
         self.axon_spines =np.array([])
         self.short_thick_endnodes = np.array([])
 
@@ -568,10 +562,6 @@ class Limb:
         self.deleted_edges =deleted_edges
         self.created_edges = created_edges
 
-        if debug_edges:
-            print(f"self.deleted_edges = {self.deleted_edges}")
-            print(f"self.created_edges = {self.created_edges}")
-
         if self.current_starting_coordinate is not None:
 
             self.set_concept_network_edges_from_current_starting_data()
@@ -579,10 +569,6 @@ class Limb:
                                                                                 suppress_disconnected_errors=suppress_disconnected_errors)
         else:
             self.concept_network_directional = None
-
-        if debug_edges:
-            print(f"self.deleted_edges = {self.deleted_edges}")
-            print(f"self.created_edges = {self.created_edges}")
 
     @property
     def mesh_from_branches(self):
@@ -911,30 +897,10 @@ class Limb:
     def convert_concept_network_to_directional(self,no_cycles = True,width_source=None,print_flag=False,
                                               suppress_disconnected_errors=False,
                                               convert_concept_network_to_directional_verbose = False):
-        """
+        """Directional version of this limb's concept network, rooted at its starting node.
 
-        Example on how it was developed:
-
-        from datasci_tools import numpy_dep as np
-        from datasci_tools import networkx_utils as xu
-        xu = reload(xu)
-        import matplotlib.pyplot as plt
-        from neurd import neuron_utils as nru
-
-        curr_limb_idx = 0
-        no_cycles = True
-        curr_limb_concept_network = my_neuron.concept_network.nodes[f"L{curr_limb_idx}"]["data"].concept_network
-        curr_neuron_mesh =  my_neuron.mesh
-        curr_limb_mesh =  my_neuron.concept_network.nodes[f"L{curr_limb_idx}"]["data"].mesh
-        nx.draw(curr_limb_concept_network,with_labels=True)
-        plt.show()
-
-        mesh_widths = dict([(k,curr_limb_concept_network.nodes[k]["data"].width) for k in curr_limb_concept_network.nodes() ])
-
-        directional_concept_network = nru.convert_concept_network_to_directional(curr_limb_concept_network,no_cycles=True)
-
-        nx.draw(directional_concept_network,with_labels=True)
-        plt.show()
+        Resolves a per-branch width (see width_source) and delegates to
+        nru.convert_concept_network_to_directional.
         """
         if self.concept_network is None:
             raise Exception("Cannot use convert_concept_nextwork_to_directional on limb if concept_network is None")
@@ -987,39 +953,13 @@ class Limb:
                                        suppress_disconnected_errors=False,no_cycles = True,
                                         convert_concept_network_to_directional_verbose = False,**kwargs):
         """
-        Pseudocode:
-        1) Get the current concept_network
-        2) Delete the current starting coordinate
-        3) Use the all_concept_network_data to find the starting node and coordinate for the
-        starting soma specified
-        4) set the starting coordinate of that node
-        5) rerun the convert_concept_network_to_directional and set the output to the self attribute
-        Using:
-        self.concept_network_directional = self.convert_concept_network_to_directional(no_cycles = True)
+        Re-root this limb's concept network on a different starting soma/node.
 
-        Example:
-
-        curr_limb_obj = recovered_neuron.concept_network.nodes["L1"]["data"]
-        print(xu.get_starting_node(curr_limb_obj.concept_network_directional))
-        print(curr_limb_obj.current_starting_coordinate)
-        print(curr_limb_obj.current_starting_node)
-        print(curr_limb_obj.current_starting_endpoints)
-        print(curr_limb_obj.current_starting_soma)
-
-        curr_limb_obj.set_concept_network_directional(starting_soma=1,print_flag=False)
-
-        print(xu.get_starting_node(curr_limb_obj.concept_network_directional))
-        print(curr_limb_obj.current_starting_coordinate)
-        print(curr_limb_obj.current_starting_node)
-        print(curr_limb_obj.current_starting_endpoints)
-        print(curr_limb_obj.current_starting_soma)
-
-        Example 8/4:
-        uncompressed_neuron_revised.concept_network.nodes["L1"]["data"].set_concept_network_directional(starting_soma=0,width_source="width",print_flag=True)
-
+        1) resolve the target soma + group from the args
+        2) clear the old starting attributes off every node
+        3) write the new starting attributes onto the matching node
+        4) sync the self.current_* attributes and rebuild the directional network
         """
-        debug = False
-
         if not starting_node is None:
             soma_group_idx = self.get_soma_group_by_starting_node(starting_node)
             starting_soma = self.get_soma_by_starting_node(starting_node)
@@ -1032,12 +972,6 @@ class Limb:
         if soma_group_idx == -1:
             soma_group_idx = self.current_soma_group_idx
 
-        if debug:
-            print(f"starting_node = {starting_node}")
-            print(f"soma_group_idx = {soma_group_idx}")
-            print(f"starting_soma = {starting_soma}")
-
-        # ------- 1/19 New way ------------ #
         matching_concept_network_dict = nru.get_matching_concept_network_data(self,soma_idx=starting_soma,
                                                                           soma_group_idx=soma_group_idx,
                                      starting_node=starting_node,
@@ -1067,10 +1001,6 @@ class Limb:
         curr_touching_soma_vertices = matching_concept_network_dict["touching_soma_vertices"]
         curr_soma_group_idx = matching_concept_network_dict["soma_group_idx"]
 
-        if debug:
-            print("Applying the set_directional change!!!!")
-            print(f"curr_touching_soma_vertices = {curr_touching_soma_vertices}")
-
         #set the starting coordinate in the concept network
         attrs = {curr_starting_node:{"starting_coordinate":curr_starting_coordinate,
                                     "touching_soma_vertices":curr_touching_soma_vertices,
@@ -1080,9 +1010,6 @@ class Limb:
         if print_flag:
             print(f"attrs = {attrs}")
         xu.set_node_attributes_dict(self.concept_network,attrs)
-
-        if debug:
-            print(f'self.concept_network.nodes[curr_starting_node] = {self.concept_network.nodes[curr_starting_node] }')
 
         #make sure only one starting coordinate
         new_starting_coordinate = xu.get_starting_node(self.concept_network)
