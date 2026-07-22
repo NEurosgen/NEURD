@@ -11,15 +11,6 @@ from . import neuron_statistics as nst
 
 current_module = sys.modules[__name__]
 
-branch_mesh_attributes = ["spines","boutons"]
-object_attributes = ["synapses","spines_obj"]
-computed_attribute_list = [
-    "width_array",
-    "width_array_skeletal_lengths",
-    "width_new",
-    "spines_volume",
-    "boutons_volume",
-    "labels","boutons_cdfs","web_cdf","web","head_neck_shaft_idx"] + branch_mesh_attributes + object_attributes
 
 def convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity):
     """
@@ -1037,97 +1028,9 @@ class Limb:
         self.concept_network.add_edges_from(self.created_edges)
 
     # ----------------- 9/2 To help with compression ------------------------- #
-    def get_attribute_dict(self,attribute_name):
-        attribute_dict = dict()
-        for branch_idx in self.get_branch_names():
-            curr_branch = self[branch_idx]
 
-            if hasattr(curr_branch,attribute_name):
-                if attribute_name in branch_mesh_attributes:
-                    if not getattr(curr_branch,attribute_name) is None:
-                        curr_attr = getattr(curr_branch,attribute_name)
-                        if nu.is_array_like(curr_attr):
-                            attribute_dict[branch_idx] = [tu.original_mesh_faces_map(curr_branch.mesh,k) for k in curr_attr]
-                        else:
-                            attribute_dict[branch_idx] =tu.original_mesh_faces_map(curr_branch.mesh,curr_attr)
-                    else:
-                        attribute_dict[branch_idx] = None
-                elif attribute_name in object_attributes:
-                    curr_attr = getattr(curr_branch,attribute_name)
-                    if curr_attr is not None:
-                        if nu.is_array_like(curr_attr):
-                            attribute_dict[branch_idx] = [k.export() for k in curr_attr]
-                        else:
-                            attribute_dict[branch_idx] = curr_attr.export()
-                    else:
-                        attribute_dict[branch_idx] = None
-                else:
-                    att_val = getattr(curr_branch,attribute_name)
-                    if attribute_name == "spines_volume" and att_val is not None:
-                        att_val  = list(att_val)
-                    try:
-                        attribute_dict[branch_idx] = getattr(curr_branch,attribute_name)
-                    except:
-                        attribute_dict[branch_idx] = None
-            else:
-                attribute_dict[branch_idx] = None
 
-        return attribute_dict
 
-    def set_attribute_dict(self,attribute_name,attribute_dict,verbose=False):
-        for branch_idx,curr_branch in enumerate(self):
-            if branch_idx in list(attribute_dict.keys()):
-                if attribute_name in branch_mesh_attributes:
-                    if not attribute_dict[branch_idx] is None:
-                        try:
-                            setattr(curr_branch,attribute_name,
-                                    [curr_branch.mesh.submesh([k],append=True,repair=False) for k in attribute_dict[branch_idx]])
-                        except:
-                            setattr(curr_branch,attribute_name,
-                                    curr_branch.mesh.submesh([attribute_dict[branch_idx]],append=True,repair=False))
-                    else:
-                        setattr(curr_branch,attribute_name,None)
-                elif attribute_name in object_attributes:
-                    setattr(curr_branch,attribute_name,None)
-                else:
-                    att_val = attribute_dict[branch_idx]
-                    if attribute_name == "spines_volume" and att_val is not None:
-                        att_val  = list(att_val)
-                    setattr(curr_branch,attribute_name,att_val)
-            else:
-                if verbose:
-                    print(f"Skipping attributes for Branch {branch_idx} because not in dictionary")
-
-    def set_computed_attribute_data(self,computed_attribute_data,print_flag=False):
-        start_time = time.time()
-
-        if computed_attribute_data is None:
-            return
-
-        for k,v in computed_attribute_data.items():
-            self.set_attribute_dict(k,v)
-
-    def get_computed_attribute_data(self,
-                                    attributes = computed_attribute_list,
-                                    one_dict=True,
-                                    print_flag=False):
-        start_time = time.time()
-
-        lookup_values = []
-        lookup_dict = dict()
-        for a in attributes:
-            current_lookup_value = self.get_attribute_dict(a)
-            lookup_values.append(current_lookup_value)
-            if one_dict:
-                lookup_dict[a] = current_lookup_value
-
-        if print_flag:
-            print(f"Total time for spine/bouton/width compression = {time.time() - start_time}")
-
-        if one_dict:
-            return lookup_dict
-        else:
-            return lookup_values
 
     # Defining some useful built in functions
     def __getitem__(self,key):
@@ -1455,54 +1358,9 @@ class Neuron:
         return nru.get_whole_neuron_skeleton(self,
                                  check_connected_component=check_connected_component)
 
-    def get_attribute_dict(self,attribute_name):
-        attribute_dict = dict()
-        for limb_idx in self.get_limb_node_names(return_int=True):
-            curr_limb = self[limb_idx]
-            attribute_dict[limb_idx] = curr_limb.get_attribute_dict(attribute_name)
 
-        return attribute_dict
 
-    def set_attribute_dict(self,attribute_name,attribute_dict):
-        for limb_idx,curr_limb in enumerate(self):
-            if limb_idx in list(attribute_dict.keys()):
-                curr_limb.set_attribute_dict(attribute_name,attribute_dict[limb_idx])
-            else:
-                pass
 
-    def set_computed_attribute_data(self,computed_attribute_data,print_flag=False):
-        start_time = time.time()
-
-        if computed_attribute_data is None:
-            return
-
-        for k,v in computed_attribute_data.items():
-            self.set_attribute_dict(k,v)
-
-        if print_flag:
-            print(f"Total time for spine/width compression = {time.time() - start_time}")
-
-    def get_computed_attribute_data(self,
-                                    attributes = computed_attribute_list,
-                                    one_dict=True,
-                                    print_flag=False):
-        start_time = time.time()
-
-        lookup_values = []
-        lookup_dict = dict()
-        for a in attributes:
-            current_lookup_value = self.get_attribute_dict(a)
-            lookup_values.append(current_lookup_value)
-            if one_dict:
-                lookup_dict[a] = current_lookup_value
-
-        if print_flag:
-            print(f"Total time for spine/width compression = {time.time() - start_time}")
-
-        if one_dict:
-            return lookup_dict
-        else:
-            return lookup_values
 
     def calculate_new_width(self,**kwargs):
         wu.calculate_new_width_for_neuron_obj(self,**kwargs)
