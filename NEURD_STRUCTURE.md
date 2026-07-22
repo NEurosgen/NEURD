@@ -1,16 +1,17 @@
-# NEURD — структура и состояние форка (актуально 2026-06-02)
+# NEURD — структура и состояние форка (актуально 2026-07-22)
 
 Навигационная карта slim-форка. Источник истины — код; этот файл собирает то, что
 нужно знать на старте сессии. Связанные доки: [PIPELINE.md](PIPELINE.md) (как работает
-пайплайн + compat-патчи), [OPTIMIZATION.md](OPTIMIZATION.md) (профиль + план оптимизации,
-ветка `optimize_segmentation`), [REFACTOR_PLAN.md](REFACTOR_PLAN.md) +
-[DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md) (дальнейшая чистка).
+пайплайн + compat-патчи), [OPTIMIZATION.md](OPTIMIZATION.md) (профиль + план оптимизации),
+[REFACTOR_PLAN.md](REFACTOR_PLAN.md) + [DEAD_CODE_REACHABILITY.md](DEAD_CODE_REACHABILITY.md)
+(дальнейшая чистка), [MESH_OPERATIONS_LAYER.md](MESH_OPERATIONS_LAYER.md) +
+[MESH_OPS_PHASE_B_PLAN.md](MESH_OPS_PHASE_B_PLAN.md) (owned mesh-ops слой / seam).
 
 **Цель форка:** оставить только путь сегментации меша `mesh → Neuron` (сомы + лимбы/ветви
 с mesh+skeleton + сырые шипики). Всё downstream (autoproof, cell typing, синапсы, аксон,
 connectome/motif/proximity, GNN, визуализация, cloud/dataset-адаптеры) удалено.
 
-**Размер:** `neurd/` — **16 файлов, ~24.4k LOC** (со старта ~55k). Граф внутренних
+**Размер:** `neurd/` — **19 файлов, ~16.8k LOC** (со старта ~55k). Граф внутренних
 импортов — **DAG, 0 циклов** (см. ниже).
 
 ---
@@ -19,12 +20,12 @@ connectome/motif/proximity, GNN, визуализация, cloud/dataset-ада�
 
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd   # Python 3.12, numpy 2
-python -m pytest tests/unit/                  # fast-gate: 59 passed, 1 skipped (~4 c)
-python -m pytest tests/integration/test_segmentation_pipeline.py -s  # характеризационный: 4 passed (~2 мин на h01-нейроне; -s печатает путь сохранённой сегментации)
+python -m pytest tests/unit/                  # fast-gate (~4 c); incl. tests/unit/test_submesh_ops.py
+python -m pytest tests/integration/test_segmentation_pipeline.py -s  # характеризационный (~2 мин на h01-нейроне; -s печатает путь сохранённой сегментации)
 ```
 
-- **Fast-gate** (`tests/unit/`): import-smoke всех core-модулей + `parameter_utils` (36) +
-  Phase-3 шимы (env/numpy/mesh_tools). `tests/unit/__init__.py` импортирует `neurd` первым →
+- **Fast-gate** (`tests/unit/`): import-smoke всех core-модулей + `parameter_utils` +
+  `submesh_ops` `tu`-эквивалентность + Phase-3 шимы (env/numpy/mesh_tools). `tests/unit/__init__.py` импортирует `neurd` первым →
   активирует numpy/ipyvolume-шимы из [neurd/__init__.py](neurd/__init__.py). 1 skip:
   `test_ipyvolume_submodule_resolves_via_stub` (реальный ipyvolume тянется через meshparty).
 - **Характеризационный тест** — единственный backstop для правок ядра: реальная декомпозиция
@@ -39,26 +40,32 @@ python -m pytest tests/integration/test_segmentation_pipeline.py -s  # хара�
 
 ---
 
-## Карта модулей (16 файлов)
+## Карта модулей (19 файлов)
 
 | Модуль | LOC | Назначение |
 |---|---|---|
-| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3175 | Декомпозиция меша → лимбы/ветви; `preprocess_neuron`/`preprocess_limb` декомпозированы на именованные фазы (см. PIPELINE.md §2) |
-| [neuron_utils.py](neurd/neuron_utils.py) | 3485 | Утилиты нейрона. Самый импортируемый (9 модулей); теперь intra-package **sink** |
-| [neuron.py](neurd/neuron.py) | 3403 | Классы `Neuron`, `Limb`, `Branch`, `Soma` |
-| [spine_utils.py](neurd/spine_utils.py) | 3380 | Обнаружение шипиков |
-| [neuron_statistics.py](neurd/neuron_statistics.py) | 1977 | Скелетная статистика, расстояния (хаб #2, импортируется 7) |
-| [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 1833 | Идентификация сомы |
-| [neuron_searching.py](neurd/neuron_searching.py) | 1777 | Query-система поиска веток (строки→`ns.<fn>` через `@run_options`) |
-| [concept_network_utils.py](neurd/concept_network_utils.py) | 1325 | Граф-утилиты концепт-сети |
-| [branch_utils.py](neurd/branch_utils.py) | 782 | Утилиты ветвей |
+| [spine_utils.py](neurd/spine_utils.py) | 3262 | Обнаружение шипиков (COLD — не в `segmentation_pipeline`; ~51 `tu.*`, крупнейший holdout) |
+| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3150 | Декомпозиция меша → лимбы/ветви; `preprocess_neuron`/`preprocess_limb` декомпозированы на именованные фазы (см. PIPELINE.md §2) |
+| [neuron_utils.py](neurd/neuron_utils.py) | 2599 | Утилиты нейрона. Самый импортируемый; intra-package **sink** |
+| [neuron.py](neurd/neuron.py) | 1817 | Классы `Neuron`, `Limb`, `Branch`, `Soma` |
+| [neuron_searching.py](neurd/neuron_searching.py) | 1292 | Query-система поиска веток (строки→`ns.<fn>` через `@run_options`) |
+| [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 1045 | Идентификация сомы |
+| [concept_network_utils.py](neurd/concept_network_utils.py) | 849 | Граф-утилиты концепт-сети |
 | [parameter_utils.py](neurd/parameter_utils.py) | 697 | Загрузка JSON/py-конфигов параметров |
-| [width_utils.py](neurd/width_utils.py) | 457 | Расчёт ширины ветвей из SDF |
-| [__init__.py](neurd/__init__.py) | 233 | Compat-патчи + шимы (numpy2/trimesh4/meshlab) — см. PIPELINE.md |
-| [limb_utils.py](neurd/limb_utils.py) | 124 | Утилиты лимбов |
-| [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 61 | Python-stub для CGAL-сегментации |
+| [__init__.py](neurd/__init__.py) | 356 | Compat-патчи + шимы (numpy2/trimesh4/meshlab) — см. PIPELINE.md |
+| [branch_utils.py](neurd/branch_utils.py) | 355 | Утилиты ветвей |
+| [neuron_statistics.py](neurd/neuron_statistics.py) | 347 | Скелетная статистика, расстояния |
+| [submesh_ops.py](neurd/submesh_ops.py) | 312 | **Owned** partition/provenance слой (`SubMesh`) — см. MESH_OPS доки |
+| [width_utils.py](neurd/width_utils.py) | 183 | Расчёт ширины ветвей из SDF |
+| [parameters.py](neurd/parameters.py) | 155 | Явные microns/h01 параметры (заменили global-config monkey-patching) |
+| [_mesh_ops.py](neurd/_mesh_ops.py) | 138 | L6 mesh-примитивы (decimate/poisson/fill_holes, in-process open3d) |
+| [_correspondence_backend.py](neurd/_correspondence_backend.py) | 80 | **Seam** для хрупких `cu`/`m_sk` вызовов + единственный недетерминизм (rng seam) |
+| [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 66 | Python-stub для CGAL-сегментации |
 | [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 63 | Slim-оркестратор (2 стадии) |
 | version.py | 0 | — |
+
+**Seam-семейство** (`submesh_ops.py` / `_mesh_ops.py` / `_correspondence_backend.py`): NEURD-owned
+слой, изолирующий/заменяющий хрупкую поверхность `mesh_tools`. Детали — в MESH_OPS доках.
 
 **Точки входа (никто из core не импортирует):** `segmentation_pipeline.py`,
 `process_all_neurons.py` (реальный entry пользователя — `neuron.Neuron(mesh=)` в воркере).
@@ -106,9 +113,9 @@ python -m pytest tests/integration/test_segmentation_pipeline.py -s  # хара�
 
 ## История (сжато)
 
-Со старта ~55k LOC / 44 файла удалено ~30k за фазы: Docker→локальный numpy2/trimesh4 +
-8 compat-багфиксов (Фазы 1–4); удаление downstream-кластера целиком — synapse/axon/apical/
-визуализация, затем 20 файлов autoproof/typing/graph/dataset-адаптеров + neuron_simplification
-(Фазы 5–7, 44→16 файлов); zero-ref dead-code во всех core-файлах (Фаза 9, −~10.7k); устранение
-import-циклов + свежий zero-ref (2026-05-30, см. REFACTOR_PLAN.md). Детали удалений — в `git log`.
+Со старта ~55k LOC → ~16.8k. Фазы: Docker→локальный numpy2/trimesh4 + 8 compat-багфиксов;
+удаление downstream-кластера целиком (synapse/axon/apical/визуализация, autoproof/typing/graph/
+dataset-адаптеры + neuron_simplification, 44→16 файлов); zero-ref dead-code (−~10.7k) + устранение
+import-циклов; затем читаемость-рефактор (декомпозиция крупных функций/классов, −verbose) и
+mesh-ops/correspondence seam (submesh_ops/_correspondence_backend). Детали — в `git log` и `memory/`.
 </content>
