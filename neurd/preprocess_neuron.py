@@ -21,7 +21,6 @@ from . import submesh_ops
 
 #--- from mesh_tools ---
 from neurd import _correspondence_backend as cb
-from mesh_tools import meshparty_skeletonize as m_sk
 from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 
@@ -1112,7 +1111,7 @@ def _run_skeletonization_pass(
     Возвращает (segment_branches, divided_submeshes, divided_submeshes_idx,
                 segment_widths_median).
     """
-    sk_obj = m_sk.skeletonize_mesh_largest_component(
+    sk_obj = cb.skeletonize_largest_component(
         limb_mesh_mparty,
         root=root_curr,
         invalidation_d=limb_cfg["invalidation_d"],
@@ -1123,7 +1122,7 @@ def _run_skeletonization_pass(
     if verbose:
         print(f"meshparty_segment_size = {meshparty_segment_size}")
 
-    return m_sk.skeleton_obj_to_branches(
+    return cb.skeleton_to_branches(
         sk_obj,
         mesh=limb_mesh_mparty,
         meshparty_segment_size=meshparty_segment_size,
@@ -1142,7 +1141,7 @@ def _decide_next_limb_cfg(
     Возвращает новый limb_cfg для повторного прогона, либо None — значит
     текущий результат финальный.
     """
-    width_median = m_sk.width_median_weighted(segment_widths_median, segment_branches)
+    width_median = cb.weighted_width_median(segment_widths_median, segment_branches)
     pieces_above_threshold = np.where(
         segment_widths_median > neuron_cfg["width_threshold_MAP"]
     )[0]
