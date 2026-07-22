@@ -1,5 +1,6 @@
 
 import networkx as nx
+from typing import NamedTuple
 from scipy.spatial import KDTree
 import sys
 import time
@@ -421,6 +422,66 @@ def limb_mesh_from_branches(limb_obj,
     neuron_mesh_from_branches = tu.combine_meshes(neuron_mesh_list)
     return neuron_mesh_from_branches
 
+class _StartingState(NamedTuple):
+    """A limb's soma-attachment state, unpacked from its concept_network_dict.
+
+    All fields are None (and concept_network None, all_concept_network_data []) when the
+    dict is empty -- a limb that touches no soma.
+    """
+    concept_network: object
+    all_concept_network_data: list
+    current_starting_coordinate: object
+    current_starting_node: object
+    current_starting_endpoints: object
+    current_starting_soma: object
+    current_touching_soma_vertices: object
+    current_soma_group_idx: object
+
+
+def _load_starting_state(concept_network_dict):
+    """Pick the limb's active concept network + starting attributes from its dict."""
+    if len(concept_network_dict) == 0:
+        return _StartingState(None, [], None, None, None, None, None, None)
+
+    data = nru.get_starting_info_from_concept_network(concept_network_dict)
+    current = data[0]
+    return _StartingState(
+        concept_network=concept_network_dict[current["starting_soma"]][current["soma_group_idx"]],
+        all_concept_network_data=data,
+        current_starting_coordinate=current["starting_coordinate"],
+        current_starting_node=current["starting_node"],
+        current_starting_endpoints=current["starting_endpoints"],
+        current_starting_soma=current["starting_soma"],
+        current_touching_soma_vertices=current["touching_soma_vertices"],
+        current_soma_group_idx=current["soma_group_idx"],
+    )
+
+
+def _attach_branches(concept_network, curr_limb_correspondence):
+    """Build a Branch per correspondence entry and store it as node "data".
+
+    Returns suppress_disconnected_errors=True if any branch was not already a node of
+    the concept network (it had to be added, so the graph is not fully connected).
+    """
+    suppress_disconnected_errors = False
+    for j,branch_data in curr_limb_correspondence.items():
+        branch_obj = Branch(
+                            skeleton=branch_data["branch_skeleton"],
+                            width=branch_data["width_from_skeleton"],
+                            mesh=branch_data["branch_mesh"],
+                           mesh_face_idx=branch_data["branch_face_idx"],
+                            labels=[],
+        )
+        if j not in concept_network:
+            concept_network.add_node(j)
+            suppress_disconnected_errors = True
+        xu.set_node_data(concept_network,
+                        node_name=j,
+                        curr_data=branch_obj,
+                        curr_data_label="data")
+    return suppress_disconnected_errors
+
+
 class Limb:
     """
     Class that will hold one continus skeleton
@@ -445,25 +506,8 @@ class Limb:
                              deleted_edges = None,
                              created_edges = None,
                             verbose=False):
-
-        """
-        Allow for an initialization of a limb with another limb oconcept_network_dictbject
-
-        Parts that need to be copied over:
-        'all_concept_network_data',
-         'concept_network',
-         'concept_network_directional',
-         'current_starting_coordinate',
-         'current_starting_endpoints',
-         'current_starting_node',
-
-         'current_starting_soma',
-         'label',
-         'mesh',
-         'mesh_center',
-         'mesh_face_idx'
-
-        """
+        """Build a limb: its branches (as concept-network node data) and its
+        soma-attachment starting state."""
         if labels is None:
             labels = []
 
@@ -492,73 +536,16 @@ class Limb:
         self.labels=labels
 
         #All the stuff dealing with the concept graph
+        for field, value in _load_starting_state(concept_network_dict)._asdict().items():
+            setattr(self, field, value)
 
-        if verbose:
-            print(f"concept_network_dict = {concept_network_dict}")
-        if len(concept_network_dict) > 0:
-            concept_network_data = nru.get_starting_info_from_concept_network(concept_network_dict)
-            current_concept_network = concept_network_data[0]
-
-            self.current_starting_coordinate = current_concept_network["starting_coordinate"]
-            self.current_starting_node = current_concept_network["starting_node"]
-            self.current_starting_endpoints = current_concept_network["starting_endpoints"]
-            self.current_starting_soma = current_concept_network["starting_soma"]
-            self.current_touching_soma_vertices = current_concept_network["touching_soma_vertices"]
-            self.current_soma_group_idx = current_concept_network["soma_group_idx"]
-            self.concept_network = concept_network_dict[self.current_starting_soma][self.current_soma_group_idx]
-
-            self.all_concept_network_data = concept_network_data
-        else:
-            self.current_starting_coordinate = None
-            self.current_starting_node = None
-            self.current_starting_endpoints = None
-            self.current_starting_soma = None
-            self.current_touching_soma_vertices = None
-            self.current_soma_group_idx = None
-            self.concept_network = None
-
-            self.all_concept_network_data = []
-
-        #get all of the starting coordinates an
         self.mesh_face_idx = mesh_face_idx
+        self.mesh_center = (tu.mesh_center_vertex_average(self.mesh)
+                            if self.mesh is not None else None)
 
-        if self.mesh is not None:
-            self.mesh_center = tu.mesh_center_vertex_average(self.mesh)
-        else:
-            self.mesh_center = None
+        # a. Build the branches and store each as its node's "data" in the concept network
+        suppress_disconnected_errors = _attach_branches(self.concept_network, curr_limb_correspondence)
 
-        #just adding these in case could be useful in the future (what we computed for somas)
-
-        #Start with the branch stuff
-        # a. Build all the branches from the
-        # - mesh
-        # - skeleton
-        # - width
-        # - branch_face_idx
-        # b. Pick the top concept graph (will use to store the nodes)
-        # c. Put the branches as "data" in the network
-        suppress_disconnected_errors=False
-        for j,branch_data in curr_limb_correspondence.items():
-            branch_obj = Branch(
-                                skeleton=branch_data["branch_skeleton"],
-                                width=branch_data["width_from_skeleton"],
-                                mesh=branch_data["branch_mesh"],
-                               mesh_face_idx=branch_data["branch_face_idx"],
-                                labels=[],
-            )
-
-            if j not in self.concept_network:
-                self.concept_network.add_node(j)
-                suppress_disconnected_errors=True
-
-            #Set all  of the branches as data in the nodes
-            xu.set_node_data(self.concept_network,
-                            node_name=j,
-                            curr_data=branch_obj,
-                             curr_data_label="data"
-                            )
-
-        #Setting the concept network
         self.deleted_edges =deleted_edges
         self.created_edges = created_edges
 
