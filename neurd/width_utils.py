@@ -1,6 +1,6 @@
 
 import numpy as np
-from mesh_tools import compartment_utils as cu
+from neurd import _correspondence_backend as cb
 from mesh_tools import skeleton_utils as sk
 
 from . import neuron_utils as nru
@@ -60,7 +60,7 @@ def calculate_new_width(
     )
 
     total_distances, _, _, _ = (
-        cu.get_skeletal_distance_no_skipping(
+        cb.skeletal_distance_no_skipping(
             main_mesh=ex_branch_no_spines_mesh,
             edges=ex_branch_skeleton_resized,
             buffer=0.01,

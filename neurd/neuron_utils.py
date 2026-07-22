@@ -796,10 +796,10 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
                 surrounding_mesh = ex_limb.mesh.submesh([surround_mesh_faces],append=True,repair=False)
 
                 #3) Send the skeleton and the surrounding mesh to the mesh adaptive distance --> gets back indices
-                return_value = cu.mesh_correspondence_adaptive_distance(curr_branch_skeleton=ex_branch.skeleton,
+                return_value = cb.adaptive_distance_correspondence(curr_branch_skeleton=ex_branch.skeleton,
                                                      curr_branch_mesh=surrounding_mesh)
 
-                if len(return_value) == 2:
+                if return_value is not None:
                     remaining_indices, width = return_value
                     final_limb_indices = surround_mesh_faces[remaining_indices]
                 else: #if mesh correspondence couldn't be found
@@ -843,7 +843,7 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
         #original_labels = gu.get_unique_values_dict_of_lists(face_lookup)
         original_labels = np.arange(0,len(ex_limb))
 
-        # branch_skeletons indexed by branch label 0..N-1 — cu.resolve_empty_conflicting_face_labels
+        # branch_skeletons indexed by branch label 0..N-1 — cb.resolve_face_labels
         # needs them for its missing-label conflict path (tu.split_mesh_by_closest_skeleton); the
         # library default is None, so NOT passing it crashes ('NoneType' not subscriptable) on the
         # rare conflict path that complex limbs with MAP pieces trigger.
@@ -865,7 +865,7 @@ def apply_adaptive_mesh_correspondence_to_neuron(current_neuron,
         # already has a valid .mesh / .mesh_face_idx from preprocess_neuron's own resolve. Keep that
         # pre-refinement partition for the offending limb instead of crashing the whole neuron.
         try:
-            face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = ex_limb.mesh,
+            face_coloring_copy = cb.resolve_face_labels(curr_limb_mesh = ex_limb.mesh,
                                                                                             face_lookup=face_lookup,
                                                                                             no_missing_labels = list(original_labels),
                                                                          max_submesh_threshold=50000,
@@ -2586,7 +2586,7 @@ def calculate_decomposition_products(
 # neuron_statistics.skeleton_stats_from_neuron_obj) are now local imports at their call sites.
 
 #--- from mesh_tools ---
-from mesh_tools import compartment_utils as cu
+from neurd import _correspondence_backend as cb
 from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
 

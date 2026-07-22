@@ -1810,4 +1810,3 @@ from datasci_tools import networkx_utils as xu
 from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import system_utils as su
-from datasci_tools import pipeline as pl
