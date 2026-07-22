@@ -20,7 +20,7 @@ from . import submesh_ops
 
 
 #--- from mesh_tools ---
-from mesh_tools import compartment_utils as cu
+from neurd import _correspondence_backend as cb
 from mesh_tools import meshparty_skeletonize as m_sk
 from mesh_tools import skeleton_utils as sk
 from mesh_tools import trimesh_utils as tu
@@ -95,16 +95,16 @@ def mesh_correspondence_first_pass(
         local_correspondence[j] = dict()
 
         
-        returned_data = cu.mesh_correspondence_adaptive_distance(curr_branch_sk,
+        returned_data = cb.adaptive_distance_correspondence(curr_branch_sk,
                                       curr_limb_mesh,
                                      skeleton_segment_width = skeleton_segment_width,
                                      distance_by_mesh_center=distance_by_mesh_center,
                                     distance_threshold = initial_distance_threshold,
                                     buffer = skeletal_buffer,
                                                                 connectivity=connectivity)
-        if len(returned_data) == 0:
+        if returned_data is None:
             print("Got nothing from first pass so expanding the mesh correspondnece parameters ")
-            returned_data = cu.mesh_correspondence_adaptive_distance(curr_branch_sk,
+            returned_data = cb.adaptive_distance_correspondence(curr_branch_sk,
                                       curr_limb_mesh,
                                      skeleton_segment_width = skeleton_segment_width,
                                      distance_by_mesh_center=distance_by_mesh_center,
@@ -252,7 +252,7 @@ def correspondence_1_to_1(
 
     #here is where can call the function that resolves the face labels
     try:
-        face_coloring_copy = cu.resolve_empty_conflicting_face_labels(
+        face_coloring_copy = cb.resolve_face_labels(
                          curr_limb_mesh = curr_limb_mesh,
                          face_lookup=face_lookup,
                          no_missing_labels = list(original_labels),
@@ -296,7 +296,7 @@ def correspondence_1_to_1(
                                                                                        current_coordinate=st_coord)[0]
 
 
-                    face_coloring_copy = cu.waterfill_starting_label_to_soma_border(curr_limb_mesh,
+                    face_coloring_copy = cb.waterfill_to_soma_border(curr_limb_mesh,
                                                        border_vertices=curr_soma_border,
                                                         label_to_expand=label_to_expand,
                                                        total_face_labels=face_coloring_copy,
@@ -1051,7 +1051,7 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
 
     original_labels = np.arange(0,len(cleaned_branches))
 
-    face_coloring_copy = cu.resolve_empty_conflicting_face_labels(curr_limb_mesh = limb_mesh_mparty,
+    face_coloring_copy = cb.resolve_face_labels(curr_limb_mesh = limb_mesh_mparty,
                                                                     face_lookup=face_lookup,
                                                                     no_missing_labels = list(original_labels))
 
@@ -1071,9 +1071,6 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
                          branch_face_idx=branch_subs[j].root_face_idx())
         limb_correspondence_individual_filtered[j] = local_dict
 
-
-    if plot_new_correspondence:
-        plot_limb_correspondence(limb_correspondence_individual_filtered)
 
     return limb_correspondence_individual_filtered
 def _new_invalidation_d(
