@@ -3,10 +3,8 @@ from scipy.spatial import KDTree
 
 from datasci_tools import numpy_utils as nu
 
-try:
-    from mesh_tools import skeleton_utils as sk
-except Exception:  # pragma: no cover
-    sk = None
+
+from mesh_tools import skeleton_utils as sk
 
 from . import neuron_utils as nru
 from . import parameters
@@ -275,56 +273,37 @@ def width_array_skeletal_lengths_upstream_to_downstream(branch_obj, verbose=Fals
 
 
 def skeletal_coordinates_upstream_to_downstream(
-    branch_obj,
-    verbose=False,
-    skeleton=None,
-    coordinate_dists=None,
-    resize=True,
+    skeleton,
+    endpoint_upstream,
+    skeleton_is_upstream_to_downstream,
+    width_skeletal_lengths_u_to_d=None,
 ):
-    if not resize:
-        skeleton = branch_obj.skeleton
+    """Skeleton coordinate path ordered upstream -> downstream.
 
-    if skeleton is None:
-        array = wu.skeleton_resized_ordered(branch_obj.skeleton)
-    else:
-        array = sk.order_skeleton(skeleton)
-
-    if not is_skeleton_upstream_to_downstream(branch_obj, verbose):
+    Pure geometry: needs only the raw skeleton, which physical endpoint is upstream,
+    whether the skeleton already runs upstream->downstream, and (optionally) the
+    per-segment lengths of the width array so the path is resampled at those points.
+    """
+    array = wu.skeleton_resized_ordered(skeleton)
+    if not skeleton_is_upstream_to_downstream:
         array = sk.flip_skeleton(array)
 
-    if branch_obj.width_array_skeletal_lengths_upstream_to_downstream is not None:
-        coordinate_dists = np.concatenate(
-            [[0], branch_obj.width_array_skeletal_lengths_upstream_to_downstream]
-        )
+    if width_skeletal_lengths_u_to_d is None:
+        return sk.skeleton_coordinate_path_from_start(array)
 
-    if coordinate_dists is not None:
-        coordinate_dists = np.cumsum(coordinate_dists)
-        coordinates = sk.coordinates_from_downstream_dist(
-            array,
-            coordinate_dists,
-            start_endpoint_coordinate=branch_obj.endpoint_upstream,
-            verbose=False,
-            segment_width=0,
-            plot=False,
-        )
-    else:
-        coordinates = sk.skeleton_coordinate_path_from_start(array)
-
-    return coordinates
+    coordinate_dists = np.cumsum(np.concatenate([[0], width_skeletal_lengths_u_to_d]))
+    return sk.coordinates_from_downstream_dist(
+        array,
+        coordinate_dists,
+        start_endpoint_coordinate=endpoint_upstream,
+        verbose=False,
+        segment_width=0,
+        plot=False,
+    )
 
 
-def skeletal_coordinates_dist_upstream_to_downstream(
-    branch_obj,
-    verbose=False,
-    cumsum=True,
-    skeleton=None,
-    **kwargs,
-):
-    if skeleton is None:
-        array = skeletal_coordinates_upstream_to_downstream(branch_obj, **kwargs)
-    else:
-        array = skeleton
-
+def skeletal_coordinates_dist_upstream_to_downstream(branch_obj, cumsum=True):
+    array = branch_obj.skeletal_coordinates_upstream_to_downstream
     dist_array = np.linalg.norm(array[1:] - array[:-1], axis=1)
     return np.cumsum(dist_array) if cumsum else dist_array
 

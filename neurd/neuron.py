@@ -131,11 +131,16 @@ class Branch:
 
     @property
     def skeletal_coordinates_upstream_to_downstream(self):
-        return bu.skeletal_coordinates_upstream_to_downstream(self,verbose = False)
+        return bu.skeletal_coordinates_upstream_to_downstream(
+            skeleton=self.skeleton,
+            endpoint_upstream=self.endpoint_upstream,
+            skeleton_is_upstream_to_downstream=bu.is_skeleton_upstream_to_downstream(self),
+            width_skeletal_lengths_u_to_d=self.width_array_skeletal_lengths_upstream_to_downstream,
+        )
 
     @property
     def skeletal_coordinates_dist_upstream_to_downstream(self):
-        return bu.skeletal_coordinates_dist_upstream_to_downstream(self,verbose = False)
+        return bu.skeletal_coordinates_dist_upstream_to_downstream(self)
 
     @property
     def mesh_shaft(self):
