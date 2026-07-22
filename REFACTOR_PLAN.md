@@ -1,10 +1,17 @@
-# NEURD — план рефактора читаемости (ветка `refactor_readability`)
+# NEURD — план рефактора читаемости
 
 Цель: убрать мусор, не меняя поведение. Каждый файл — отдельный коммит.
 Backstop: `python -m pytest tests/unit/` (fast-gate, ~4s) после каждого файла.
 
 Предыдущий структурный рефактор (import-циклы, dead-code) — в `git log`; результаты
 зафиксированы в `main`. Здесь — только читаемость.
+
+> **Статус 2026-07-22.** Малые/средние файлы §2 в основном сделаны: `width_utils` (457→183),
+> `branch_utils` (782→355, + skeletal_coords декаплинг), `concept_network_utils` (`554dc95`),
+> `neuron_statistics` (`42798c2`); `limb_utils` больше нет отдельным файлом. Крупные файлы (§2⑤) —
+> частично: `neuron.py` классы декомпозированы (3403→1817, memory `neuron-classes-cleanup`),
+> `preprocess_neuron` фазирован. Остаются: `spine_utils` (COLD, нужен spine-harness — SPINE_UTILS_PLAN),
+> хвосты `neuron_utils`/`preprocess_neuron`. Типовые смеллы §1 и AST-метод §2⑤ — durable, применять дальше.
 
 ---
 
@@ -25,48 +32,15 @@ Backstop: `python -m pytest tests/unit/` (fast-gate, ~4s) после каждо�
 
 ## 2. Файлы в порядке приоритета
 
-### ① `limb_utils.py` — 124 LOC (разминка, ~15 мин)
+### ①②③ `limb_utils` / `width_utils` (457→183) / `branch_utils` (782→355) ✅ DONE
 
-Самый маленький core-файл. Половина импортов мёртвые:
-
-| Проблема | Строки |
-|---|---|
-| `np` импортируется дважды (строки 3 и 107) | удалить дубль |
-| `nu` импортируется дважды (строки 108 и 113) | удалить дубль |
-| `nst`, `cnu`, `xu`, `tu`, `ipvu` — импортированы, нигде не используются | удалить |
-| Bottom imports (`#--- from neurd_packages ---`) | поднять в шапку |
-| 15+ подряд пустых строк (строки 80–95) | убрать |
-
-После чистки: ~80 LOC, только реально нужные импорты.
+Малые/средние файлы вычищены (мёртвые/дублирующиеся импорты, bottom-imports в шапку,
+`verbose`/`print_flag` спам, длинные example-docstring). `limb_utils` больше не отдельным файлом;
+`branch_utils` дополнительно получил skeletal_coords декаплинг. Типовой рецепт — таблица смеллов §1.
 
 ---
 
-### ② `width_utils.py` — 457 LOC (основная работа)
-
-Хорошая изоляция (считает ширины веток из SDF). Все три функции живые.
-
-| Проблема | Строки | Что |
-|---|---|---|
-| `import time` — не используется | 2 | удалить |
-| Bottom imports | 445–457 | поднять |
-| `if verbose:` / `if print_flag:` | 10+ мест | удалить все print'ы и параметры `verbose`/`print_flag` |
-| Закомментированные блоки `# if print_flag:` | ~109–116 | удалить |
-| `distance_threshold = distance_threshold` (no-op) | 83 | удалить |
-| `not X is None` | 18, 206 | заменить на `X is not None` |
-| Docstring `calculate_new_width` — 20 строк примера | 43–65 | заменить одной фразой |
-| Docstring `find_mesh_width_array_border` — 30 строк | 153–192 | заменить одной фразой |
-| Magic string parsing (`if "mesh_center" in width_name`) | 355–378 | оставить, но убрать print'ы вокруг |
-
----
-
-### ③ `branch_utils.py` — 782 LOC
-
-Средний файл. После беглого просмотра — bottom imports, verbose-параметры, длинные docstring.
-Детальный аудит — при старте работы над файлом.
-
----
-
-### ④ `concept_network_utils.py` — 1325 → 947 LOC ✅ DONE (commit 554dc95)
+### ④ `concept_network_utils.py` — 1325 → 849 LOC ✅ DONE (commit 554dc95)
 
 Граф-утилиты. Сделано: импорты в шапку (мёртвый `wu`, дубль `np`, `numpy_dep`→`numpy`);
 снят весь `verbose`/`if verbose: print` спам и `verbose=verbose` пробросы (verbose нигде

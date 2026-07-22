@@ -1,11 +1,19 @@
 # neuron.py class architecture — investigation
 
-Companion to `LOGIC_INVESTIGATION.md`, for the **class-rethink** direction: `neuron.py` (3184 lines)
-defines 4 fat classes and their concerns are tightly interwoven. Goal of THIS doc: map the tangle and
-find where to start separating "what we do with **meshes**" from "what we want from **neurons/branches**".
-No code changed yet. (`Spine` is a 5th class, in `spine_utils.py:152`, not here.)
+Companion to `LOGIC_INVESTIGATION.md`, for the **class-rethink** direction. Goal of THIS doc: map the
+tangle and find where to start separating "what we do with **meshes**" from "what we want from
+**neurons/branches**". (`Spine` is a 5th class, in `spine_utils.py`, not here.)
 
-## The 4 classes (all property-heavy "god objects")
+> **Status update 2026-07-22.** Since this was written, the class-cleanup partly happened: `neuron.py`
+> **3184 → 1817 LOC** — `Neuron.__init__`/`Limb.__init__`/`set_concept_network_directional` decomposed,
+> dead `__eq__`/`__ne__` removed (classes are now UNHASHABLE — see memory `neuron-classes-cleanup`), dead
+> compressed-attribute (`dc_check`) machinery deleted. The **mesh layer** (F1/option #1) materialized as
+> the owned `submesh_ops.py` seam (MESH_OPS docs). Still OPEN: F2 — the skeleton-directional combinatorics
+> (option #2), the biggest remaining "fat" — `skeletal_coordinates_upstream_to_downstream` was decoupled
+> as a first pure-function step (memory `skeletal-coords-decoupling`). The layering model + F1/F2 below
+> stay the live target. The per-class table is a **pre-cleanup snapshot** (counts now smaller).
+
+## The 4 classes (property-heavy "god objects" — pre-cleanup snapshot)
 
 | class | lines | methods | @property | role |
 |---|---|---|---|---|
