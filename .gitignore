@@ -190,3 +190,6 @@ tests/integration/_seg_output_big/
 /*.pbz2
 /mesh_watertight.off
 tests/integration/_seg_output_spines/
+
+# local profiling batch outputs (generated, ~150M)
+batch_first_cut/
