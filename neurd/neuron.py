@@ -482,6 +482,37 @@ def _attach_branches(concept_network, curr_limb_correspondence):
     return suppress_disconnected_errors
 
 
+#: the attributes that mark a node as the limb's soma-attachment point
+_STARTING_ATTR_KEYS = ("starting_coordinate", "touching_soma_vertices",
+                       "soma_group_idx", "starting_soma")
+
+
+def _clear_starting_attrs(concept_network):
+    """Remove the starting-point attributes from every node that currently carries them."""
+    previous_starting_node = xu.get_starting_node(concept_network, only_one=False)
+    if len(previous_starting_node) != 1:
+        print(f"**** Warning there were {len(previous_starting_node)} starting nodes in concept "
+              f"networks\nprevious_starting_node = {previous_starting_node}")
+    for prev_st_node in previous_starting_node:
+        for key in _STARTING_ATTR_KEYS:
+            del concept_network.nodes[prev_st_node][key]
+    return previous_starting_node
+
+
+def _apply_starting_attrs(concept_network, match, starting_soma):
+    """Write the starting-point attributes onto the node named by `match`.
+
+    Note starting_soma is the caller's argument, not match["starting_soma"] -- the two
+    can differ and the original wrote the argument here.
+    """
+    attrs = {match["starting_node"]: {
+        "starting_coordinate": match["starting_coordinate"],
+        "touching_soma_vertices": match["touching_soma_vertices"],
+        "soma_group_idx": match["soma_group_idx"],
+        "starting_soma": starting_soma}}
+    xu.set_node_attributes_dict(concept_network, attrs)
+
+
 class Limb:
     """
     Class that will hold one continus skeleton
@@ -947,6 +978,7 @@ class Limb:
         3) write the new starting attributes onto the matching node
         4) sync the self.current_* attributes and rebuild the directional network
         """
+        # 1) resolve which soma / group we are re-rooting on
         if not starting_node is None:
             soma_group_idx = self.get_soma_group_by_starting_node(starting_node)
             starting_soma = self.get_soma_by_starting_node(starting_node)
@@ -959,62 +991,25 @@ class Limb:
         if soma_group_idx == -1:
             soma_group_idx = self.current_soma_group_idx
 
-        matching_concept_network_dict = nru.get_matching_concept_network_data(self,soma_idx=starting_soma,
-                                                                          soma_group_idx=soma_group_idx,
-                                     starting_node=starting_node,
-                                     verbose=False)[0]
+        match = nru.get_matching_concept_network_data(self, soma_idx=starting_soma,
+                                                      soma_group_idx=soma_group_idx,
+                                                      starting_node=starting_node,
+                                                      verbose=False)[0]
 
-        #find which the starting_coordinate and starting_node
+        # 2) move the starting attributes from the old node(s) onto the matching one
+        _clear_starting_attrs(self.concept_network)
+        _apply_starting_attrs(self.concept_network, match, starting_soma)
+        xu.get_starting_node(self.concept_network)  # asserts exactly one starting node
 
-        previous_starting_node = xu.get_starting_node(self.concept_network,only_one=False)
-        if len(previous_starting_node) > 1:
-            print("**** Warning there were more than 1 starting nodes in concept networks"
-                 f"\nprevious_starting_node = {previous_starting_node}")
-        if len(previous_starting_node) == 0:
-            print("**** Warning there were 0 starting nodes in concept networks"
-                 f"\nprevious_starting_node = {previous_starting_node}")
+        # 3) sync self.current_* from the match (starting_soma here is the match's, not the arg)
+        self.current_starting_coordinate = match["starting_coordinate"]
+        self.current_starting_node = match["starting_node"]
+        self.current_starting_endpoints = match["starting_endpoints"]
+        self.current_starting_soma = match["starting_soma"]
+        self.current_touching_soma_vertices = match["touching_soma_vertices"]
+        self.current_soma_group_idx = match["soma_group_idx"]
 
-        if print_flag:
-            print(f"Deleting starting coordinate from nodes: {previous_starting_node}")
-
-        for prev_st_node in previous_starting_node:
-            del self.concept_network.nodes[prev_st_node]["starting_coordinate"]
-            del self.concept_network.nodes[prev_st_node]["touching_soma_vertices"]
-            del self.concept_network.nodes[prev_st_node]["soma_group_idx"]
-            del self.concept_network.nodes[prev_st_node]["starting_soma"]
-
-        curr_starting_node = matching_concept_network_dict["starting_node"]
-        curr_starting_coordinate= matching_concept_network_dict["starting_coordinate"]
-        curr_touching_soma_vertices = matching_concept_network_dict["touching_soma_vertices"]
-        curr_soma_group_idx = matching_concept_network_dict["soma_group_idx"]
-
-        #set the starting coordinate in the concept network
-        attrs = {curr_starting_node:{"starting_coordinate":curr_starting_coordinate,
-                                    "touching_soma_vertices":curr_touching_soma_vertices,
-                                    "soma_group_idx":curr_soma_group_idx,
-                                    "starting_soma":starting_soma}
-                }
-        if print_flag:
-            print(f"attrs = {attrs}")
-        xu.set_node_attributes_dict(self.concept_network,attrs)
-
-        #make sure only one starting coordinate
-        new_starting_coordinate = xu.get_starting_node(self.concept_network)
-        if print_flag:
-            print(f"New starting coordinate at node {new_starting_coordinate}")
-
-        self.current_starting_coordinate = matching_concept_network_dict["starting_coordinate"]
-        self.current_starting_node = matching_concept_network_dict["starting_node"]
-        self.current_starting_endpoints = matching_concept_network_dict["starting_endpoints"]
-        self.current_starting_soma = matching_concept_network_dict["starting_soma"]
-        self.current_touching_soma_vertices = matching_concept_network_dict["touching_soma_vertices"]
-        self.current_soma_group_idx = matching_concept_network_dict["soma_group_idx"]
-
-        """
-        --- 1/4/2021 Change: Making so redoes the edges of the concept network when resetting the source
-
-        """
-        #Now need to reset the edges according to the new starting info
+        # 4) rebuild the edges + directional network from the new starting info
         self.set_concept_network_edges_from_current_starting_data()
 
         if print_flag or convert_concept_network_to_directional_verbose:
