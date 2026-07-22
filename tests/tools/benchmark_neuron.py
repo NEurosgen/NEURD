@@ -213,6 +213,9 @@ def main():
     ap.add_argument("--sample-interval", type=float, default=0.5, help="RSS sample seconds")
     ap.add_argument("--no-spines", dest="spines", action="store_false",
                     help="build Neuron with calculate_spines=False (as process_all_neurons now does)")
+    ap.add_argument("--data-type", default=None, choices=["microns", "h01"],
+                    help="dataset parameter set to activate (default: process_all_neurons.DATA_TYPE). "
+                         "Required to mix microns + h01 meshes in one batch.")
     args = ap.parse_args()
 
     off_path = Path(args.neuron).resolve()
@@ -233,10 +236,15 @@ def main():
     # Reuse the exact h01 setup + saver from process_all_neurons so the benchmark
     # cannot drift from production.
     from neurd import neuron
+    from neurd import parameters
     from mesh_tools import trimesh_utils as tu
     import process_all_neurons as pan
 
-    pan.ensure_neurd_defaults()
+    if args.data_type is not None:
+        parameters.params.use(args.data_type)
+    else:
+        pan.ensure_neurd_defaults()
+    active_data_type = args.data_type or pan.DATA_TYPE
 
     sampler = RSSSampler(interval=args.sample_interval)
     sampler.start()
@@ -312,8 +320,44 @@ def main():
     filt_cum = []
     if pr:
         filt_cum = _write_pstats(pr, out_dir)
+    tm_top = None
     if peak_snapshot is not None:
         _write_tracemalloc(peak_snapshot, out_dir)
+        try:
+            st = peak_snapshot.statistics("lineno")[0]
+            fr = st.traceback[0]
+            tm_top = {"loc": f"{Path(fr.filename).name}:{fr.lineno}",
+                      "size_mb": round(st.size / 1024 / 1024, 1)}
+        except Exception:
+            pass
+
+    # Machine-readable sibling of summary.txt so aggregate_profiles.py never has to
+    # scrape the text report. One row of the cross-mesh time/mem table lives here.
+    limbs = info.get("limbs", []) if isinstance(info, dict) else []
+    import json as _json
+    (out_dir / "summary.json").write_text(_json.dumps({
+        "neuron": off_path.stem,
+        "path": str(off_path),
+        "data_type": active_data_type,
+        "spines": args.spines,
+        "profile": bool(pr),
+        "size_mb": round(off_path.stat().st_size / 1e6, 1),
+        "faces": n_faces,
+        "wall_s": round(wall, 1),
+        "stages": [{"name": s["name"], "secs": round(s["secs"], 1),
+                    "rss_peak_mb": round(s["rss_peak_mb"], 0),
+                    "rss_delta_mb": round(s["rss_delta_mb"], 0)} for s in stages],
+        "rss_import_mb": round(rss_import, 0),
+        "rss_peak_mb": round(sampler.peak(), 0),
+        "ru_maxrss_mb": round(_ru_maxrss_mb(), 0),
+        "n_limbs": info.get("n_limbs") if isinstance(info, dict) else None,
+        "n_branches_total": sum(l.get("n_branches", 0) for l in limbs),
+        "total_spines": sum(l.get("total_spines", 0) for l in limbs),
+        "branches_per_limb": [l.get("n_branches", 0) for l in limbs],
+        "tracemalloc_top": tm_top,
+        "pipeline_error": pipeline_error,
+        "save_error": save_error,
+    }, indent=2))
 
     lines = []
     lines.append("=" * 72)
@@ -327,6 +371,8 @@ def main():
                  f"{' + tracemalloc' if args.tracemalloc else ''}")
     lines.append(f"threads       : OPENBLAS/OMP/MKL/NUMEXPR = "
                  f"{os.environ.get('OPENBLAS_NUM_THREADS')}")
+    lines.append(f"data_type     : {active_data_type}")
+    lines.append(f"spines        : {args.spines}")
     lines.append("")
     lines.append("--- TIME (per stage) ---")
     lines.append(f"{'stage':<22}{'secs':>9}{'%wall':>8}   RSS start->end  (Δ / peak) MB")
