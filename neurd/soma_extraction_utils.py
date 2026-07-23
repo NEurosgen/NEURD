@@ -705,6 +705,14 @@ def _split_soma_at_end(f_soma, f_soma_sdf, p):
     open a big hole -- so the split is only accepted when the resulting hole stays under
     `largest_hole_threshold`. Returns the (mesh, sdf) to keep.
     """
+    # SCOUT (medium-risk): this CGAL mesh_segmentation is ~225s/10% of a 187MB build (py-spy). It
+    # only TRIMS the accepted soma; skipping keeps the untrimmed soma (soma precision is not needed),
+    # but a larger soma removes more faces before limb decomposition -> may shift branch structure.
+    # A/B via NEURD_SKIP_SOMA_END_SPLIT=1 measures whether it actually does.
+    import os as _os
+    if _os.environ.get("NEURD_SKIP_SOMA_END_SPLIT") == "1":
+        return f_soma, f_soma_sdf
+
     print("removing mesh interior before segmentation")
     f_soma = tu.remove_mesh_interior(f_soma,size_threshold_to_remove=p.size_threshold_to_remove)
 
