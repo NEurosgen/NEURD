@@ -1126,26 +1126,12 @@ def get_spine_meshes_unfiltered_from_mesh(
         total_meshes_idx = spine_meshes_idx + shaft_meshes_idx
         total_names = spine_mesh_names + shaft_mesh_names
 
-        total_edges = []
-        for j,(curr_mesh,curr_mesh_idx) in enumerate(zip(total_meshes,total_meshes_idx)):
-            touching_meshes = tu.mesh_pieces_connectivity(
-                            main_mesh=current_mesh,
-                            central_piece=curr_mesh_idx,
-                            periphery_pieces=total_meshes_idx,
-                            connectivity = connectivity_type_for_shaft)
-            try:
-                touching_meshes.remove(j)
-            except:
-                print(f"j = {j}")
-                su.compressed_pickle(current_mesh,"current_mesh")
-                su.compressed_pickle(curr_mesh_idx,"curr_mesh_idx")
-                su.compressed_pickle(total_meshes_idx,"total_meshes_idx")
-                su.compressed_pickle(total_names,"total_names")
-                raise Exception("didn't do remove")
-                
-            #construct the edges
-            curr_edges = [[total_names[j],total_names[h]] for h in touching_meshes]
-            total_edges += curr_edges
+        # adjacency among the spine/shaft segments (edge = shared vertex). One vectorized
+        # submesh_ops pass replaces the O(N^2) tu.mesh_pieces_connectivity loop (~36k calls/neuron);
+        # identical edge set -> identical spine_graph. See submesh_ops.pieces_adjacency.
+        adj = submesh_ops.pieces_adjacency(current_mesh, total_meshes_idx,
+                                           connectivity=connectivity_type_for_shaft)
+        total_edges = [[total_names[i], total_names[j]] for i, j in adj]
 
         spine_graph = xu.remove_selfloops(nx.from_edgelist(total_edges))
         #nx.draw(spine_graph,with_labels=True)
@@ -3238,6 +3224,7 @@ def _calculate_upstream_downstream_dist_from_up_idx(attr_obj, up_idx):
 #--- from neurd_packages ---
 from . import branch_utils as bu
 from . import neuron_searching as ns
+from . import submesh_ops
 from . import neuron_statistics as nst
 from . import neuron_utils as nru
 from . import parameters
