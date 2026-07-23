@@ -139,6 +139,56 @@ def connected_face_components(mesh, connectivity="vertices"):
 
 
 # --------------------------------------------------------------------------- #
+# Primitive 2b -- adjacency AMONG pieces (inter-piece touch graph)             #
+# --------------------------------------------------------------------------- #
+def pieces_adjacency(parent_mesh, pieces_face_idx, connectivity="vertices"):
+    """Undirected adjacency among mesh PIECES of ``parent_mesh``, each a face-index array.
+
+    Edge ``(i, j)`` iff pieces ``i`` and ``j`` share a vertex -- the exact touch criterion of
+    ``tu.mesh_pieces_connectivity``'s vertex path (``len(np.intersect1d(verts_i, verts_j)) > 0``),
+    but computed in ONE vertex->pieces inversion pass instead of that function's O(N^2) per-piece
+    re-scan (which rebuilds every piece's vertex set on every one of the N outer calls). Returns a
+    sorted list of ``(i, j)`` index pairs with ``i < j`` and no self-loops; a piece that touches
+    nothing yields no pair -- matching ``nx.from_edgelist``, which only creates nodes seen in an edge.
+
+    ``pieces_face_idx[i]`` indexes into ``parent_mesh.faces`` (the pieces are a face partition of
+    the parent, e.g. the CGAL spine/shaft segments of one branch). ``connectivity="edges"`` is not
+    implemented -- the sole hot caller (spine detection) uses the ``"vertices"`` default.
+    """
+    if connectivity != "vertices":
+        raise NotImplementedError(
+            f"pieces_adjacency supports connectivity='vertices' only, got {connectivity!r}")
+    n = len(pieces_face_idx)
+    if n < 2:
+        return []
+    faces = parent_mesh.faces
+    # one vertex set per piece (O(N) total), then invert: vertex id -> pieces sharing it
+    vert_ids, piece_ids = [], []
+    for i, fidx in enumerate(pieces_face_idx):
+        v = np.unique(faces[np.asarray(fidx, dtype=np.int64)].ravel())
+        vert_ids.append(v)
+        piece_ids.append(np.full(len(v), i, dtype=np.int64))
+    vert_ids = np.concatenate(vert_ids)
+    piece_ids = np.concatenate(piece_ids)
+
+    order = np.argsort(vert_ids, kind="stable")
+    vert_ids = vert_ids[order]
+    piece_ids = piece_ids[order]
+    # split into runs of equal vertex id; distinct pieces in a run co-occur on that vertex -> edges.
+    # Boundary vertices are shared by only a handful of pieces, so the inner pairing stays cheap.
+    boundaries = np.flatnonzero(np.diff(vert_ids)) + 1
+    edges = set()
+    for grp in np.split(piece_ids, boundaries):
+        members = np.unique(grp)
+        if len(members) < 2:
+            continue
+        for a in range(len(members)):
+            for b in range(a + 1, len(members)):
+                edges.add((int(members[a]), int(members[b])))
+    return sorted(edges)
+
+
+# --------------------------------------------------------------------------- #
 # Primitive 3 -- face groups from a per-face labeling (pure index algebra)      #
 # --------------------------------------------------------------------------- #
 def face_groups_by_label(labels):
