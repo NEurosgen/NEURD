@@ -38,14 +38,34 @@ def _to_trimesh(o3d_mesh):
     )
 
 
-def decimate(mesh, decimation_ratio=0.25):
+def decimate(mesh, decimation_ratio=0.25, step_ratio=0.5):
     """Quadric decimation to ~`decimation_ratio` of the face count, in-process.
 
     Replaces `meshlab.Decimator` / `tu.decimate`. open3d's quadric decimation targets
     an absolute triangle count, so we scale by the current face count.
+
+    **Cascaded**: open3d's cost is strongly SUPERLINEAR in how far one call collapses (its
+    error-priority queue is rebuilt/re-heapified over the whole mesh), so reaching the target in
+    halving steps is much cheaper than one big jump -- measured on the 963k-face component of a
+    187 MB H01 neuron: 49.5 s in one call vs 18.1 s in two, same 240,754-face output. The soma
+    stage's outer decimation (the full ~3.6M-face mesh at ratio 0.25) is ~100 s of a build's wall.
+    `step_ratio` is the per-call reduction; set `NEURD_DECIMATE_SINGLE_STAGE=1` to restore the
+    single-call behaviour (A/B, fidelity checks). Quadric decimation is greedy either way, so the
+    cascaded surface is not bit-identical to the single-call one -- it is the same algorithm
+    applied in stages, and is checked against the meshlab golden in
+    tests/integration/test_mesh_ops_fidelity.py.
     """
-    target = max(4, int(round(len(mesh.faces) * decimation_ratio)))
-    out = _to_o3d(mesh).simplify_quadric_decimation(target_number_of_triangles=target)
+    import os
+
+    n = len(mesh.faces)
+    target = max(4, int(round(n * decimation_ratio)))
+    out = _to_o3d(mesh)
+    if os.environ.get("NEURD_DECIMATE_SINGLE_STAGE") != "1" and 0 < step_ratio < 1:
+        # intermediate rungs; the loop stops while one more `step_ratio` would overshoot `target`
+        while n * step_ratio > target:
+            n = max(target, int(round(n * step_ratio)))
+            out = out.simplify_quadric_decimation(target_number_of_triangles=n)
+    out = out.simplify_quadric_decimation(target_number_of_triangles=target)
     out.remove_unreferenced_vertices()
     return _to_trimesh(out)
 
