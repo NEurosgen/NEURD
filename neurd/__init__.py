@@ -357,6 +357,35 @@ try:
 except Exception:
     pass
 
+# trimesh_utils.vertex_components == [list(k) for k in nx.connected_components(
+# mesh.vertex_adjacency_graph)]. Building that networkx graph (`add_edges_from` over
+# edges_unique, one Python-level dict entry per edge) is ~205 s / 10% of a 187 MB H01 build's
+# WALL (py-spy leaf attribution) -- the single biggest non-CGAL cost. It is reached only through
+# `tu.split_by_vertices` (i.e. every `tu.split(connectivity="vertices")`), and 100% of that wall
+# sits inside LOCKED mesh_tools call paths (resolve_face_labels 65 s, adaptive correspondence
+# 65 s, skeleton_to_branches 51 s, spine shaft split 29 s), so no NEURD call-site migration can
+# reach it -- patching the one function does.
+#
+# submesh_ops.vertex_components computes the identical partition with one scipy
+# connected-components pass, and deliberately reproduces networkx's COMPONENT ORDER (first
+# appearance in edges_unique), because split_by_vertices re-sorts pieces with the unstable
+# np.flip(np.argsort(sizes)) whose tie order depends on input order. Gated byte-exact against the
+# real networkx implementation, end-to-end through split_by_vertices, in
+# tests/unit/test_vertex_components.py. Set NEURD_LEGACY_VERTEX_COMPONENTS=1 to restore networkx.
+try:
+    import os as _os_vc
+    if _os_vc.environ.get("NEURD_LEGACY_VERTEX_COMPONENTS") != "1":
+        from mesh_tools import trimesh_utils as _tu_vc
+
+        def _vertex_components_scipy(mesh):
+            from neurd import submesh_ops as _so_vc
+            return _so_vc.vertex_components(mesh)
+
+        _tu_vc.vertex_components = _vertex_components_scipy
+        del _tu_vc, _vertex_components_scipy
+except Exception:
+    pass
+
 from .version import __version__
 
 default_data_type = "microns"
