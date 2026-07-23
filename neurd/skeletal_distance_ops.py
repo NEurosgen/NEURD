@@ -29,10 +29,57 @@ from __future__ import annotations
 import numpy as np
 import networkx as nx
 import trimesh
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components as _sp_connected_components
 
-# PRIM: reused mesh_tools primitives (v1). Each is a later gate-protected swap target.
+# PRIM: reused mesh_tools primitives. sk.change_basis_matrix (linalg) + tu.split for the single
+# post-loop correspondence split are kept; the per-edge submesh+split (the ~165k/40k hot calls) is
+# gone -- replaced by a precomputed face-adjacency + subgraph connected-components (below).
 from mesh_tools import trimesh_utils as tu
 from mesh_tools import skeleton_utils as sk
+
+
+def _face_adjacency_csr(mesh, connectivity):
+    """Symmetric face x face adjacency (CSR, 0/1) for the whole mesh, built ONCE per call.
+
+    connectivity="edges": faces sharing an edge (trimesh.face_adjacency).
+    connectivity="vertices": faces sharing a vertex (face-vertex incidence M, faces adjacent where
+    (M @ M.T) > 0). Matches what `tu.split(submesh, connectivity=...)` computes on a slice, but
+    without building a per-edge submesh.
+    """
+    nf = len(mesh.faces)
+    if connectivity == "edges":
+        fa = np.asarray(mesh.face_adjacency)
+        if len(fa) == 0:
+            return csr_matrix((nf, nf), dtype=bool)
+        data = np.ones(len(fa), dtype=bool)
+        A = csr_matrix((data, (fa[:, 0], fa[:, 1])), shape=(nf, nf))
+        A = A + A.T
+        return A
+    if connectivity == "vertices":
+        nv = len(mesh.vertices)
+        rows = np.repeat(np.arange(nf), 3)
+        cols = np.asarray(mesh.faces).ravel()
+        M = csr_matrix((np.ones(nf * 3, dtype=np.int32), (rows, cols)), shape=(nf, nv))
+        A = (M @ M.T).tocsr()
+        A.setdiag(0)
+        A.eliminate_zeros()
+        return A
+    raise ValueError(f"connectivity must be 'edges' or 'vertices', got {connectivity!r}")
+
+
+def _slice_components(adj, face_list):
+    """Connected components of the subgraph induced on `face_list` -> list of ORIGINAL-face-index
+    arrays. Replaces `tu.split(main_mesh.submesh([face_list]))` (same partition, no submesh)."""
+    sub = adj[face_list][:, face_list]
+    n_comp, labels = _sp_connected_components(sub, directed=False)
+    if n_comp == 1:
+        return [np.asarray(face_list)]
+    order = np.argsort(labels, kind="stable")
+    labels_sorted = labels[order]
+    faces_sorted = np.asarray(face_list)[order]
+    bounds = np.flatnonzero(np.diff(labels_sorted)) + 1
+    return np.split(faces_sorted, bounds)
 
 
 def intersecting_array_components(arrays, sort_components=True):
@@ -73,7 +120,13 @@ def skeletal_distance(main_mesh, edges, *,
     correspondence component (fast_mesh_split path). See module docstring for the two variants.
     """
     n_faces = len(main_mesh.faces)
-    faces_bbox_inclusion = np.arange(0, n_faces)
+    # precomputed ONCE per call (was rebuilt per edge inside tu.split's submesh)
+    adj = _face_adjacency_csr(main_mesh, connectivity)
+    face_centroids = np.asarray(main_mesh.triangles_center)   # trimesh cache, evaluated once
+    verts = np.asarray(main_mesh.vertices)
+    faces = np.asarray(main_mesh.faces)
+    area_faces = np.asarray(main_mesh.area_faces)
+
     face_subtract_indices = []
     total_distances = []
     total_distances_std = []
@@ -88,8 +141,7 @@ def skeletal_distance(main_mesh, edges, *,
         slice_range = np.sort(edge_trans[2, :])
         slice_range_buffer = slice_range + np.array([-buffer, buffer])
 
-        face_midpoints = main_mesh.triangles_center     # PRIM: trimesh centroid cache
-        fac_midpoints_trans = cob_edge @ face_midpoints.T
+        fac_midpoints_trans = cob_edge @ face_centroids.T
         slice_mask_pre = ((fac_midpoints_trans[2, :] > slice_range_buffer[0]) &
                           (fac_midpoints_trans[2, :] < slice_range_buffer[1]))
         edge_midpoint = np.mean(edge_trans.T, axis=0)
@@ -97,61 +149,51 @@ def skeletal_distance(main_mesh, edges, *,
         slice_mask = slice_mask_pre & distance_check
         face_list = np.arange(0, n_faces)[slice_mask]
 
-        if len(face_list) > 0:
-            main_mesh_sub = main_mesh.submesh([face_list], append=True)   # PRIM: trimesh submesh
-        else:
-            main_mesh_sub = []
-        if not isinstance(main_mesh_sub, trimesh.Trimesh):
+        if len(face_list) == 0:
             if keep_empty_placeholder:
                 total_distances.append(0)
                 total_distances_std.append(0)
             continue
 
-        # PRIM: connected components of the slice + their face-index groups
-        sub_components, sub_components_face_indexes = tu.split(
-            main_mesh_sub, only_watertight=False, connectivity=connectivity)
-
+        # connected components of the slice faces (subgraph op, ORIGINAL face indices) -- replaces
+        # main_mesh.submesh([face_list]) + tu.split. Same partition, no per-edge submesh.
+        comps = _slice_components(adj, face_list)
         if significant_sub_components > 0:
-            lens = np.array([len(k) for k in sub_components_face_indexes])
-            sig = np.where(lens >= significant_sub_components)[0]
-            if len(sig) > 0:
-                sub_components = sub_components[sig]
-                sub_components_face_indexes = sub_components_face_indexes[sig]
+            comps_sig = [c for c in comps if len(c) >= significant_sub_components]
+            if len(comps_sig) > 0:
+                comps = comps_sig
 
-        if not isinstance(sub_components, (np.ndarray, list)):
-            if isinstance(sub_components, trimesh.Trimesh):
-                sub_components = [sub_components]
-            else:
-                raise Exception("The sub_components were not an array, list or trimesh")
-
-        # PRIM: which components' bbox contains the whole edge
-        contains = np.array([tu.check_coordinates_inside_bounding_box(
-            s_comp, ex_edge.reshape(-1, 3), return_inside_indices=False) for s_comp in sub_components])
-        containing_indices = np.arange(0, len(sub_components))[np.sum(contains, axis=1) >= len(ex_edge)]
+        # component bounding boxes + which contain the whole edge (reimpl of
+        # check_coordinates_inside_bounding_box: bbox = component vertex min/max, inclusive)
+        bmins, bmaxs = [], []
+        containing = []
+        for c in comps:
+            cv = verts[faces[c]].reshape(-1, 3)
+            bmin = cv.min(axis=0); bmax = cv.max(axis=0)
+            bmins.append(bmin); bmaxs.append(bmax)
+            inside = np.all((ex_edge <= bmax) & (ex_edge >= bmin), axis=1)
+            containing.append(int(np.sum(inside)) >= len(ex_edge))
+        containing_indices = np.where(containing)[0]
 
         if len(containing_indices) != 1:
-            if len(containing_indices) > 1:
-                sc_inner = sub_components[containing_indices]
-                sci_inner = sub_components_face_indexes[containing_indices]
-            else:                                       # 0 containing -> consider all
-                sc_inner = sub_components
-                sci_inner = sub_components_face_indexes
+            inner = containing_indices if len(containing_indices) > 1 else np.arange(len(comps))
             edge_center = np.mean(ex_edge, axis=0)
-            bbox_centers = [np.mean(k.bounds, axis=0) for k in sc_inner]
-            closest_bbox = np.argmin([np.linalg.norm(edge_center - b_center) for b_center in bbox_centers])
-            edge_skeleton_faces = faces_bbox_inclusion[face_list[sci_inner[closest_bbox]]]
+            bbox_centers = [(bmins[k] + bmaxs[k]) / 2 for k in inner]   # == np.mean(mesh.bounds, axis=0)
+            closest = np.argmin([np.linalg.norm(edge_center - bc) for bc in bbox_centers])
+            edge_skeleton_faces = np.asarray(comps[inner[closest]])
         else:
-            edge_skeleton_faces = faces_bbox_inclusion[face_list[sub_components_face_indexes[containing_indices[0]]]]
+            edge_skeleton_faces = np.asarray(comps[containing_indices[0]])
 
         face_subtract_indices.append(edge_skeleton_faces)
 
         # ---- local distance for this edge ----
-        face_midpoints = (main_mesh.triangles_center)[edge_skeleton_faces]
-        fac_midpoints_trans = cob_edge @ face_midpoints.T
+        fac_midpoints_trans = cob_edge @ face_centroids[edge_skeleton_faces].T
         if distance_by_mesh_center:
-            faces_submesh = main_mesh.submesh([edge_skeleton_faces], append=True)     # PRIM
-            faces_submesh_center = tu.mesh_center_weighted_face_midpoints(faces_submesh).reshape(3, 1)  # PRIM
-            edge_midpoint = (cob_edge @ faces_submesh_center).reshape(-1)
+            # area-weighted centroid of the edge's faces (reimpl of mesh_center_weighted_face_midpoints
+            # over the face subset -- identical since submesh geometry == main_mesh subset geometry)
+            a = area_faces[edge_skeleton_faces]
+            center = np.sum(face_centroids[edge_skeleton_faces] * (a / a.sum()).reshape(-1, 1), axis=0)
+            edge_midpoint = (cob_edge @ center.reshape(3, 1)).reshape(-1)
         mesh_slice_distances = np.linalg.norm((fac_midpoints_trans.T)[:, :2] - edge_midpoint[:2], axis=1)
         total_distances.append(np.mean(mesh_slice_distances))
         total_distances_std.append(np.std(mesh_slice_distances))
