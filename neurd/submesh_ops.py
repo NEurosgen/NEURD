@@ -23,7 +23,7 @@ Scope
 Phase 0: this module + its equivalence tests (``tests/unit/test_submesh_ops.py``) prove
 behavioural equivalence to the ``tu.*`` originals on synthetic + real meshes. NO production code
 is migrated yet, and this module imports **no** ``mesh_tools`` -- it is built directly on
-trimesh / networkx primitives (``face_adjacency``, ``vertex_adjacency_graph``, ``vertex_faces``).
+trimesh / scipy primitives (``face_adjacency``, ``edges_unique``, ``vertex_faces``).
 
 Companion module ``neurd/_mesh_ops.py`` holds the separate L6 "repair/reconstruct" ops
 (decimate / poisson / fill_holes); this file is the L2 "partition" concern.
@@ -35,8 +35,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-import networkx as nx
 import trimesh
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components as _sp_connected_components
 from trimesh.graph import connected_components as _trimesh_connected_components
 from trimesh.util import concatenate as _trimesh_concatenate
 
@@ -110,6 +111,56 @@ class SubMesh:
 # --------------------------------------------------------------------------- #
 # Primitive 2 -- connected components as face-index groups                     #
 # --------------------------------------------------------------------------- #
+def vertex_components(mesh):
+    """Vertex-index groups of the mesh's vertex-connected components (scipy union-find).
+
+    The owned replacement for ``tu.vertex_components`` ==
+    ``[list(k) for k in nx.connected_components(mesh.vertex_adjacency_graph)]``, whose networkx
+    graph build (``add_edges_from`` over ``edges_unique``) is ~10% of a big-H01 build's wall
+    (py-spy). Same input (``mesh.edges_unique``), same partition, computed as one sparse
+    connected-components pass instead of a Python-level graph.
+
+    **Order is preserved**: networkx yields components in the order their first node was
+    inserted, i.e. first appearance scanning ``edges_unique`` row-major -- reproduced here by
+    ranking each component on the lowest position its members occupy in the flattened edge list.
+    That matters because the sole consumer (``tu.split_by_vertices``) re-sorts pieces with
+    ``np.flip(np.argsort(sizes))``, an UNSTABLE sort whose tie order depends on input order.
+
+    Vertices touched by no edge are excluded (they are not nodes of the networkx graph either).
+    Within a component the vertices come back ascending rather than in networkx's set-iteration
+    order; every consumer feeds them straight into ``np.unique`` / fancy-indexing, where order is
+    irrelevant.
+    """
+    edges = np.asarray(mesh.edges_unique, dtype=np.int64)
+    if len(edges) == 0:
+        return []
+    # a self-inconsistent mesh (faces indexing past the vertex block -- the MeshLabServer OFF
+    # exporter bug guarded in neurd/__init__.py) must not fail HERE: size the graph to the edges
+    # so the crash still happens where it did before, in the caller's vertex_faces lookup.
+    n_vertices = max(len(mesh.vertices), int(edges.max()) + 1)
+    adjacency = coo_matrix(
+        (np.ones(len(edges), dtype=bool), (edges[:, 0], edges[:, 1])),
+        shape=(n_vertices, n_vertices))
+    n_comp, labels = _sp_connected_components(adjacency, directed=False)
+
+    flat = edges.ravel()
+    # networkx yield order == ascending first-appearance position of the component's first node.
+    # Scatter-assign in REVERSE so the last (= lowest) write wins -> first_pos[label] = min index.
+    first_pos = np.full(n_comp, len(flat), dtype=np.int64)
+    first_pos[labels[flat][::-1]] = np.arange(len(flat) - 1, -1, -1)
+    seen_labels = np.flatnonzero(first_pos < len(flat))
+    rank = np.full(n_comp, -1, dtype=np.int64)
+    rank[seen_labels[np.argsort(first_pos[seen_labels], kind="stable")]] = np.arange(len(seen_labels))
+
+    present = np.zeros(n_vertices, dtype=bool)
+    present[flat] = True
+    nodes = np.flatnonzero(present)               # graph nodes only -- drops unreferenced vertices
+    node_rank = rank[labels[nodes]]
+    order = np.argsort(node_rank, kind="stable")
+    nodes, node_rank = nodes[order], node_rank[order]
+    return np.split(nodes, np.flatnonzero(np.diff(node_rank)) + 1)
+
+
 def connected_face_components(mesh, connectivity="vertices"):
     """Face-index groups of the mesh's connected components (raw graph order, not size-sorted).
 
@@ -124,8 +175,8 @@ def connected_face_components(mesh, connectivity="vertices"):
     if connectivity == "vertices":
         vertex_faces = mesh.vertex_faces          # (n_vertices, max_deg), -1 padded
         comps = []
-        for vgroup in nx.connected_components(mesh.vertex_adjacency_graph):
-            faces = np.unique(np.concatenate(vertex_faces[list(vgroup)]))
+        for vgroup in vertex_components(mesh):
+            faces = np.unique(np.concatenate(vertex_faces[vgroup]))
             comps.append(faces[faces != -1].astype(np.int64))
         return comps
     if connectivity == "edges":
