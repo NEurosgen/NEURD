@@ -20,8 +20,24 @@ Wrappers are pass-throughs (exact args/returns preserved) except
 branching on `len(result)`.
 """
 
+import os as _os
+
 from mesh_tools import compartment_utils as _cu
 from mesh_tools import meshparty_skeletonize as _m_sk
+
+from . import skeletal_distance_ops as _sdo
+
+
+def _use_owned_skeletal_distance():
+    """Feature flag: route the two skeletal-distance seams to the NEURD-owned kernel
+    (`neurd/skeletal_distance_ops.py`) instead of the locked mesh_tools originals. Default OFF —
+    production is unchanged; set NEURD_OWNED_SKELETAL_DISTANCE=1 for A/B. The owned kernel is
+    gate-verified byte-exact (tests/unit/test_skeletal_distance.py)."""
+    return _os.environ.get("NEURD_OWNED_SKELETAL_DISTANCE") == "1"
+
+
+_ADAPT_OWNED_KEYS = ("skeleton_segment_width", "distance_by_mesh_center", "distance_threshold",
+                     "buffer", "connectivity", "return_closest_face_on_empty", "return_mesh_perc_drop")
 
 
 # --------------------------------------------------------------- compartment_utils (cu)
@@ -29,11 +45,17 @@ from mesh_tools import meshparty_skeletonize as _m_sk
 def adaptive_distance_correspondence(*args, **kwargs):
     """Assign limb-mesh faces to a branch skeleton by adaptive distance.
 
-    Wraps `cu.mesh_correspondence_adaptive_distance`. Returns `(remaining_indices, width)`
-    on success, or `None` when correspondence could not be found (the underlying function
-    returns an empty tuple there).
+    Wraps `cu.mesh_correspondence_adaptive_distance` (or the owned `sdo.adaptive_distance` under
+    the feature flag). Returns `(remaining_indices, width)` on success, or `None` when
+    correspondence could not be found (the underlying function returns an empty tuple there).
     """
-    result = _cu.mesh_correspondence_adaptive_distance(*args, **kwargs)
+    if _use_owned_skeletal_distance():
+        skeleton = kwargs.get("curr_branch_skeleton", args[0] if len(args) > 0 else None)
+        mesh = kwargs.get("curr_branch_mesh", args[1] if len(args) > 1 else None)
+        owned_kw = {k: v for k, v in kwargs.items() if k in _ADAPT_OWNED_KEYS}
+        result = _sdo.adaptive_distance(skeleton, mesh, **owned_kw)
+    else:
+        result = _cu.mesh_correspondence_adaptive_distance(*args, **kwargs)
     if len(result) == 0:
         return None
     return result
@@ -59,7 +81,18 @@ def waterfill_to_soma_border(*args, **kwargs):
 
 
 def skeletal_distance_no_skipping(*args, **kwargs):
-    """Per-face skeletal distance along a branch. Wraps `cu.get_skeletal_distance_no_skipping`."""
+    """Per-face skeletal distance along a branch. Wraps `cu.get_skeletal_distance_no_skipping`
+    (or the owned `sdo.skeletal_distance(keep_empty_placeholder=True)` under the feature flag)."""
+    if _use_owned_skeletal_distance():
+        mesh = kwargs.get("main_mesh", args[0] if len(args) > 0 else None)
+        edges = kwargs.get("edges", args[1] if len(args) > 1 else None)
+        return _sdo.skeletal_distance(
+            mesh, edges,
+            buffer=kwargs.get("buffer", 0.01),
+            distance_threshold=kwargs.get("distance_threshold", 3000),
+            distance_by_mesh_center=kwargs.get("distance_by_mesh_center", False),
+            connectivity=kwargs.get("connectivity", "edges"),
+            keep_empty_placeholder=True)
     return _cu.get_skeletal_distance_no_skipping(*args, **kwargs)
 
 
