@@ -205,6 +205,27 @@ try:
 except Exception:
     pass
 
+# datasci_tools.compressed_pickle: EVERY call reachable in a build is a debug dump-before-raise --
+# compartment_utils.resolve_empty_conflicting_face_labels (:1274/:1424) and
+# preprocess_neuron.correspondence_1_to_1 (:223) pickle the big curr_limb_mesh to disk right before an
+# Exception that the caller CATCHES and swallows (neuron_utils.py:867, "keep the pre-refinement
+# partition"). On a dense H01 neuron that fires on many limbs -> ~98 s (4.6%) of pure wasted bz2 writes
+# (py-spy wall attribution). No production output uses compressed_pickle. No-op it by default; set
+# NEURD_ENABLE_COMPRESSED_PICKLE=1 to restore (e.g. fixture generation). The raise still fires, so
+# behaviour is identical -- only the wasted dump is skipped.
+try:
+    import os as _os_cp
+    if _os_cp.environ.get("NEURD_ENABLE_COMPRESSED_PICKLE") != "1":
+        from datasci_tools import system_utils as _su_cp
+
+        def _compressed_pickle_noop(obj, filename, return_size=False, *args, **kwargs):
+            return 0 if return_size else None
+
+        _su_cp.compressed_pickle = _compressed_pickle_noop
+        del _su_cp, _compressed_pickle_noop
+except Exception:
+    pass
+
 # MeshLab Decimator (Quadric Edge Collapse) is real work, but each call forks
 # xvfb+meshlabserver and round-trips the mesh through OFF. On the big H01 neuron the
 # soma-extraction decimations (outer on the full ~1.6M-face mesh + per-Poisson inner)
