@@ -3087,11 +3087,13 @@ def preprocess_neuron(
     )
 
     # Segmenting the full neuron mesh built its heaviest trimesh caches — on the big H01
-    # neuron `vertex_adjacency_graph` alone is ~1.6 GB and `vertex_faces` ~0.9 GB (split_by_
-    # vertices populates them). The full mesh is NOT used past this point (the rest of
-    # preprocessing works on the per-limb `branch_meshes`, and the returned dict carries
-    # branch_meshes / soma_mesh, never `mesh`), so dropping its cache here removes the single
-    # largest RAM holder for the long _decompose_limbs phase. Recomputes on demand if touched.
+    # neuron `triangles` is ~235 MB and `triangles_center` ~78 MB (faces_by_match populates
+    # them), plus `edges_unique`. (`vertex_faces`, formerly ~847 MB here, is no longer built at
+    # all — submesh_ops.connected_face_components labels faces from the union-find instead.)
+    # The full mesh is NOT used past this point (the rest of preprocessing works on the per-limb
+    # `branch_meshes`, and the returned dict carries branch_meshes / soma_mesh, never `mesh`),
+    # so dropping its cache here removes the largest RAM holder for the long _decompose_limbs
+    # phase. Recomputes on demand if touched.
     _drop_trimesh_caches(mesh)
 
     limb_correspondence, limb_network_starts = _decompose_limbs(

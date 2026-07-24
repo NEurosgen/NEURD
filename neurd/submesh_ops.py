@@ -131,12 +131,35 @@ def vertex_components(mesh):
     order; every consumer feeds them straight into ``np.unique`` / fancy-indexing, where order is
     irrelevant.
     """
+    parts = _vertex_component_labels(mesh)
+    if parts is None:
+        return []
+    labels, rank, _n_seen, flat, n_vertices = parts
+
+    present = np.zeros(n_vertices, dtype=bool)
+    present[flat] = True
+    nodes = np.flatnonzero(present)               # graph nodes only -- drops unreferenced vertices
+    node_rank = rank[labels[nodes]]
+    order = np.argsort(node_rank, kind="stable")
+    nodes, node_rank = nodes[order], node_rank[order]
+    return np.split(nodes, np.flatnonzero(np.diff(node_rank)) + 1)
+
+
+def _vertex_component_labels(mesh):
+    """Shared union-find core: ``(labels, rank, n_seen, flat, n_vertices)``, or ``None`` if edgeless.
+
+    ``labels[v]`` is scipy's raw component id of vertex ``v``; ``rank[label]`` is that component's
+    position in :func:`vertex_components`' yield order (``-1`` for components with no vertex in the
+    edge list); ``n_seen`` is how many components that order contains. Split out of
+    :func:`vertex_components` so :func:`connected_face_components` can label faces from the same
+    partition without materialising ``mesh.vertex_faces``.
+    """
     edges = np.asarray(mesh.edges_unique, dtype=np.int64)
     if len(edges) == 0:
-        return []
+        return None
     # a self-inconsistent mesh (faces indexing past the vertex block -- the MeshLabServer OFF
-    # exporter bug guarded in neurd/__init__.py) must not fail HERE: size the graph to the edges
-    # so the crash still happens where it did before, in the caller's vertex_faces lookup.
+    # exporter bug guarded in neurd/__init__.py) must not fail HERE: size the graph to the edges,
+    # which are derived FROM the faces, so every face index is addressable in `labels`.
     n_vertices = max(len(mesh.vertices), int(edges.max()) + 1)
     adjacency = coo_matrix(
         (np.ones(len(edges), dtype=bool), (edges[:, 0], edges[:, 1])),
@@ -151,14 +174,7 @@ def vertex_components(mesh):
     seen_labels = np.flatnonzero(first_pos < len(flat))
     rank = np.full(n_comp, -1, dtype=np.int64)
     rank[seen_labels[np.argsort(first_pos[seen_labels], kind="stable")]] = np.arange(len(seen_labels))
-
-    present = np.zeros(n_vertices, dtype=bool)
-    present[flat] = True
-    nodes = np.flatnonzero(present)               # graph nodes only -- drops unreferenced vertices
-    node_rank = rank[labels[nodes]]
-    order = np.argsort(node_rank, kind="stable")
-    nodes, node_rank = nodes[order], node_rank[order]
-    return np.split(nodes, np.flatnonzero(np.diff(node_rank)) + 1)
+    return labels, rank, len(seen_labels), flat, n_vertices
 
 
 def connected_face_components(mesh, connectivity="vertices"):
@@ -173,11 +189,28 @@ def connected_face_components(mesh, connectivity="vertices"):
     if n_faces == 0:
         return []
     if connectivity == "vertices":
-        vertex_faces = mesh.vertex_faces          # (n_vertices, max_deg), -1 padded
-        comps = []
-        for vgroup in vertex_components(mesh):
-            faces = np.unique(np.concatenate(vertex_faces[vgroup]))
-            comps.append(faces[faces != -1].astype(np.int64))
+        # Label faces straight from the vertex partition instead of going through
+        # ``mesh.vertex_faces``. That array is (n_vertices x MAX vertex degree), -1 padded, so a
+        # handful of high-degree vertices size the whole thing: on the big H01 neuron it is
+        # (1.63M x 65) int64 = 847 MB of which 90.7% is filler, and *building* it spikes RSS by
+        # ~1.6 GB -- measured as the single largest contributor to the pipeline's RAM peak. The
+        # partition is already known from the union-find, and a face's three vertices are always
+        # in one component (the face contributes all three of its edges to the graph), so vertex 0
+        # alone identifies a face's component.
+        parts = _vertex_component_labels(mesh)
+        if parts is None:
+            return []                             # no edges -> vertex_components() is empty too
+        labels, rank, n_seen = parts[0], parts[1], parts[2]
+        face_rank = rank[labels[np.asarray(mesh.faces, dtype=np.int64)[:, 0]]]
+        # stable sort by component rank -> groups appear in vertex_components() order and each
+        # group's face indices stay ascending, matching the old np.unique() output exactly.
+        order = np.argsort(face_rank, kind="stable")
+        sorted_rank = face_rank[order]
+        boundaries = np.flatnonzero(np.diff(sorted_rank)) + 1
+        starts = np.concatenate(([0], boundaries))    # POSITION of each group in sorted_rank
+        comps = [np.empty(0, dtype=np.int64) for _ in range(n_seen)]
+        for grp, start in zip(np.split(order, boundaries), starts):
+            comps[sorted_rank[start]] = grp.astype(np.int64, copy=False)
         return comps
     if connectivity == "edges":
         comps = _trimesh_connected_components(
