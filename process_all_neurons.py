@@ -27,6 +27,12 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
+# CGAL SDF ray count (mesh_segmentation — крупнейший рычаг wall-времени, ~38% на
+# больших мешах). Стоимость ~линейна по числу лучей; 12 даёт ~2x на CGAL-части при
+# сохранении структуры (сома/ветки инвариантны, шипики целы; SDF corr ~0.99).
+# setdefault => внешний NEURD_SDF_RAYS перекрывает; 25 = байтовый дефолт CGAL.
+os.environ.setdefault("NEURD_SDF_RAYS", "12")
+
 import numpy as np
 
 from neurd import neuron
