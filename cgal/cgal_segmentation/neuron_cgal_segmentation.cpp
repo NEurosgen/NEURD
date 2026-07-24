@@ -10,6 +10,11 @@
 // CGAL::segmentation_from_sdf_values) is unchanged from the Docker build, so the
 // SDF / segment CSVs are identical to the original. Recovered from git c11f5b9
 // (docker/CGAL/cgal_segmentation/). See cgal/README.md.
+//
+// 2026-07-24: sdf_values' number_of_rays is now overridable via the NEURD_SDF_RAYS
+// env var (default 25 == original). ~100% of this call's cost is the per-face ray
+// casting inside sdf_values, and that cost is ~linear in the ray count, so lowering
+// it (e.g. 12/8) is the main speed lever; unset keeps output byte-identical.
 
 #include "neuron_cgal_segmentation.hpp"
 
@@ -54,6 +59,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <cstdlib>   // std::getenv / std::atoi (NEURD_SDF_RAYS override)
 #endif
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
@@ -116,8 +122,19 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
     typedef std::map<Polyhedron::Facet_const_handle, double> Facet_double_map;
     Facet_double_map internal_sdf_map;
     boost::associative_property_map<Facet_double_map> sdf_property_map(internal_sdf_map);
-    // compute SDF values using default parameters for number of rays, and cone angle
-    CGAL::sdf_values(mesh, sdf_property_map);
+    // Compute SDF values. Cone angle + postprocess stay at CGAL's defaults; the
+    // number of rays per facet is the dominant cost of this whole call (~100% of it
+    // is the per-face ray casting), and it is CGAL's default of 25. Allow it to be
+    // lowered via NEURD_SDF_RAYS to trade segmentation detail for speed (sdf cost is
+    // ~linear in ray count). Unset (or <=0) => 25 => byte-identical to the default.
+    std::size_t number_of_rays = 25;
+    if (const char* rays_env = std::getenv("NEURD_SDF_RAYS")) {
+        int rays_val = std::atoi(rays_env);
+        if (rays_val > 0)
+            number_of_rays = static_cast<std::size_t>(rays_val);
+    }
+    CGAL::sdf_values(mesh, sdf_property_map,
+                     2.0 / 3.0 * CGAL_PI, number_of_rays, /*postprocess=*/true);
 
     char smoothing_lambda_str[5];
     snprintf(smoothing_lambda_str, sizeof(smoothing_lambda_str), "%.2f",smoothing_lambda );
