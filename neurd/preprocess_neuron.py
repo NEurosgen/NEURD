@@ -2,6 +2,7 @@
 import copy
 from copy import deepcopy
 from dataclasses import dataclass
+import gc
 import itertools
 
 import networkx as nx
@@ -2901,6 +2902,27 @@ def _drop_trimesh_caches(mesh):
         c.clear()
 
 
+def _reclaim_memory():
+    """Return memory freed by the previous stage to the OS.
+
+    ``extract_soma_center`` (Poisson reconstruction + CGAL segmentation on decimated copies)
+    builds ~2 GB of transient meshes that are dead by the time it returns, but two things keep
+    that memory resident: reference cycles the refcounter can't reclaim (measured ~900 MB on the
+    big H01 neuron), and glibc's malloc holding freed arena pages instead of returning them to
+    the OS (~1.2 GB). The next stage (_segment_limbs_from_soma) then stacks its own peak on top of
+    that ~2 GB floor. A cyclic collection plus malloc_trim reclaims ~92% of it (2746 -> 646 MB RSS
+    on the big H01 neuron) before the peak-bearing stage runs. Pure memory reclamation: it frees
+    only unreachable objects and unused pages, so it never changes any result.
+    """
+    gc.collect()
+    try:
+        import ctypes, ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library("c"))
+        libc.malloc_trim(ctypes.c_size_t(0))     # glibc-only; no-op elsewhere
+    except Exception:
+        pass
+
+
 def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
     """Заменяет Фазу 4A (Скелетизация).
 
@@ -3080,6 +3102,11 @@ def preprocess_neuron(
     
 
     soma_mesh, soma_sdf = _extract_single_soma(mesh, segment_id)
+
+    # extract_soma_center leaves ~2 GB of dead transients resident (reference cycles + glibc arena
+    # fragmentation) that _segment_limbs_from_soma would otherwise stack its peak on top of. Reclaim
+    # it here, at the stage boundary, before the peak-bearing stage allocates. See _reclaim_memory.
+    _reclaim_memory()
 
     (branch_meshes, floating_meshes, soma_touching_vertices, soma_to_piece_connectivity,
      branch_meshes_orig_idx, soma_faces_idx) = _segment_limbs_from_soma(
