@@ -19,6 +19,7 @@ Fixtures (committed under tests/):
 The provider tests SKIP if no `cgal_Segmentation_Module` is registered.
 """
 
+import os
 import shutil
 from pathlib import Path
 
@@ -132,3 +133,80 @@ def test_provider_sdf_fidelity_vs_golden(tmp_path):
 
     corr = float(np.corrcoef(sdf, gold_sdf)[0, 1])
     assert corr >= _SDF_CORR_MIN, f"SDF correlation {corr:.4f} < {_SDF_CORR_MIN}"
+
+
+# --- NEURD_SDF_RAYS override (real-CGAL provider only) ---
+#
+# The compiled provider reads NEURD_SDF_RAYS to lower CGAL's per-face ray count
+# (default 25). Ray casting is ~100% of the segmentation cost and ~linear in the
+# ray count, so this is the main speed lever. These tests pin the two properties
+# the lever must keep: (1) unset behaves exactly like 25 (no default regression),
+# (2) a reduced ray count still tracks the 25-ray SDF closely (thickness ordering,
+# which spine/soma detection keys off, is preserved).
+
+# Correlation floor for reduced-ray SDF vs the 25-ray SDF. Measured 0.996 at 16 rays
+# and 0.989 at 8 on this fixture; 0.97 leaves margin for run-to-run jitter.
+_REDUCED_RAY_SDF_CORR_MIN = 0.97
+
+
+def _run_provider_rays(tmp_path, rays):
+    """Run the provider with NEURD_SDF_RAYS=`rays` (or unset if None). Real provider only.
+
+    Skips unless the compiled cgal_Segmentation_Module is registered — the pure-Python
+    stand-in ignores the env var, so the override contract only applies to real CGAL.
+    """
+    csm = pytest.importorskip(
+        "cgal_Segmentation_Module",
+        reason="no cgal_Segmentation_Module registered",
+    )
+    if getattr(csm, "__file__", "").endswith(".py"):
+        pytest.skip("pure-Python stand-in does not honor NEURD_SDF_RAYS")
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    work_mesh = tmp_path / "990_mesh.off"
+    shutil.copy(_MESH_OFF, work_mesh)
+    filepath_no_ext = str(tmp_path / "990_mesh")
+
+    prev = os.environ.get("NEURD_SDF_RAYS")
+    if rays is None:
+        os.environ.pop("NEURD_SDF_RAYS", None)
+    else:
+        os.environ["NEURD_SDF_RAYS"] = str(rays)
+    try:
+        csm.cgal_segmentation(filepath_no_ext, _CLUSTERS, _SMOOTHNESS)
+    finally:
+        if prev is None:
+            os.environ.pop("NEURD_SDF_RAYS", None)
+        else:
+            os.environ["NEURD_SDF_RAYS"] = prev
+
+    suffix = f"-cgal_{int(_CLUSTERS)}_{_SMOOTHNESS:.2f}"
+    return (
+        _read_per_face_csv(tmp_path / f"990_mesh{suffix}.csv"),
+        _read_per_face_csv(tmp_path / f"990_mesh{suffix}_sdf.csv"),
+    )
+
+
+def test_sdf_rays_unset_equals_25(tmp_path):
+    """Unset NEURD_SDF_RAYS is byte-identical to the explicit default of 25.
+
+    This is the no-regression guarantee for the committed default: the env-var
+    mechanism must not perturb output unless a caller opts in.
+    """
+    seg_unset, sdf_unset = _run_provider_rays(tmp_path / "unset", None)
+    seg_25, sdf_25 = _run_provider_rays(tmp_path / "r25", 25)
+
+    assert np.array_equal(seg_unset, seg_25), "unset != 25 for segmentation ids"
+    assert np.array_equal(sdf_unset, sdf_25), "unset != 25 for SDF values"
+
+
+@pytest.mark.parametrize("rays", [16, 12, 8])
+def test_sdf_rays_reduced_tracks_baseline(tmp_path, rays):
+    """Fewer rays still track the 25-ray SDF closely (ordering preserved)."""
+    _, sdf_base = _run_provider_rays(tmp_path / "base", 25)
+    _, sdf_red = _run_provider_rays(tmp_path / f"r{rays}", rays)
+
+    corr = float(np.corrcoef(sdf_red, sdf_base)[0, 1])
+    assert corr >= _REDUCED_RAY_SDF_CORR_MIN, (
+        f"rays={rays}: SDF correlation {corr:.4f} < {_REDUCED_RAY_SDF_CORR_MIN}"
+    )
