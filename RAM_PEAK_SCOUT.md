@@ -238,10 +238,64 @@ of group start position) — exactly the failure the `vertex_components` docstri
 3. **CFC's residual +636 MB** — `edges_unique` + coo/union-find transients on 3 M faces.
 4. **C3 — the 2.57 GB ASCII-OFF load transient**, still below the ceiling, still matters per-worker.
 
+## 6c. ✅ 2026-07-24 (later still) — the soma floor was 92% GARBAGE, `_reclaim_memory` SHIPPED
+
+§6b called `_extract_single_soma`'s +2103 MB resident baseline the new #1 lever and guessed it was
+live intermediates to free. **That guess was wrong in a good way.** Probed the instant `_extract`
+returns (`scratchpad/soma_floor_probe.py`: RSS at return → after `gc.collect()` → after
+`malloc_trim(0)`):
+
+```
+  RSS at return             = 2746 MB   (rose +1904 during extract)
+  after gc.collect()        = 1838 MB   (freed  908 MB — 78639 objs: reference cycles)
+  after malloc_trim(0)      =  646 MB   (freed 1192 MB — glibc arena fragmentation)
+  truly still resident      =  188 MB above the pre-extract baseline
+```
+
+The floor is **not live data**. It is dead objects the refcounter can't reclaim (reference cycles
+in `extract_soma_center`'s Poisson/CGAL intermediates → `gc.collect()`) plus freed pages glibc
+never returned to the OS (`malloc_trim(0)`). Only 188 MB actually survives. **92% of the floor is
+reclaimable with two standard calls, touching no data path.**
+
+**SHIPPED.** New `_reclaim_memory()` (helper by `_drop_trimesh_caches`) = `gc.collect()` +
+`ctypes` `malloc_trim(0)`, called at the `_extract`→`_segment` boundary so the peak-bearing stage
+stacks on 646 MB, not 2746. `import gc` added.
+
+**Result — same benchmark harness, sequential runs, `ru_maxrss` (kernel lifetime peak, sampler-
+independent):**
+
+```
+  R1-only (HEAD)          ru_maxrss 4842 MB   (construct-stage peak 4828)
+  R1 + _reclaim_memory    ru_maxrss 3226 MB   (construct-stage peak 3222)
+  -->  -1616 MB / -33%    structure identical: 3 limbs, 129 branches (54/74/1)
+```
+
+Byte-exact by construction — `gc.collect()` frees only unreachable objects, `malloc_trim` only
+returns unused pages; neither can alter a result. Confirmed §6b's model: the `_segment` peak was
+stacking on the un-trimmed floor; drop the floor and the whole ceiling falls.
+
+### Where the ceiling is NOW (post-reclaim) — updated ranking
+
+```
+  3226 MB  new global peak (inside neuron_construction, on the trimmed 646 MB base)
+  2571 MB  load_mesh transient  <-- now the #1 remaining floor (= C3, ASCII-OFF parse)
+           headroom in construction above the load transient is only +655 MB
+```
+
+1. **⭐ NEW #1 — the load_mesh / ASCII-OFF transient (C3, 2571 MB).** Everything in construction is
+   now squeezed to within +655 MB of it, so the load transient is the dominant remaining floor. The
+   166 MB ASCII `.off` balloons to ~2.57 GB during parse. Lever: stream/chunk the OFF parse (or a
+   binary pre-convert). Isolated, independent of the neuron algorithm, low risk. See §3's C3 note.
+2. **CFC residual +636 MB** — `edges_unique` + coo/union-find transients on 3 M faces (in construction).
+3. **C2 — the `non_soma_mesh` full copy** (+551 MB, in construction).
+   NB the raw §6b decomposition (+2103/+1232) predates reclaim; re-profile the phases on the trimmed
+   base before sizing 2/3 — they may now largely fit under the load transient.
+
 ## 7. ⭐ NEXT-SESSION PLAN (2026-07-24, task carried over)
 
-> Superseded in large part by §6b: the localization step (item 1) is DONE and item 2 is SHIPPED.
-> Start from §6b's "Where the ceiling is NOW" ranking. Items 3/4 below remain valid.
+> Superseded by §6b + §6c: localization DONE, the `vertex_faces` lever (item 2) SHIPPED, and the
+> soma floor (item 3) turned out to be reclaimable garbage — `_reclaim_memory` SHIPPED (−33%).
+> Start from §6c's "Where the ceiling is NOW" ranking; the new #1 is the C3 ASCII-OFF load transient.
 
 Goal unchanged: cut the ~5 GB transient ceiling (gates parallel-worker count) toward the ~2.25 GB
 plateau. C1 is dead; do NOT re-try "free after the split". New plan:
