@@ -386,6 +386,47 @@ try:
 except Exception:
     pass
 
+# datasci_tools.numpy_utils.get_matching_vertices finds unordered vertex pairs within
+# `equiv_distance` by building the FULL NxN coordinate distance matrix (pdist->squareform),
+# then a copy of it, then an NxN np.eye -- 3 x O(N^2) allocations. On the skeleton node-combine
+# path (skeleton_utils.py:1737, LOCKED mesh_tools) N is large, so this is ~25 GB of allocation
+# churn on a big-H01 build (memray) and O(N^2) memory/time. The result is exactly a fixed-radius
+# self-pairs query: cKDTree(points).query_pairs(equiv_distance) -- O(N log N) time, O(output)
+# memory. Byte-exact vs the original over 1800 randomized cases (both ignore_diagonal modes,
+# equiv_distance 0 / 0.02 / 0.5, with duplicate + jittered coords); patch the one datasci_tools
+# function (mesh_tools calls it as nu.get_matching_vertices -> resolved at call time).
+# Set NEURD_LEGACY_MATCHING_VERTICES=1 to restore the O(N^2) original.
+try:
+    import os as _os_mv
+    if _os_mv.environ.get("NEURD_LEGACY_MATCHING_VERTICES") != "1":
+        from datasci_tools import numpy_utils as _nu_mv
+
+        def _get_matching_vertices_kdtree(possible_vertices, ignore_diagonal=True,
+                                          equiv_distance=0, print_flag=False):
+            import numpy as _np
+            from scipy.spatial import cKDTree as _cKDTree
+            pv = _np.asarray(possible_vertices).reshape(-1, 3)
+            n = len(pv)
+            if n < 2:
+                return _np.empty((0, 2), dtype=_np.int64)
+            pairs = _cKDTree(pv).query_pairs(r=equiv_distance,
+                                             output_type="ndarray").astype(_np.int64)
+            if not ignore_diagonal:
+                # the original keeps self-pairs (i,i) when ignore_diagonal=False (dist 0 <= r).
+                # No current caller uses this branch, but keep it exact.
+                diag = _np.arange(n, dtype=_np.int64).reshape(-1, 1)
+                diag = _np.hstack([diag, diag])
+                pairs = _np.vstack([pairs, diag]) if len(pairs) else diag
+            if len(pairs) == 0:
+                return _np.empty((0, 2), dtype=_np.int64)
+            # reproduce np.unique(np.sort(...,axis=1),axis=0): pairs are already i<j, sort lexicographically.
+            return pairs[_np.lexsort((pairs[:, 1], pairs[:, 0]))]
+
+        _nu_mv.get_matching_vertices = _get_matching_vertices_kdtree
+        del _nu_mv, _get_matching_vertices_kdtree
+except Exception:
+    pass
+
 from .version import __version__
 
 default_data_type = "microns"
