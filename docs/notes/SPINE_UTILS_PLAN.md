@@ -1,12 +1,22 @@
 # `spine_utils` — plan for a future session
 
-Companions: `MESH_OPS_PHASE_B_PLAN.md` (status + corrections), `MESH_OPERATIONS_LAYER.md`.
-Branch: `refactor/simplify-preprocess-logic`.
+Companion: [../../MESH_OPS.md](../../MESH_OPS.md) (the owned layer, its status and corrections).
 
 ## Why this target
-`spine_utils.py` is the **largest remaining `mesh_tools` holdout**: **51 `tu.*` calls across 39 distinct
-functions** — roughly a third of the framework's whole remaining `tu` surface. Everything else reachable
-from the segmentation pipeline has been migrated or shown unreachable.
+`spine_utils.py` is the **largest remaining `mesh_tools` holdout**: ~48 `tu.*` call sites across ~39
+distinct functions — roughly a third of the framework's whole remaining `tu` surface. Everything else
+reachable from the segmentation pipeline has been migrated or shown unreachable.
+
+> ⚠️ Two premises below have since changed. (1) Phase 2 was already *entered* without the Phase-0
+> harness this plan calls mandatory: spine segment connectivity was migrated to
+> `submesh_ops.pieces_adjacency` (commit `cc81169`, −23% wall on the 187 MB h01), gated on
+> pure-function equivalence instead of a spine baseline. (2) The claim further down that `submesh_ops`
+> already covers `subtract_mesh` is **wrong** — there is no such function in `submesh_ops`, so that
+> "near drop-in swap" does not exist.
+>
+> ⚠️ Also note **spine count is nondeterministic** (22/16/20 observed on unchanged code), so the
+> "reproduce the baseline byte-identical" verification below cannot work as written. Gate spine work on
+> pure-function equivalence, or on a segmentation-level SDF-correlation oracle.
 
 ## The pivotal fact (measured, not assumed)
 **Spine detection does not run in `segmentation_pipeline`.** `Neuron.__init__` takes
@@ -38,16 +48,19 @@ big H01), so the path is known to work.
 ## Plan
 
 ### Phase 0 — spine harness (do this first, nothing else is verifiable without it)
-Extend the gate harness (`scratchpad/gate_run.py`; **consider committing it to `tests/tools/` first — it has
-already been wiped once by the system**) with a spine mode:
+The harnesses are now committed under `tests/tools/` (`neuron_gate.py`, `soma_gate.py`,
+`benchmark_neuron.py`, `batch_bench.py`, and `wall_profile.py`, which already has spine phase markers
+and a `--spines` switch). Extend one of them with a spine mode:
 - build the neuron with `calculate_spines=True`;
 - extract spine metrics alongside the existing ones — reuse `process_all_neurons`'s `_iter_spines` /
   `spines_per_branch` / `total_spines` rather than inventing new ones;
 - establish baselines on the anchors. **Expect small-h01 to yield 0 spines** (it produced none in the
   probes), so the working anchor is probably big `1830470325` — iteration cost goes up accordingly.
-- **Check determinism explicitly.** The pipeline's only known nondeterminism is the waterfill
-  `np.random.choice`; CGAL SDF segmentation may add its own. Run the spine baseline **twice** before
-  trusting it.
+- **Determinism was checked and the answer is no:** spine count varies run to run on unchanged code
+  (22/16/20 observed). So a spine-count baseline is not a usable gate. What *is* gateable: pure-function
+  equivalence for whatever is migrated, and an SDF-correlation oracle at the segmentation level (the
+  shape of `tests/integration/test_cgal_segmentation_oracle.py`). Build that instead of a count
+  baseline.
 
 ### Phase 1 — coverage probe under the spine driver
 Run the caller histogram over `spine_utils`'s `tu` surface with spines enabled, and record which of the 39
@@ -56,9 +69,11 @@ effort designing owned replacements for `original_mesh_faces_map` / `subtract_me
 `compare_meshes_by_face_midpoints` that turned out to have no live caller at all.
 
 ### Phase 2 — migrate what fires, one gated commit at a time
-Only then pick targets. Prefer ops already owned in `neurd/submesh_ops.py` — a quick look at the surface
-suggests several are already covered (`largest_conn_comp`, `connected_components_from_face_idx`,
-`split_mesh_into_face_groups`, `subtract_mesh`) and would be near drop-in swaps.
+Only then pick targets. Prefer ops already owned in `neurd/submesh_ops.py`: `largest_conn_comp`,
+`connected_components_from_face_idx` and `split_mesh_into_face_groups` are covered and would be near
+drop-in swaps. **`subtract_mesh` is NOT** — `submesh_ops` has no equivalent, so that one needs writing
+from scratch, not swapping. (Already migrated this way: spine segment connectivity →
+`submesh_ops.pieces_adjacency`, `cc81169`.)
 
 ## Honest caveats — decide after Phase 1, not before
 - **The surface is a long thin tail**: 51 calls over 39 distinct functions, i.e. ~1–2 calls each. There is
@@ -74,9 +89,11 @@ suggests several are already covered (`largest_conn_comp`, `connected_components
   fast/full split that worked here — cheap checks per step, one full run at the end.
 
 ## Verification
-Baselines to establish in Phase 0 (there are none for spines yet beyond the stale artifact):
-`total_spines` and `spines_per_branch` per limb, on the spine anchor, reproduced twice. Then every migration
-commit must reproduce them **byte-identical**, exactly as the mesh-ops work was gated.
+⚠️ The original plan here — establish `total_spines` / `spines_per_branch` baselines and require every
+migration to reproduce them byte-identically — **does not work**: spine count is nondeterministic on
+unchanged code. Gate instead on (a) pure-function equivalence for each migrated op, against the
+pre-migration implementation kept as an oracle (the pattern in `test_cfc_vertex_faces_free.py`), and
+(b) the non-spine structure metrics below, which *are* stable within tolerance.
 
 Existing anchors and metrics (unchanged, still apply to the non-spine half):
 small-h01 `366280.26`/`291893`; big `1830470325` `1648072.07`/`1323533`; stitch `neuron_2889815798`

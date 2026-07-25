@@ -86,7 +86,8 @@ own mesh math + skeleton combinatorics + biology all at once.
    an attached annotations object built by the *_utils. Large surface (consumed everywhere downstream),
    so a real project, not a first step.
 4. **(biggest, later) `Limb` connectivity** — the concept-network machinery (~half of Limb's methods) is
-   its own subsystem; separable but large. (Related: `concept_network_utils.py`, which the user has open.)
+   its own subsystem; separable but large. (`concept_network_utils.py` was the related module; it has
+   since been deleted as entirely unreachable.)
 
 **Recommendation:** start with **#1** (name the mesh API — it's the tractable "start from meshes" the
 user asked for and de-risks everything after), and in parallel scope **#2** with a downstream-usage
@@ -96,5 +97,6 @@ usage audit first — much higher blast radius than the preprocess_neuron refact
 
 ## Open questions
 - CA1: full downstream-usage audit of Branch's skeleton-directional props (which are actually consumed?).
-- CA2: are Limb's concept-network methods duplicative with `concept_network_utils.py` / `neuron_utils`?
+- CA2: are Limb's concept-network methods duplicative with `neuron_utils`? (Resolved for
+  `concept_network_utils`: it was dead and is gone, so any duplication there is moot.)
 - CA3: how much of the annotation caching is load-bearing (perf) vs incidental?

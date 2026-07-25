@@ -1,14 +1,24 @@
-# Dead-code reachability — method + status (✅ zero-ref exhausted)
+# Dead-code reachability — method + status
 
-> **Status:** zero-ref dead code is **exhausted** across all 16 core modules. The §2 mark-and-sweep was
-> executed to a **fixpoint** (commit `456cea1`): **45 module-level functions removed, −1569 LOC** —
-> the mutually-referencing dead clusters that zero-ref misses (fork-divergence, ref-vector/skeleton
-> up-down stats, parent/sibling-angle helpers, branch-neighbor/boutons/mesh-connectivity analysis).
-> Wave-2 re-run = 0 candidates. Further dead code now needs **new roots removed** (e.g. deleting the
-> `calculate_decomposition_products` stats chain) or a class-method sweep (§5, high false-positive risk).
-> Companions: `NEURD_STRUCTURE.md` (module map), `REFACTOR_PLAN.md`.
+> **Status:** the §2 mark-and-sweep was executed to a **fixpoint** (commit `456cea1`): **45 module-level
+> functions removed, −1569 LOC** — the mutually-referencing dead clusters that zero-ref misses
+> (fork-divergence, ref-vector/skeleton up-down stats, parent/sibling-angle helpers,
+> branch-neighbor/boutons/mesh-connectivity analysis). Wave-2 re-run = 0 candidates.
+>
+> **⚠️ "Exhausted" did not hold, in a way worth learning from.** A later sweep found **~3.5k more LOC**
+> (~19% of the package): two whole unreachable modules (`concept_network_utils.py`;
+> `parameter_utils.py` + `parameter_configs/`), 7 zero-ref functions that had drifted back, and 6 blocks
+> of dead code parked in string literals. **Why the earlier sweep missed them:** it seeded `tests/**` as
+> roots, so anything kept alive *only by a test* was invisible. `parameter_utils` was reachable solely
+> from a 36-test file that guarded a module production never imports. **Correction to the method: a test
+> is not a root for a production-reachability question.** Sweep with production roots only, then check
+> separately whether each test still has a subject.
+>
+> Companions: `../../NEURD_STRUCTURE.md` (module map), `REFACTOR_PLAN.md`.
 
-This is now a **method reference** for future sweeps, not an open task.
+This is a **method reference** for future sweeps, not an open task. Note the scripts were never
+committed — the sweep must be re-implemented from this spec, or the analyzer committed to `scripts/`
+next time it is written.
 
 ## Two methods
 - **Zero-ref (safe, fast, no false positives):** delete a module-level function iff its **name appears
@@ -40,7 +50,7 @@ This is now a **method reference** for future sweeps, not an open task.
 | Query system, string names (`functions_list`) | `neuron_searching.query_neuron` / `apply_function_to_neuron` | string literal == a function name = an edge |
 | pandas `df.eval()` restriction strings (reference query-output column names, `_limb_ns` stripped) | `neuron_searching` | names inside query/restriction strings = edges |
 | `_limb_ns` suffix (`eval(f"lu.{k}_limb_ns")`) | `neuron_statistics`, `neuron_searching` | **protect every `*_limb_ns` as a root** |
-| `getattr(module, f"...{var}...")` | `concept_network_utils` (`all_{direction}_branches_from_branches`) | protect `all_*_branches_from_branches` |
+| `getattr(module, f"...{var}...")` | was `concept_network_utils` (`all_{direction}_branches_from_branches`) — that module has since been deleted as dead; keep the rule for any new occurrence | protect `all_*_branches_from_branches` |
 | Param convention (discovered by name upstream, invisible to a repo scan) | soma/spine/preprocess | **protect `^output_global_parameters` + all `*_dict_default/_h01/_microns` globals** |
 | `@run_options` decorator | `neuron_searching` | does NOT register/scan → reachable only via explicit ref/string; name-absent = dead |
 
