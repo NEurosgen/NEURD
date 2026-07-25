@@ -58,10 +58,19 @@ jobs:
           PY
 
       - name: mesh_tools imports
-        # The tests import `from mesh_tools import trimesh_utils` at module level, which
-        # pulls in every one of its own module-level deps. Fails loudly here rather than as
-        # a collection error.
-        run: python -c "from mesh_tools import trimesh_utils, skeleton_utils; print('mesh_tools OK')"
+        # Four unit tests import `from mesh_tools import trimesh_utils` at module level,
+        # which pulls in every one of ITS module-level deps -- and mesh_processing_tools is
+        # installed --no-deps, so a gap there surfaces as an opaque collection error. Fail
+        # loudly here instead, naming the module.
+        #
+        # `import neurd` MUST come first: it installs the numpy-2 shim for
+        # datasci_tools.numpy_dep, without which trimesh_utils dies on `np.float_`.
+        run: |
+          python -c "
+          import neurd  # noqa: F401  -- installs the numpy-2 shim first
+          from mesh_tools import trimesh_utils, skeleton_utils
+          print('mesh_tools OK')
+          "
 
       - name: Unit gate
         # pytest.ini scopes testpaths to tests/unit. The integration test needs
