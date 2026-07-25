@@ -25,7 +25,7 @@ from datasci_tools import matplotlib_utils as mu
 
 try:
     import cgal_Segmentation_Module as csm
-except:
+except Exception:
     pass
 
 
@@ -205,7 +205,7 @@ class Spine:
                 #setattr(self,k,v)
                 try:
                     setattr(self,k,v)
-                except:
+                except Exception:
                     setattr(self,f"_{k}",v)
             return 
             
@@ -213,7 +213,7 @@ class Spine:
             
             try:
                 setattr(self,a,None)
-            except:
+            except Exception:
                 setattr(self,f"_{a}",None)
                 
         self.mesh = mesh
@@ -222,7 +222,7 @@ class Spine:
             if k in spine_attributes:
                 try:
                     setattr(self,k,v)
-                except:
+                except Exception:
                     setattr(self,f"_{k}",v)
                 
         if calculate_spine_attributes:
@@ -964,7 +964,7 @@ def export(
     for k in curr_attributes:
         try:
             curr_value = getattr(spine_obj,k,default_value)
-        except:
+        except Exception:
             if suppress_errors:
                 curr_value = default_value
             else:
@@ -1010,43 +1010,6 @@ def n_spines(neuron_obj):
     
 connectivity = "edges"
 
-"""   DON'T NEED THIS FUNCTION ANYMORE BECAUSE REPLACED BY TRIMESH_UTILS MESH_SEGMENTATION
-def cgal_segmentation(written_file_location,
-                      clusters=2,
-                      smoothness=0.03,
-                      return_sdf=True,
-                     print_flag=False,
-                     delete_temp_file=True):
-    
-    if written_file_location[-4:] == ".off":
-        cgal_mesh_file = written_file_location[:-4]
-    else:
-        cgal_mesh_file = written_file_location
-    if print_flag:
-        print(f"Going to run cgal segmentation with:"
-             f"\nFile: {cgal_mesh_file} \nclusters:{clusters} \nsmoothness:{smoothness}")
-
-    csm.cgal_segmentation(cgal_mesh_file,clusters,smoothness)
-
-    #read in the csv file
-    cgal_output_file = Path(cgal_mesh_file + "-cgal_" + str(np.round(clusters,2)) + "_" + "{:.2f}".format(smoothness) + ".csv" )
-    cgal_output_file_sdf = Path(cgal_mesh_file + "-cgal_" + str(np.round(clusters,2)) + "_" + "{:.2f}".format(smoothness) + "_sdf.csv" )
-
-    cgal_data = np.genfromtxt(str(cgal_output_file.absolute()), delimiter='\n')
-    cgal_sdf_data = np.genfromtxt(str(cgal_output_file_sdf.absolute()), delimiter='\n')
-    
-    if delete_temp_file:
-        cgal_output_file.unlink()
-        cgal_output_file_sdf.unlink()
-        
-    
-    if return_sdf:
-        return cgal_data,cgal_sdf_data
-    else:
-        return cgal_data"""
-
-    
-    
 def get_spine_meshes_unfiltered_from_mesh(
     current_mesh,
     segment_name=None,
@@ -1162,7 +1125,7 @@ def get_spine_meshes_unfiltered_from_mesh(
                     try:
                         c_path = nx.shortest_path(spine_graph,
                                                          source=biggest_shaft,target=curr_shaft) 
-                    except:
+                    except Exception:
                         #print(f"Mesh {curr_shaft} Seems to be not connected to mesh")
                         shaft_shortest_paths.append([curr_shaft])
                     else:
@@ -1174,7 +1137,7 @@ def get_spine_meshes_unfiltered_from_mesh(
                             try:
                                 c_path = nx.shortest_path(spine_graph,
                                         source=shaft_1,target=shaft_2) 
-                            except:
+                            except Exception:
                                 #print(f"{shaft_1} and {shaft_2} not connected on the same mesh")
                                 shaft_shortest_paths.append([shaft_1,shaft_2])
                             else:
@@ -1197,26 +1160,13 @@ def get_spine_meshes_unfiltered_from_mesh(
 
         final_spine_faces_idx = np.delete(np.arange(0,len(current_mesh.faces)), np.array(final_shaft_meshes_idx).astype('int'))
 
-        """
-        #Old way of getting all of the spines: by just dividing the mesh using disconnected components
-        #after subtracting the shaft mesh
-
-        spine_submesh = current_mesh.submesh([final_spine_faces_idx],append=True)
-        spine_submesh_split = spine_submesh.split(only_watertight=False)
-
-        """
-
-        """
-        #New way of extracting the spines using graphical methods
-
-        Pseudocode:
-        1) remove the shaft meshes from the graph
-        2) get the connected components
-        3) assemble the connected components total face_idx:
-        a. get the sdf values that correspond to those
-        b. get the submesh that corresponds to those
-
-        """
+        # Extract the spines graphically (rather than by subtracting the shaft mesh and
+        # splitting into disconnected components):
+        # 1) remove the shaft meshes from the graph
+        # 2) get the connected components
+        # 3) assemble the connected components' total face_idx:
+        #    a. get the sdf values that correspond to those
+        #    b. get the submesh that corresponds to those
         spine_graph.remove_nodes_from(final_shaft_mesh_names)
 
         spine_submesh_split=[]
@@ -1274,29 +1224,6 @@ def get_spine_meshes_unfiltered_from_mesh(
     
         
         
-"""
-These filters didn't seem to work very well...
-
-"""
-def sdf_median_mean_difference(sdf_values):
-    return np.abs(np.median(sdf_values) - np.mean(sdf_values)) 
-
-def apply_sdf_filter(sdf_values,sdf_median_mean_difference_threshold = 0.025,
-                    return_not_passed=False):
-    pass_filter = []
-    not_pass_filter = []
-    for j,curr_sdf in enumerate(sdf_values):
-        if sdf_median_mean_difference(curr_sdf)< sdf_median_mean_difference_threshold:
-            pass_filter.append(j)
-        else:
-            not_pass_filter.append(j)
-    if return_not_passed:
-        return not_pass_filter
-    else:
-        return pass_filter
-
-
-
 def filter_spine_meshes(spine_meshes,
                         spine_n_face_threshold=None,
                        spine_sk_length_threshold=None,
@@ -2221,46 +2148,6 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
     5) Find the closest skeeleton point
 
     """
-    
-    ''' Old method
-    try:
-        
-        overlap_verts= tu.find_border_vertices(
-            spine_obj.mesh,
-            return_coordinates=True)
-    except:
-        branch_obj_minus_spine = tu.subtract_mesh(
-            branch_obj.mesh,
-            spine_obj.mesh,
-        )
-        overlap_verts = nu.intersect2d(
-            spine_obj.mesh.vertices,
-            branch_obj_minus_spine.vertices
-        )
-        
-
-
-    if len(overlap_verts) == 0:
-#         overlap_verts = spine_obj.mesh.vertices[0].reshape(-1,3)
-#         if verbose:
-#             print(f"Using first spine vertex as coordinate because no overlapping")
-        overlap_verts = tu.closest_mesh_vertex_to_other_mesh(
-            spine_obj.mesh,
-            branch_obj.mesh_shaft,
-            plot = False,
-            verbose = False,
-        ).reshape(-1,3)
-
-
-
-    #3) Find average vertices that make up the coordinate    
-    if coordinate_method == "mean":
-        coordinate = np.mean(overlap_verts,axis = 0)
-    else:
-        coordinate = overlap_verts[0]
-    if verbose:
-        print(f"coordinate = {coordinate}")
-    '''
     attr_to_set = [
         "coordinate",
         "closest_branch_face_idx",
@@ -2304,7 +2191,7 @@ def calculate_spine_obj_mesh_skeleton_coordinates(
             return_winning_coordinate_group = True,
             plot=False,
         )
-    except:
+    except Exception:
         coordinate = tu.closest_mesh_coordinate_to_other_mesh(
             spine_obj.mesh,
             mesh
@@ -2364,7 +2251,7 @@ def skeleton_from_spine(spine,plot=False):
 def volume_from_spine(spine,default_value = 0):
     try:
         return tu.mesh_volume(spine.mesh)
-    except:
+    except Exception:
         return default_value
 
 

@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import gc
 import itertools
+import warnings
 
 import networkx as nx
 from scipy.spatial import KDTree
@@ -221,7 +222,6 @@ def correspondence_1_to_1(
     """
     
     if len(submesh_ops.split(mesh))>1:
-        su.compressed_pickle(mesh,"mesh")
         raise Exception("Mesh passed to correspondence_1_to_1 is not just one mesh")
     
     mesh_start_time = time.time()
@@ -1083,7 +1083,7 @@ def _new_invalidation_d(
     verbose=False,
 ):
     """
-    Новый invalidation_d по ширине (линейная интерполяция между параметрами).
+    New invalidation_d from the width (linear interpolation between the parameters).
         slope     = (inv_d_ref - lowest_value) / (width_ref - ax_width)
         new_inv_d = slope * (width - width_ref) + inv_d_ref
     """
@@ -1107,10 +1107,10 @@ def _run_skeletonization_pass(
     limb_cfg,
     verbose=False,
 ):
-    """Один проход: скелетонизация меша + разбиение на ветви.
+    """One pass: skeletonize the mesh + divide it into branches.
 
-    Возвращает (segment_branches, divided_submeshes, divided_submeshes_idx,
-                segment_widths_median).
+    Returns (segment_branches, divided_submeshes, divided_submeshes_idx,
+             segment_widths_median).
     """
     sk_obj = cb.skeletonize_largest_component(
         limb_mesh_mparty,
@@ -1137,10 +1137,10 @@ def _decide_next_limb_cfg(
     neuron_cfg,
     verbose=False,
 ):
-    """Решает, нужен ли ещё один проход, и с какими параметрами.
+    """Decide whether another pass is needed, and with which parameters.
 
-    Возвращает новый limb_cfg для повторного прогона, либо None — значит
-    текущий результат финальный.
+    Returns a new limb_cfg to re-run with, or None -- meaning the current result
+    is final.
     """
     width_median = cb.weighted_width_median(segment_widths_median, segment_branches)
     pieces_above_threshold = np.where(
@@ -1154,7 +1154,7 @@ def _decide_next_limb_cfg(
 
     p = parameters.params
 
-    # 1. Тонкая ветвь → параметры аксона
+    # 1. Thin branch -> axon parameters
     if width_median <= neuron_cfg["axon_width_preprocess_limb_max"]:
         if verbose:
             print("Using the axon parameters")
@@ -1167,7 +1167,7 @@ def _decide_next_limb_cfg(
             "smooth_neighborhood": p.smooth_neighborhood_axon,
         }
 
-    # 2. Нет MAP-кусков → пересчёт invalidation_d (интерполяция по ширине)
+    # 2. No MAP pieces -> recompute invalidation_d (interpolated on the width)
     if (
         len(pieces_above_threshold) == 0
         and neuron_cfg["mp_only_revised_invalidation_d"]
@@ -1188,7 +1188,7 @@ def _decide_next_limb_cfg(
             ),
         }
 
-    # 3. Есть MAP-куски → финал
+    # 3. MAP pieces present -> final
     return None
 def _cycle_for_something(
     limb_mesh_mparty,
@@ -1210,9 +1210,9 @@ def _cycle_for_something(
         result[0], result[3], limb_cfg, neuron_cfg, verbose,
     )
     if new_limb_cfg is None:
-        return result  # первый проход финальный
+        return result  # the first pass is final
 
-    # ровно один повторный прогон с пересчитанными параметрами
+    # exactly one re-run with the recomputed parameters
     return _run_skeletonization_pass(
         limb_mesh_mparty, root_curr, meshparty_segment_size, new_limb_cfg, verbose,
     )
@@ -1223,9 +1223,9 @@ def _build_filtered_connectivity(
     limb_mesh_mparty,
     connectivity_type,
 ):
-    """Один проход: связность мешей + фильтрация рёбер MP→MAP.
+    """One pass: mesh connectivity + filtering of MP->MAP edges.
 
-    Возвращает (mesh_conn, mesh_conn_vertex_groups, mesh_conn_old).
+    Returns (mesh_conn, mesh_conn_vertex_groups, mesh_conn_old).
     """
     mesh_conn, mesh_conn_vertex_groups = tu.mesh_list_connectivity(
         meshes=sublimb_meshes_MP + sublimb_meshes_MAP,
@@ -1242,7 +1242,7 @@ def _build_filtered_connectivity(
     mesh_conn_filt = []
     mesh_conn_vertex_groups_filt = []
     for j, (m1, m2) in enumerate(mesh_conn):
-        # ребро должно идти от MP-куска к MAP-куску
+        # the edge must run from an MP piece to a MAP piece
         if m1 < n_mp and m2 >= n_mp:
             mesh_conn_filt.append([m1, m2])
             mesh_conn_vertex_groups_filt.append(mesh_conn_vertex_groups[j])
@@ -1251,9 +1251,9 @@ def _build_filtered_connectivity(
 
     return np.array(mesh_conn_filt), mesh_conn_vertex_groups_filt, mesh_conn_old
 def _connectivity_is_valid(mesh_conn, n_mp, n_map):
-    """Проверяет, что граф связности — один компонент со всеми узлами.
+    """Check that the connectivity graph is one component containing every node.
 
-    Возвращает True/False; не бросает исключений.
+    Returns True/False; never raises.
     """
     G = nx.from_edgelist(mesh_conn)
     if len(G) != n_mp + n_map:
@@ -1276,18 +1276,18 @@ def _resolve_mesh_connectivity(
             sublimb_meshes_MP, sublimb_meshes_MAP, limb_mesh_mparty, conn_type,
         )
 
-    # ── Попытка 1: текущий connectivity_type ──────────────────────────
+    # -- Attempt 1: the current connectivity_type ----------------------
     mesh_conn, mesh_conn_vertex_groups, mesh_conn_old = attempt(connectivity_type)
 
     if _connectivity_is_valid(mesh_conn, n_mp, n_map):
         print(f"Successful mesh connectivity with type {connectivity_type}")
         return mesh_conn, mesh_conn_vertex_groups, connectivity_type
 
-    # уже на "vertices" — дальше отступать некуда, это ошибка
+    # already on "vertices" -- there is nothing left to fall back to, so this is an error
     if connectivity_type == "vertices":
         raise Exception("Something went wrong in the connectivity")
 
-    # ── Попытка 2: переключаемся на "vertices" ───────────────────────
+    # -- Attempt 2: switch to "vertices" -------------------------------
     print(f"Failed on connection type {connectivity_type}")
     connectivity_type = "vertices"
     print(f"so changing type to {connectivity_type}")
@@ -1298,7 +1298,7 @@ def _resolve_mesh_connectivity(
         print(f"Successful mesh connectivity with type {connectivity_type}")
         return mesh_conn, mesh_conn_vertex_groups, connectivity_type
 
-    # "vertices" тоже не сошёлся — финальная ошибка
+    # "vertices" did not converge either -- final error
     raise Exception("Something went wrong in the connectivity")
 
 
@@ -1317,11 +1317,11 @@ def _decompose_map_piece(
     max_stitch_distance_CGAL,
     distance_by_mesh_center,
 ):
-    """Part 9 (один MAP-кусок): CGAL-скелетонизация + mesh correspondence.
+    """Part 9 (one MAP piece): CGAL skeletonization + mesh correspondence.
 
-    Возвращает (local_correspondence_revised, curr_limb_endpoints_must_keep,
-                curr_soma_to_piece_touching_vertices). Списки must_keep/touching
-        обновляет вызывающий цикл (чтобы helper был без побочных эффектов).
+    Returns (local_correspondence_revised, curr_limb_endpoints_must_keep,
+             curr_soma_to_piece_touching_vertices). The must_keep/touching lists are
+    updated by the calling loop, so that this helper stays free of side effects.
     """
     print(f"--- Working on MAP piece {sublimb_idx}---")
     mesh_start_time = time.time()
@@ -1422,12 +1422,12 @@ def _fix_mp_soma_extension(
     curr_soma_to_piece_touching_vertices,
     limb_mesh_mparty,
 ):
-    """Part 10 (11/9 addition): для MP-сублимба, касающегося границы сомы,
-    достраивает soma-extending ветви и пересчитывает correspondence.
+    """Part 10 (11/9 addition): for an MP sublimb touching the soma border, build the
+    soma-extending branches and recompute the correspondence.
 
-    Мутирует/возвращает (segment_branches, divided_submeshes, divided_submeshes_idx,
-    segment_widths_median) плюс endpts_total, touching_total и флаг
-    no_soma_extension_add (для диагностического принта в вызывающем цикле).
+    Mutates/returns (segment_branches, divided_submeshes, divided_submeshes_idx,
+    segment_widths_median) plus endpts_total, touching_total and the
+    no_soma_extension_add flag (for the diagnostic print in the calling loop).
     """
     no_soma_extension_add = True
 
@@ -1566,11 +1566,13 @@ def _fix_mp_soma_extension(
             segment_widths_median = np.delete(segment_widths_median, match_sk_branches, axis=0)
             segment_widths_median = np.append(segment_widths_median, new_widths, axis=0)
 
+            # A failed check is informative but not fatal here: the caller proceeds with
+            # the partition either way. Warn rather than swallow it silently.
             try:
                 sk.check_skeleton_connected_component(sk.stack_skeletons(segment_branches))
-            except:
-                su.compressed_pickle(local_correspondence_revised, "local_correspondence_revised")
-            print("checked segment branches after soma add on")
+            except Exception as e:
+                warnings.warn(f"segment branches are not one connected component after the "
+                              f"soma add-on: {type(e).__name__}: {e}")
 
     return (
         segment_branches,
@@ -1584,8 +1586,8 @@ def _fix_mp_soma_extension(
 
 
 def _merge_map_mp_correspondence(limb_correspondence_MAP, limb_correspondence_MP):
-    """Part 17: схлопывает MAP- и MP-correspondence в один плоский dict
-    {branch_idx -> branch_dict}, последовательно перенумеровывая ветви."""
+    """Part 17: collapse the MAP and MP correspondences into one flat dict
+    {branch_idx -> branch_dict}, renumbering the branches consecutively."""
     limb_correspondence_individual = dict()
     counter = 0
     for sublimb_branches in limb_correspondence_MAP.values():
@@ -1604,7 +1606,7 @@ def _rearrange_network_starting_info(
     limb_to_endpoints_must_keep_list,
     soma_touching_vertices_dict,
 ):
-    """Part 18.1: перегруппировывает сырые touching-vertices/endpoints в
+    """Part 18.1: regroup the raw touching-vertices/endpoints into
     soma_idx -> border_group_idx -> [dict(touching_verts, endpoint)]."""
     network_starting_info_revised = dict()
     for v_list_dict, enpts_list_dict in zip(
@@ -1646,9 +1648,9 @@ def _clean_network_starting_info(
     limb_correspondence_individual,
     soma_touching_vertices_dict,
 ):
-    """Part 18.2: для каждого (soma, border group) выбирает один стартовый
-    endpoint — на скелете, ближайший к центру границы; если таких нет, ищет
-    новую degree-1 точку на касающихся границу ветвях."""
+    """Part 18.2: for each (soma, border group) pick one starting endpoint -- the
+    skeleton endpoint closest to the border centre; if there is none, look for a new
+    degree-1 point on the branches that touch the border."""
     sorted_keys = np.sort(list(limb_correspondence_individual.keys()))
     curr_branches = [limb_correspondence_individual[k]["branch_skeleton"] for k in sorted_keys]
     curr_meshes = [limb_correspondence_individual[k]["branch_mesh"] for k in sorted_keys]
@@ -1801,18 +1803,10 @@ def _group_into_map_mp_sublimbs(
                                 main_mesh = limb_mesh_mparty,
                                 print_flag = False)
 
-        """ 1/3/21s
-        Big Conclusion from debugging: the large mesh pieces themselves (before combining into map pieces)
-        themselves aren't totally connected by edges (can be split)
-
-        - so even if large pieces do have a shared edge and you combine them together,
-        they can still be split by the edges into multiple pieces because the original pieces
-        could be split into multiple pieces
-
-
-        """
-
-
+        # Conclusion from debugging: the large mesh pieces themselves (before being combined
+        # into MAP pieces) are not necessarily edge-connected -- they can be split. So even
+        # when two large pieces share an edge and are combined, the result can still split
+        # into multiple pieces, because the originals could.
         G = nx.Graph()
         G.add_nodes_from(np.arange(len(mesh_large_idx)))
         G.add_edges_from(mesh_large_connectivity)
@@ -2074,11 +2068,8 @@ def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_p
         else:
             print("Not even attempting smoothing segment because once keep_neighbor_coordinates")
             new_MP_skeleton = np.vstack([keep_neighbor_coordinates, else_point]).reshape(-1, 2, 3)
-    except:
-        su.compressed_pickle(MP_stitch_branch_graph, "MP_stitch_branch_graph")
-        su.compressed_pickle(keep_neighbor_coordinates, "keep_neighbor_coordinates")
-        su.compressed_pickle(target_point, "target_point")
-        raise Exception("Something went wrong with add_and_smooth_segment_to_branch")
+    except Exception as e:
+        raise Exception("Something went wrong with add_and_smooth_segment_to_branch") from e
     return sk.resize_skeleton_branch(new_MP_skeleton, segment_width=meshparty_segment_size)
 
 
@@ -2323,21 +2314,6 @@ def _recorrespond_stitch(ctx):
     stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
     stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
     stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk_for_correspondence
-    """
-
-    ****** NEED TO GET THE RIGHT MESH TO RUN HE IDX ON SO GETS A GOOD MESH (CAN'T BE LIMB_MESH_MPARTY)
-    BUT MUST BE THE ORIGINAL MAP MESH
-
-    mesh_pieces_for_MAP
-    sublimb_meshes_MP
-
-    mesh_pieces_for_MAP_face_idx
-    sublimb_meshes_MP_face_idx
-
-    stitching_mesh = tu.combine_meshes(curr_MAP_meshes + curr_MP_meshes)
-    stitching_skeleton_branches = curr_MAP_sk + curr_MP_sk
-
-    """
 
     # ******************************** this is where should do thing about no mesh correspondence ***************** #
 
@@ -2355,7 +2331,7 @@ def _recorrespond_stitch(ctx):
         #Need to readjust the mesh correspondence idx
         for k,v in local_correspondence_stitch_revised.items():
             local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
-    except:
+    except Exception:
         print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
         # Setting the correspondence manually because the adaptive way did not work
         local_counter = 0
@@ -2616,30 +2592,30 @@ def preprocess_limb(
     return_concept_network_starting_info=False,
     error_on_no_starting_coordinates=True,
 ):
-    """Декомпозирует одну ветвь (limb) на ветви скелета и mesh-correspondence.
+    """Decompose one limb into skeleton branches and their mesh correspondence.
 
-    neuron_params — параметры уровня нейрона (общие для всех веток):
+    neuron_params -- neuron-level parameters (shared by every limb):
         width_threshold_MAP, size_threshold_MAP, axon_width_preprocess_limb_max,
         use_adaptive_invalidation_d, mp_only_* , verbose.
-    limb_params — параметры конкретного прохода скелетонизации:
+    limb_params -- parameters of this particular skeletonization pass:
         invalidation_d, smooth_neighborhood, combine_close_skeleton_nodes_threshold_meshparty,
         filter_end_node_length_meshparty, use_meshafterparty, ...
-    Остальные скалярные параметры берутся из parameters.params.
+    The remaining scalar parameters are read from parameters.params.
     """
     p = parameters.params
 
-    # ── параметры уровня нейрона ───────────────────────────────────────
+    # -- neuron-level parameters ---------------------------------------
     width_threshold_MAP = neuron_params["width_threshold_MAP"]
     size_threshold_MAP = neuron_params["size_threshold_MAP"]
 
-    # ── config-driven параметры из глобального конфига ─────────────────
+    # -- config-driven parameters from the global config ----------------
     filter_end_node_length = p.filter_end_node_length
     surface_reconstruction_size = p.surface_reconstruction_size
     remove_mesh_interior_face_threshold = p.remove_mesh_interior_face_threshold
     max_stitch_distance_CGAL = p.max_stitch_distance_CGAL
-    # min_distance_threshold — module-level constant (см. строку 39)
+    # min_distance_threshold -- module-level constant (see the top of the module)
 
-    # ── фиксированные константы (бывшие дефолты сигнатуры) ─────────────
+    # -- fixed constants (formerly signature defaults) ------------------
     # meshparty_segment_size / move_MAP_stitch_to_end_or_branch / distance_to_move_point_threshold /
     # prevent_MP_starter_branch_stitches / check_correspondence_branches — module-level constants now.
     distance_by_mesh_center = True
@@ -2776,13 +2752,13 @@ def preprocess_limb(
     )
 
     # -------------- Part 18: filter the network starting info into a clean presentation ------------ #
-    # 1) перегруппировать в soma_idx -> border_group -> [dict(touching_verts, endpoint)]
+    # 1) regroup into soma_idx -> border_group -> [dict(touching_verts, endpoint)]
     network_starting_info_revised = _rearrange_network_starting_info(
         limb_to_soma_touching_vertices_list,
         limb_to_endpoints_must_keep_list,
         soma_touching_vertices_dict,
     )
-    # 2) выбрать единственный стартовый endpoint на каждую (soma, border group)
+    # 2) pick a single starting endpoint per (soma, border group)
     network_starting_info_revised_cleaned = _clean_network_starting_info(
         network_starting_info_revised,
         limb_correspondence_individual,
@@ -2815,14 +2791,26 @@ def preprocess_limb(
     return limb_correspondence_individual,limb_to_soma_concept_networks
 
 
-def _extract_single_soma(mesh, segment_id):
-    """Заменяет оригинальную Фазу 1 и 2. Ищет строго одну сому."""
+def _extract_single_soma(mesh, segment_id, max_somas=None):
+    """Replaces the original Phases 1 and 2: find exactly one soma.
+
+    `max_somas` caps the multi-piece soma search (see `extract_soma_center`). Pass 1
+    for single-neuron files. Only the first soma is used either way, so a mesh that
+    yields several is a sign the input holds more than one neuron -- hence the warning.
+    """
     (soma_mesh_list, _, total_soma_list_sdf) = extract_soma_center(
-        segment_id, mesh.vertices, mesh.faces
+        segment_id, mesh.vertices, mesh.faces, max_somas=max_somas
     )
 
     if not soma_mesh_list:
         raise ValueError(f"No soma found for segment {segment_id}")
+
+    if len(soma_mesh_list) > 1:
+        warnings.warn(
+            f"segment {segment_id}: found {len(soma_mesh_list)} somas but this pipeline is "
+            f"single-soma -- using the first and discarding the rest. If the mesh really holds "
+            f"one neuron, tighten the soma parameters; to cap the search pass max_somas=1."
+        )
 
     main_soma = soma_mesh_list[0]
     soma_sdf = total_soma_list_sdf[0]
@@ -2831,8 +2819,8 @@ def _extract_single_soma(mesh, segment_id):
 
 def _segment_limbs_from_soma(main_mesh, soma_mesh, params):
     """
-    Заменяет Фазу 3 (поиск кусков, касающихся сомы).
-    Вычитает сому из общего меша и находит точки соединения веток.
+    Replaces Phase 3 (finding the pieces that touch the soma).
+    Subtracts the soma from the whole mesh and finds where the limbs connect.
 
     Returns:
         branch_meshes: list of limb meshes touching the soma
@@ -2924,7 +2912,7 @@ def _reclaim_memory():
 
 
 def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
-    """Заменяет Фазу 4A (Скелетизация).
+    """Replaces Phase 4A (skeletonization).
 
     Args:
         soma_touching_vertices: list parallel to branch_meshes;
@@ -2933,7 +2921,7 @@ def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
     limb_correspondence = {}
     limb_network_starts = {}
 
-    # ── параметры уровня нейрона (общие для всех веток) ────────────────
+    # -- neuron-level parameters (shared by every limb) -----------------
     neuron_params = dict(
         width_threshold_MAP=params.width_threshold_MAP,
         size_threshold_MAP=params.size_threshold_MAP,
@@ -2946,7 +2934,7 @@ def _decompose_limbs(branch_meshes, soma_touching_vertices, params):
         verbose=True,
     )
 
-    # ── параметры прохода скелетонизации (одинаковые для всех веток) ───
+    # -- skeletonization-pass parameters (identical for every limb) -----
     limb_params = dict(
         invalidation_d=params.invalidation_d,
         smooth_neighborhood=1,
@@ -2989,7 +2977,7 @@ def _stitch_floating_pieces(
     params
 ):
     """
-    Пришивает отсоединенные (плавающие) участки меша обратно к основному скелету.
+    Stitches the detached (floating) mesh pieces back onto the main skeleton.
     """
     if not limb_correspondence or not floating_meshes:
         return limb_correspondence
@@ -3070,7 +3058,7 @@ def _rebuild_limb_frames(limb_correspondence, limb_meshes):
 
 def _build_concept_networks(limb_correspondence_stitched, limb_network_starts):
     """
-    Формирует графы концептов (Concept Networks) для каждой ветви.
+    Builds the concept networks for each limb.
     """
     limb_concept_networks = {}
 
@@ -3089,19 +3077,26 @@ def preprocess_neuron(
     mesh,
     segment_id,
     params = params,
-    verbose=True
+    verbose=True,
+    max_somas=None,
 ):
-    """
-    Главный пайплайн предобработки одиночного нейрона.
-    Ожидает строго одну клетку без глии.
+    """Main preprocessing pipeline for a single neuron.
 
-    Конфиг датасета (microns/h01) должен быть выбран вызывателем заранее через
-    parameters.params.use(...); здесь он НЕ перебивается.
+    Expects exactly one cell with no glia.
+
+    The dataset config (microns/h01) must be selected by the caller beforehand via
+    ``parameters.params.use(...)``; it is NOT overridden here.
+
+    Args:
+        max_somas: cap on the soma search (see `extract_soma_center`); pass 1 for
+            single-neuron files. Only the first soma is ever used.
+        verbose: print the total preprocessing time. Note the pipeline's stage
+            progress is printed unconditionally; this flag does not silence it.
     """
     start_time = time.time()
-    
 
-    soma_mesh, soma_sdf = _extract_single_soma(mesh, segment_id)
+
+    soma_mesh, soma_sdf = _extract_single_soma(mesh, segment_id, max_somas=max_somas)
 
     # extract_soma_center leaves ~2 GB of dead transients resident (reference cycles + glibc arena
     # fragmentation) that _segment_limbs_from_soma would otherwise stack its peak on top of. Reclaim

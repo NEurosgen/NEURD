@@ -1,31 +1,29 @@
 # process_all_neurons_parallel.py
 # -*- coding: utf-8 -*-
 #
-# Параллельная версия process_all_neurons.py.
+# Parallel version of process_all_neurons.py.
 #
-# Логика обработки одного меша (NEURD-сегментация, спайны через CGAL,
-# раскладка на диск, манифест) ПОЛНОСТЬЮ переиспользуется из
-# process_all_neurons.py — здесь только планировщик, который запускает
-# несколько воркеров одновременно.
+# The per-mesh work (NEURD segmentation, spines via CGAL, the on-disk layout, the
+# manifest) is reused ENTIRELY from process_all_neurons.py -- this file is only the
+# scheduler that runs several workers at once.
 #
-# Главное ограничение (ради чего всё затевалось):
-#   суммарный размер входных мешей, обрабатываемых ОДНОВРЕМЕННО, держится
-#   ниже бюджета памяти (по умолчанию 1 ГБ). Размер входного .off берётся
-#   как прокси к пику RAM — на больших мешах алгоритм раздувается и без
-#   этого ограничения несколько крупных мешей разом съедают всю оперативку.
+# The constraint that motivates it: the combined size of the input meshes being processed
+# AT THE SAME TIME is kept under a memory budget (1 GB by default). The input .off size
+# serves as a proxy for peak RAM -- the algorithm expands considerably on large meshes, so
+# without this bound a few big meshes running together exhaust system memory.
 #
-# Правила планировщика:
-#   * новый воркер стартует, только если (sum размеров уже запущенных мешей
-#     + размер кандидата) <= бюджет;
-#   * меш, который сам по себе больше бюджета, не отбрасывается — он ждёт,
-#     пока освободятся все слоты, и запускается в одиночку;
-#   * параллелизм дополнительно ограничен числом воркеров (--max-workers,
-#     по умолчанию = число ядер);
-#   * очередь отсортирована по размеру (по возрастанию): из оставшихся сразу
-#     набирается пул мелких мешей под бюджет (greedy first-fit) — они идут
-#     параллельно, а крупные оседают в хвост и обрабатываются по одному.
-#     Без сортировки крупный меш вперемешку с мелкими занимал бы почти весь
-#     бюджет и не давал мелким идти параллельно.
+# Scheduler rules:
+#   * a new worker starts only if (sum of the sizes already running + the candidate's
+#     size) <= budget;
+#   * a mesh larger than the whole budget is not dropped -- it waits until every slot is
+#     free and then runs on its own;
+#   * concurrency is additionally capped by the worker count (--max-workers, default =
+#     number of cores);
+#   * the queue is sorted by size, ascending, so try_launch() immediately fills a pool of
+#     small meshes up to the budget (greedy first-fit) and they run in parallel, while the
+#     large ones settle at the tail and are processed one at a time. Unsorted, a large
+#     mesh interleaved with small ones would be picked first, take almost the whole
+#     budget, and leave no room for the small ones to run alongside it.
 
 import os
 import gc
@@ -34,14 +32,14 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any
 
-# Те же ограничения численных бэкендов, что и в последовательной версии —
-# выставляем ДО импорта numpy/neurd (process_all_neurons тоже их ставит).
+# The same numeric-backend limits as the sequential version -- set BEFORE numpy/neurd is
+# imported (process_all_neurons sets them too).
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
-# Переиспользуем всю «рабочую» часть последовательного скрипта.
+# Reuse the whole working part of the sequential script.
 from process_all_neurons import (
     _worker_process,
     ensure_neurd_defaults,
@@ -52,7 +50,7 @@ from process_all_neurons import (
     DATA_TYPE,
 )
 
-# Бюджет памяти по умолчанию: суммарный размер одновременных мешей < 1 ГБ.
+# Default memory budget: combined size of concurrent meshes < 1 GB.
 DEFAULT_MEM_BUDGET_MB = 1024
 
 
@@ -86,7 +84,7 @@ def process_folder_parallel(
     done = read_manifest(manifest_path)
     done_failed = read_manifest(out_dir / "failed.txt")
 
-    # Список «к обработке» с размерами файлов, уже без сделанного/упавшего.
+    # The to-do list with file sizes, already excluding done/failed entries.
     pending: List[Dict[str, Any]] = []
     skipped = 0
     for f in files:
@@ -100,11 +98,11 @@ def process_folder_parallel(
             size = 0
         pending.append({"path": f, "spine_id": sid, "size": size})
 
-    # Сортируем очередь по размеру (по возрастанию). Тогда try_launch() сразу
-    # набирает пул из мелких мешей под бюджет и гонит их параллельно, а крупные
-    # оседают в хвост и идут по одному. Иначе крупный меш, стоящий вперемешку
-    # с мелкими, выбирался бы первым, занимал почти весь бюджет — и мелкие
-    # рядом не помещались, обрабатываясь фактически в один поток.
+    # Sort the queue by size, ascending: try_launch() then fills a pool of small meshes
+    # up to the budget and runs them in parallel, while large ones settle at the tail and
+    # go one at a time. Otherwise a large mesh interleaved with small ones would be picked
+    # first, take almost the whole budget, and the small ones would not fit alongside it --
+    # degenerating into effectively single-threaded processing.
     pending.sort(key=lambda j: j["size"])
 
     budget_bytes = int(mem_budget_mb) * 1024 * 1024
@@ -140,26 +138,26 @@ def process_folder_parallel(
         return sum(j["size"] for j in running)
 
     def try_launch() -> None:
-        """Запускаем столько воркеров, сколько влезает в бюджет и слоты."""
+        """Start as many workers as the budget and the free slots allow."""
         nonlocal started
         while pending and len(running) < max_workers:
             cur = in_flight_bytes()
             pick = None
             for idx, j in enumerate(pending):
                 if not running:
-                    # Ничего не крутится — стартуем самый мелкий из оставшихся
-                    # (очередь отсортирована по возрастанию); если он больше
-                    # бюджета, поедет в одиночку.
+                    # Nothing is running -- start the smallest of the remaining meshes
+                    # (the queue is sorted ascending); if it exceeds the budget it runs
+                    # on its own.
                     pick = idx
                     break
                 if cur + j["size"] <= budget_bytes:
-                    # Очередь отсортирована: первый влезающий = самый мелкий
-                    # подходящий, что максимизирует число задач в пуле.
+                    # The queue is sorted, so the first that fits is the smallest that
+                    # fits, which maximizes the number of tasks in the pool.
                     pick = idx
                     break
             if pick is None:
-                # Ни один из оставшихся не влезает в текущий остаток бюджета —
-                # ждём, пока освободятся слоты.
+                # None of the remaining meshes fits in what is left of the budget --
+                # wait for slots to free up.
                 break
 
             job = pending.pop(pick)
@@ -171,8 +169,8 @@ def process_folder_parallel(
                 daemon=False,
             )
             p.start()
-            # Закрываем записывающий конец в родителе: иначе fd течёт на
-            # каждой задаче и не детектится EOF на pipe.
+            # Close the writing end in the parent: otherwise an fd leaks per task and
+            # EOF on the pipe is never detected.
             child_conn.close()
 
             started += 1
@@ -190,7 +188,7 @@ def process_folder_parallel(
         if "result" in job:
             ok, msg = job["result"]
         else:
-            # Процесс завершился сам — забираем сообщение из pipe.
+            # The process finished on its own -- collect its message from the pipe.
             try:
                 if conn.poll(1.0):
                     ok, msg = conn.recv()
@@ -225,8 +223,8 @@ def process_folder_parallel(
                 p = job["proc"]
                 conn = job["conn"]
 
-                # Дренируем pipe, пока процесс ещё жив: большой traceback может
-                # не влезть в буфер и заблокировать воркер на send().
+                # Drain the pipe while the process is still alive: a large traceback may
+                # not fit in the buffer and would block the worker in send().
                 try:
                     if "result" not in job and conn.poll(0):
                         job["result"] = conn.recv()
@@ -256,7 +254,7 @@ def process_folder_parallel(
                 running.remove(job)
                 finalize(job)
 
-            # Спим, только если ничего не завершилось (иначе сразу досыпаем слоты).
+            # Sleep only if nothing finished (otherwise refill the slots immediately).
             if running and not finished:
                 time.sleep(poll_interval)
 
@@ -280,22 +278,22 @@ if __name__ == "__main__":
     import argparse
 
     ap = argparse.ArgumentParser(
-        description="Параллельная NEURD-сегментация мешов (H01) с бюджетом памяти.")
-    ap.add_argument("input_dir", type=str, help="Папка с мешами (.off/.ply/...)")
+        description="Parallel NEURD segmentation of neuron meshes, under a memory budget.")
+    ap.add_argument("input_dir", type=str, help="directory of meshes (.off/.ply/...)")
     ap.add_argument("output_dir", type=str,
-                    help="Папка для сегментаций (каждая как исходный basename)")
+                    help="output directory (one subdir per input basename)")
     ap.add_argument("--pattern", type=str, default="*.off",
-                    help="Глоб-маска входных файлов")
+                    help="glob for the input files")
     ap.add_argument("--manifest", type=str, default="processed.txt",
-                    help="Путь к манифесту (по умолчанию: <output_dir>/processed.txt)")
+                    help="manifest path (default: <output_dir>/processed.txt)")
     ap.add_argument("--no-save", action="store_true",
-                    help="Не отмечать в манифесте (dry-run манифеста)")
-    ap.add_argument("--no-decimate", action="store_true", help="Отключить decimation")
+                    help="do not record entries in the manifest (manifest dry run)")
+    ap.add_argument("--no-decimate", action="store_true", help="disable decimation")
     ap.add_argument("--max-workers", type=int, default=int(os.environ.get("SEG_MAX_WORKERS", "0")),
-                    help="Максимум одновременных воркеров (0 = число ядер)")
+                    help="maximum concurrent workers (0 = number of cores)")
     ap.add_argument("--mem-budget-mb", type=int,
                     default=int(os.environ.get("SEG_MEM_BUDGET_MB", str(DEFAULT_MEM_BUDGET_MB))),
-                    help="Бюджет суммарного размера одновременных мешей, МБ (по умолч. 1024)")
+                    help="budget for the combined size of concurrent meshes, MB (default 1024)")
     args = ap.parse_args()
 
     process_folder_parallel(
@@ -309,6 +307,9 @@ if __name__ == "__main__":
         mem_budget_mb=args.mem_budget_mb,
     )
 
-# Пример запуска (бюджет 1 ГБ, до 4 воркеров):
-# python process_all_neurons_parallel.py /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01 /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01_Seg --max-workers 8 --mem-budget-mb 1024
-# Для микронс python process_all_neurons_parallel.py /mnt/wwn-0x50014ee26c2ca7b0-part1/minnie65_meshes /mnt/wwn-0x50014ee26c2ca7b0-part1/minnie65_seg_part_2 --max-workers 8 --mem-budget-mb 1024
+# Example (1 GB budget, up to 8 workers):
+#   python process_all_neurons_parallel.py path/to/meshes path/to/output_segmentations \
+#       --max-workers 8 --mem-budget-mb 1024
+#
+# NOTE: the 1024 MB default predates the -33% / -18% peak-RAM work, so it is now
+# conservative -- a larger budget will usually keep more workers busy.

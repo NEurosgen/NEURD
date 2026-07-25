@@ -1005,7 +1005,7 @@ def calculate_spines_skeletal_length(neuron_obj):
     for k in neuron_obj.spines:
         try:
             curr_skeletal_length = sk.calculate_skeleton_distance(sk.surface_skeleton(k))
-        except:
+        except Exception:
             curr_skeletal_length = 0 
 
         sk_len_array.append(curr_skeletal_length)
@@ -1352,7 +1352,7 @@ def all_soma_connnecting_endpionts_from_starting_info(starting_info):
             for soma_idx,soma_v in limb_start_v.items():
                 for soma_group_idx,group_v in soma_v.items():
                     all_endpoints.append(group_v["endpoint"])
-    except:
+    except Exception:
         for soma_idx,soma_v in starting_info.items():
             for soma_group_idx,group_v in soma_v.items():
                 all_endpoints.append(group_v["endpoint"])
@@ -1473,7 +1473,7 @@ def skeletal_distance_from_soma(curr_limb,
             print(f"--> Working on soma {sm_start}")
         try:
             curr_limb_copy.set_concept_network_directional(sm_start)
-        except:
+        except Exception:
             if print_flag:
                 print(f"Limb ({limb_name}) was not connected to soma {sm_start} accordinag to all concept networks")
             continue
@@ -1491,7 +1491,7 @@ def skeletal_distance_from_soma(curr_limb,
             #( could potentially not be there because it is directional)
             try:
                 curr_shortest_path = nx.shortest_path(curr_directional_network,starting_node,n)
-            except:
+            except Exception:
                 #return_dict[n] = np.inf
                 continue
             #2) convert the path into skeletal distance of each node and then add up
@@ -1829,7 +1829,7 @@ def branches_within_skeletal_distance(limb_obj,
         #- get the shortest path from the node to the starting node
         try:
             curr_shortest_path = nx.shortest_path(G,start_branch,n)
-        except:
+        except Exception:
             if verbose:
                 print(f"Continuing because No path between start node ({start_branch}) and node {n}")
             continue 
@@ -1933,7 +1933,7 @@ def max_soma_volume(neuron_obj,
     
     try:
         soma_volumes = [tu.mesh_volume(neuron_obj[k].mesh)/divisor for k in neuron_obj.get_soma_node_names()] 
-    except:
+    except Exception:
         return 0
     
     largest_volume = np.max(soma_volumes)
@@ -2368,7 +2368,7 @@ def branch_path_to_node(limb_obj,
     try:
         shortest_path = nx.shortest_path(G,
                                          start_idx,destination_idx)
-    except:
+    except Exception:
         shortest_path = None
         
     if verbose:
@@ -2581,9 +2581,9 @@ def calculate_decomposition_products(
 #--- from neurd_packages ---
 
 # P1/P3: neuron_utils is now a true intra-package SINK (imports nothing from neurd at
-# module level), so all 9 modules that import it load without a cycle. The three names it
-# used (neuron.Branch, concept_network_utils.subgraph_around_branch,
-# neuron_statistics.skeleton_stats_from_neuron_obj) are now local imports at their call sites.
+# module level), so all 9 modules that import it load without a cycle. The two names it
+# uses (neuron.Branch, neuron_statistics.skeleton_stats_from_neuron_obj) are local imports
+# at their call sites.
 
 #--- from mesh_tools ---
 from neurd import _correspondence_backend as cb

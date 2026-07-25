@@ -88,7 +88,7 @@ def skeleton_distance_branch(curr_branch,name=None,branch_name=None,**kwargs):
     try:
         #print(f"curr_branch.skeleton = {curr_branch.skeleton.shape}")
         return sk.calculate_skeleton_distance(curr_branch.skeleton)
-    except:
+    except Exception:
         print(f"curr_branch.skeleton = {curr_branch.skeleton}")
         raise Exception("")
         
@@ -97,7 +97,7 @@ def skeletal_length(curr_branch,name=None,branch_name=None,**kwargs):
     try:
         #print(f"curr_branch.skeleton = {curr_branch.skeleton.shape}")
         return sk.calculate_skeleton_distance(curr_branch.skeleton)
-    except:
+    except Exception:
         print(f"curr_branch.skeleton = {curr_branch.skeleton}")
         raise Exception("")
         
@@ -115,7 +115,7 @@ def width_new(branch,limb_name=None,branch_name=None,width_new_name="no_spine_me
               **kwargs):
     try:
         return branch.width_new[width_new_name]
-    except:
+    except Exception:
         return branch.width_new[width_new_name_backup]
 
 
@@ -212,22 +212,6 @@ def convert_limb_function_return_to_dict(function_return,
     
     return function_mapping_dict
 
-def convert_limb_function_return_to_limb_branch_dict(function_return,
-                                        curr_limb_concept_network,
-                                                    limb_name):
-    """
-    Purpose: returns a dictionary that maps limb to valid branches
-    according to a function return that is True or False
-    (only includes the branches that are true from the function_return)
-    
-    Result: retursn a dictionary like dict(L1=[3,5,8,9,10])
-    """
-    new_dict = convert_limb_function_return_to_dict(function_return,
-                                        curr_limb_concept_network)
-    return {limb_name:[k for k,v in new_dict.items() if v == True]}
-    
-
-
 @run_options(run_type="Limb")
 def skeleton_distance_limb(curr_limb,limb_name=None,**kwargs):
     curr_skeleton = curr_limb.get_skeleton()
@@ -296,134 +280,6 @@ axon_width_like_functions_list = [
 
 
 
-
-
-@run_options(run_type="Limb")
-def axon_segment_downstream_dendrites(curr_limb,limb_branch_dict,limb_name=None,downstream_face_threshold=5000,
-                                      downstream_non_axon_percentage_threshold = 0.5,
-                                      max_skeletal_length_can_flip=20000,
-                                      distance_for_downstream_check = 50000,
-                 print_flag=False,
-                 limb_starting_angle_dict=None,
-                limb_starting_angle_threshold = 155,
-                 #return_limb_branch_dict=False,
-                 **kwargs):
-    """
-    Purpose: To filter the aoxn-like segments (so that does not mistake dendritic branches)
-    based on the criteria that an axon segment should not have many non-axon upstream branches
-    
-    Example on how to run: 
-    
-    curr_limb_name = "L1"
-    curr_limb = uncompressed_neuron.concept_network.nodes[curr_limb_name]["data"]
-    ns = reload(ns)
-
-    return_value = axon_segment(curr_limb,limb_branch_dict=limb_branch_dict,
-                 limb_name=curr_limb_name,downstream_face_threshold=5000,
-                     print_flag=False)
-    return_value
-    """
-    
-   
-    
-    
-    if print_flag:
-        print(f"downstream_face_threshold= {downstream_face_threshold}")
-        print(f"downstream_non_axon_percentage_threshold = {downstream_non_axon_percentage_threshold}")
-        print(f"max_skeletal_length_can_flip = {max_skeletal_length_can_flip}")
-        print(f"distance_for_downstream_check = {distance_for_downstream_check}")
-        #print(f"limb_branch_dict= {limb_branch_dict}")
-        
-    #curr_limb_branch_dict = kwargs["function_kwargs"]["limb_branch_dict"]
-    
-    curr_limb_branch_dict = limb_branch_dict
-    
-    if limb_name not in list(curr_limb_branch_dict.keys()):
-        return False
-    
-    curr_axon_nodes = curr_limb_branch_dict[limb_name]
-    
-#     if print_flag:
-#         print(f"curr_axon_nodes = {curr_axon_nodes}")
-    
-    curr_limb_copy = deepcopy(curr_limb) #deepcopying so don't change anything
-    
-    non_axon_nodes = []
-    #1) Get all of the concept maps (by first getting all of the somas)
-    touching_somas = [k["starting_soma"] for k in curr_limb_copy.all_concept_network_data]
-    #2) For each of the concept maps: 
-    for sm_start in touching_somas:
-        curr_limb_copy.set_concept_network_directional(sm_start)
-        curr_directional_network = curr_limb_copy.concept_network_directional
-        
-        #- For each node: 
-        for n in curr_axon_nodes:
-            
-            # ----------- 1/28: Only want to go downstream for a certain extent, and only want to flip back to dendrite if small segments
-            if curr_limb[n].skeletal_length > max_skeletal_length_can_flip:
-                if print_flag:
-                    print(f"Skipping a possible flip because the length is too long for threshold ({max_skeletal_length_can_flip}): {curr_limb[n].skeletal_length}")
-                continue
-            #a. Get all of the downstream nodes
-            
-            curr_downstream_nodes = nru.branches_within_skeletal_distance(limb_obj = curr_limb_copy,
-                            start_branch = n,
-                            max_distance_from_start = distance_for_downstream_check,
-                            verbose = False,
-                            include_start_branch_length = False,
-                            include_node_branch_length = False,
-                            only_consider_downstream = True)
-            
-            #curr_downstream_nodes = xu.downstream_edges(curr_directional_network,n)
-            
-            # if there are any downstream nodes
-            if len(curr_downstream_nodes) > 0:
-                #curr_downstream_nodes = np.concatenate(curr_downstream_nodes)
-                #b. Get the total number of faces for all upstream non-axon nodes
-                curr_non_axon_nodes = set([k for k in curr_downstream_nodes if k not in curr_axon_nodes])
-                downstream_axon_nodes = set([k for k in curr_downstream_nodes if k in curr_axon_nodes])
-                
-                if len(curr_non_axon_nodes) > 0: 
-                    non_axon_face_count = np.sum([len(curr_limb_copy.concept_network.nodes[k]["data"].mesh.faces) for k in curr_non_axon_nodes])
-                    axon_face_count = np.sum([len(curr_limb_copy.concept_network.nodes[k]["data"].mesh.faces) for k  in downstream_axon_nodes])
-                    perc_non_axon = non_axon_face_count / (non_axon_face_count + axon_face_count)
-                    if print_flag:
-                        print(f"Soma {sm_start}, limb {limb_name}, node {n} had {non_axon_face_count} non-axon downstream faces, {axon_face_count} axon downstream for a percentage of {perc_non_axon}")  
-                    #if non_axon_face_count > downstream_face_threshold:
-                    
-                    # ----------- 1/20 addition: That factors in percentages and not just raw face count ------- #
-                    if downstream_non_axon_percentage_threshold is not None:
-                        if print_flag:
-                            print(f"perc_non_axon for limb_{limb_name}_node_{n},  = {perc_non_axon}")
-                        reverse_label = perc_non_axon > downstream_non_axon_percentage_threshold and non_axon_face_count > downstream_face_threshold
-                    else:
-                        reverse_label = non_axon_face_count > downstream_face_threshold
-                    
-                    if reverse_label:
-                        non_axon_nodes.append(n)
-                        if print_flag:
-                            print(f"     Added {n} to non-axon list")
-                else:
-                    if print_flag:
-                        print(f"Soma {sm_start}, limb {limb_name}, node {n} did not hae any NON-AXON downstream targets")
-            else:
-                if print_flag:
-                    print(f"Soma {sm_start}, limb {limb_name}, node {n} did not hae any downstream targets")
-    
-    #compile all of the non-axon nodes
-    total_non_axon_nodes = set(non_axon_nodes)
-    
-    if print_flag:
-        print(f"total_non_axon_nodes = {total_non_axon_nodes}")
-    #make a return dictionary that shows the filtered down axons
-    return_dict = dict()
-    for n in curr_limb_copy.concept_network.nodes():
-        if n in curr_axon_nodes and n not in total_non_axon_nodes:
-            return_dict[n] = True
-        else:
-            return_dict[n] = False
-    
-    return return_dict
 
 
 # ------- 2/3: Will help flip dendrites back to axons (to help with axon identification) --------------- #
@@ -640,7 +496,7 @@ def get_run_type(f):
     """
     try:
         curr_run_type = getattr(f,"run_type",)
-    except:
+    except Exception:
         try:
             first_arg_name = fcu.arg_names(f)[0].lower()
             if "branch" in first_arg_name:
@@ -649,7 +505,7 @@ def get_run_type(f):
                 curr_run_type = "Limb"
             else:
                 raise Exception("No branch argument")
-        except:
+        except Exception:
             curr_run_type = "Branch"
     else:
         pass
@@ -730,16 +586,7 @@ def apply_function_to_neuron(current_neuron,current_function,function_kwargs=Non
             function_mapping[limb_name] =  convert_limb_function_return_to_dict(function_return,
                                                         curr_limb_concept_network)
             
-            """ Older way of doing this before functionality was moved out to function
-            if np.isscalar(function_return):
-                for branch_idx in curr_limb_concept_network.nodes():
-                    function_mapping[limb_name][branch_idx] = function_return
-            elif set(list(function_return.keys())) == set(list(curr_limb_concept_network.nodes())):
-                function_mapping[limb_name] = function_return
-            else:
-                raise Exception("The value returned from limb function was not a scalar nor did it match the keys of the limb branches")
-            """
-        
+
     else:
         raise Exception("Function recieved was neither a Branch nor a Limb")
         
@@ -830,9 +677,8 @@ def generate_neuron_dataframe(current_neuron,
         
     if check_nans:
         if pu.n_nans_total(curr_df) > 0:
-            print(f"Number of nans = {pu.n_nans_per_column(curr_df)}")
-            su.compressed_pickle(curr_df,"curr_df")
-            raise Exception("Some fo the data in the dataframe were incomplete")
+            raise Exception("Some of the data in the dataframe were incomplete; "
+                            f"nans per column = {pu.n_nans_per_column(curr_df)}")
             
     
     #4) return the dataframe
@@ -1037,7 +883,7 @@ def query_neuron(
             try:
                 curr_feature = getattr(current_module, f,f)
                 #curr_feature = 0
-            except:
+            except Exception:
                 raise Exception(f"The funciton {f} specified by string was not a pre-made funciton in neuron_searching module")
         elif callable(f):
             curr_feature = f
@@ -1077,14 +923,6 @@ def query_neuron(
     
     
     if len(filtered_returned_df)>0:
-        """ -- old method --
-        limb_branch_pairings = filtered_returned_df[["limb","node"]].to_numpy()
-
-        #gets a dictionary where key is the limb and value is a list of all the branches that were in the filtered dataframe
-        limb_to_branch = dict([(k,np.sort(limb_branch_pairings[:,1][np.where(limb_branch_pairings[:,0]==k)[0]]).astype("int")) 
-                               for k in np.unique(limb_branch_pairings[:,0])])
-        """
-        
         limb_to_branch = limb_branch_from_stats_df(filtered_returned_df)
         
         
@@ -1220,55 +1058,6 @@ def area(curr_branch,name=None,branch_name=None,**kwargs):
 
 # ------------- skeletal angles -------------
 
-
-def set_limb_functions_for_search(
-    module,
-    functions = None,
-    append_name = limb_function_append_name,
-    verbose = False):
-    """
-    Purpose: To add wrappers for all the functions
-    so can operate in generating a neurons dataframe
-    
-    Pseudocode: 
-    1) Get all of the functions in the module
-    2) Filter the functions for only those that have limb in the first arg
-    
-    For all functions
-    3) Send each of the functions through the wrapper
-    4) Set the function in module with new name
-    """
-    if functions is None:
-        all_func_names = fcu.all_functions_from_module(module,return_only_names=True)
-    else:
-        all_func_names = functions
-        
-    limb_funcs = [k for k in all_func_names if "limb" in fcu.arg_names(getattr(module,k))[0]]
-    
-    if verbose:
-        print(f"all_func_name = {all_func_names}")
-        print(f"limb_funcs = {limb_funcs}")
-        
-    def rename(newname):
-        def decorator(f):
-            f.__name__ = newname
-            return f
-        return decorator
-        
-    for f in limb_funcs:
-        new_name = f"{f}_{append_name}"
-        if verbose:
-            print(f"Creating new function: {new_name}")
-        f_func = getattr(module,f)
-        def make_func(func):
-            @rename(new_name)
-            def dummy_func(curr_limb,limb_name=None,limb_branch_dict_restriction=None,**kwargs):
-                return run_limb_function(func,curr_limb=curr_limb,
-                                 limb_name=limb_name,
-                                 limb_branch_dict_restriction=limb_branch_dict_restriction,
-                                 **kwargs)
-            return dummy_func
-        setattr(module,new_name,make_func(f_func))
 
 # --- for better controlling stitching errors --
 
