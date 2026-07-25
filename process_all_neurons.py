@@ -1,16 +1,17 @@
-# process_all_neurons_with_manifest_h01.py
+# process_all_neurons.py
 # -*- coding: utf-8 -*-
 #
-# Версия пайплайна сегментации мешов нейронов с использованием NEURD,
-# настроенная под датасет H01 (вместо MICrONS).
+# Batch driver for the slim NEURD segmentation pipeline: walks a directory of neuron
+# meshes, decomposes each one, and writes the segmentation to disk. Progress is tracked
+# in a manifest so an interrupted run resumes where it stopped.
 #
-# Главные отличия от process_all_neurons_with_manifest.py:
-#   1. ensure_neurd_defaults() выставляет data_type="h01"
-#   2. Для каждой limb сохраняется детальная информация о связях между
-#      branch'ами: помимо branch_nodes.npy / branch_edges.npy теперь
-#      пишется connectivity.json — со списком ориентированных рёбер
-#      (parent_branch_idx -> child_branch_idx) от корневого (сомы)
-#      branch'а ко всем остальным, плюс карта parent для каждого branch.
+# For every limb it records the branch connectivity: alongside branch_nodes.npy /
+# branch_edges.npy it writes connectivity.json, holding the directed edges
+# (parent_branch_idx -> child_branch_idx) from the soma-attached root branch outward,
+# plus a parent map for each branch.
+#
+# The dataset parameter set is chosen by DATA_TYPE below -- set it to "h01" for H01
+# meshes, "microns" for MICrONS.
 
 import os
 import gc
@@ -21,16 +22,18 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Set, Any, Dict, List, Optional, Tuple
 
-# Ограничим параллелизм численных бэкендов
+# Keep the numeric backends single-threaded (we parallelize across meshes, not inside them)
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
-# CGAL SDF ray count (mesh_segmentation — крупнейший рычаг wall-времени, ~38% на
-# больших мешах). Стоимость ~линейна по числу лучей; 12 даёт ~2x на CGAL-части при
-# сохранении структуры (сома/ветки инвариантны, шипики целы; SDF corr ~0.99).
-# setdefault => внешний NEURD_SDF_RAYS перекрывает; 25 = байтовый дефолт CGAL.
+# CGAL SDF ray count. mesh_segmentation is the largest wall-time lever (~38% on big
+# meshes) and its cost is ~linear in the ray count; 12 gives ~2x on the CGAL part while
+# leaving the structure intact (soma/branches invariant, spines preserved, SDF corr ~0.99).
+# setdefault => an external NEURD_SDF_RAYS wins; 25 is CGAL's own default.
+# NOTE: only the compiled cgal_Segmentation_Module reads this. On the pure-Python
+# fallback (neurd/_cgal_segmentation.py) it has no effect -- see cgal/README.md.
 os.environ.setdefault("NEURD_SDF_RAYS", "12")
 
 import numpy as np
@@ -39,14 +42,14 @@ from neurd import neuron
 from neurd import parameters
 from mesh_tools import trimesh_utils as tu
 
-# ---------------------- ПАРАМЕТРЫ ----------------------
+# ---------------------- PARAMETERS ----------------------
 
 DECIMATION_PARAMETERS = dict(decimation_ratio=0)
 EXPORT_EXT = ".off"
-DATA_TYPE = "microns"  # <-- ключевое отличие от microns-версии
+DATA_TYPE = "microns"  # <-- the dataset parameter set: "microns" or "h01"
 
 
-# ---------------------- УТИЛИТЫ ПАМЯТИ / ПРОЦЕССА ----------------------
+# ---------------------- MEMORY / PROCESS UTILITIES ----------------------
 
 def _try_import_psutil():
     try:
@@ -69,7 +72,7 @@ def _rss_mb(pid=None):
 
 def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
     """
-    Обработка одного меша в отдельном процессе (изоляция OOM).
+    Process one mesh in its own process, so an OOM kill cannot take down the batch.
     """
     import tempfile, shutil
     _orig_cwd = os.getcwd()
@@ -80,8 +83,8 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         from neurd import neuron
         import gc
 
-        # настройки h01 должны быть выставлены ещё в родительском процессе,
-        # но повторим в воркере, потому что spawn-процессы не наследуют состояние
+        # the parent process already applied these, but repeat it in the worker because
+        # spawned processes do not inherit the parameter state
         ensure_neurd_defaults()
 
         # Resolve to ABSOLUTE before chdir, then run this worker in a private temp CWD. NEURD's soma
@@ -98,12 +101,12 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
         neuron_base = out_dir / basename
 
         mesh = tu.load_mesh_no_processing(str(off_path))
-        mesh_proc = mesh  # decimate отключён, как и в microns-версии
+        mesh_proc = mesh  # decimation is off by default (DECIMATION_PARAMETERS ratio=0)
 
-        # Спайны ВКЛЮЧЕНЫ: настоящий CGAL SDF-сегментатор (cgal_Segmentation_Module,
-        # cgal/cgal_segmentation/) восстановлен — даёт тонкую over-сегментацию для детекции
-        # шипиков (KMeans-заглушка давала 0). Стоит ~+100s/нейрон. Меши шипиков сохраняются
-        # в branch_*/spines/spine_*.off (save_segmentation).
+        # Spines are ON: the real CGAL SDF segmenter (cgal_Segmentation_Module, built from
+        # cgal/cgal_segmentation/) produces the fine over-segmentation spine detection needs
+        # (the KMeans stand-in yielded 0 spines). Costs ~+100 s/neuron. Spine meshes are
+        # written to branch_*/spines/spine_*.off by save_segmentation.
         neuron_obj = neuron.Neuron(mesh=mesh_proc, calculate_spines=True)
         save_segmentation(neuron_obj, neuron_base)
 
@@ -126,12 +129,12 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
             pass
 
 
-# ---------------------- ДОСТУП К CONCEPT NETWORK ЛИМБА ----------------------
+# ---------------------- ACCESS TO A LIMB'S CONCEPT NETWORK ----------------------
 
 def _get_limb_concept_network(limb):
     """
-    Универсально достаём concept_network лимба.
-    Возвращает networkx-совместимый граф или None.
+    Get a limb's concept_network regardless of how it is stored.
+    Returns a networkx-compatible graph, or None.
     """
     cn = getattr(limb, "concept_network", None)
     if cn is not None:
@@ -146,8 +149,8 @@ def _get_limb_concept_network(limb):
 
 def _get_limb_starting_node(limb) -> Optional[int]:
     """
-    Возвращает индекс branch'а, соединённого с сомой (корень лимба).
-    NEURD хранит его в разных атрибутах в зависимости от версии.
+    Return the index of the branch attached to the soma (the limb's root).
+    NEURD keeps it in different attributes depending on the version.
     """
     for name in ("current_starting_node",
                  "starting_node",
@@ -162,7 +165,7 @@ def _get_limb_starting_node(limb) -> Optional[int]:
         except Exception:
             pass
 
-    # запасной путь — через .data
+    # fallback: through .data
     data = getattr(limb, "data", None)
     if data is not None:
         for name in ("current_starting_node", "starting_node"):
@@ -185,12 +188,13 @@ def _to_int_safe(x):
 
 def _build_parent_map(cn, root: Optional[int]) -> Tuple[List[Tuple[int, int]], Dict[int, Optional[int]]]:
     """
-    Из неориентированного concept_network строим ориентированную иерархию,
-    с корнем в `root` (branch, касающийся сомы).
-    Возвращает:
-       directed_edges: список (parent, child)
-       parent_map:     dict child -> parent  (для корня значение None)
-    Если root не задан или не найден — выбираем произвольный узел минимальной степени.
+    Build a directed hierarchy from the undirected concept_network, rooted at `root`
+    (the branch touching the soma).
+
+    Returns:
+       directed_edges: list of (parent, child)
+       parent_map:     dict child -> parent (None for the root)
+    If root is not given or not found, pick an arbitrary node of minimum degree.
     """
     import networkx as nx
 
@@ -204,20 +208,20 @@ def _build_parent_map(cn, root: Optional[int]) -> Tuple[List[Tuple[int, int]], D
         return [], {}
 
     if root is None or root not in G.nodes:
-        # эвристика: берём узел минимальной степени (часто лист, близкий к соме)
+        # heuristic: take a node of minimum degree (often a leaf near the soma)
         root = min(G.nodes, key=lambda n: G.degree(n))
 
     directed_edges: List[Tuple[int, int]] = []
     parent_map: Dict[int, Optional[int]] = {root: None}
 
-    # обходим BFS по каждой компоненте, начиная с root, затем по остальным
+    # BFS over each component, starting from root, then the rest
     visited = set()
     components = list(nx.connected_components(G))
-    # вытащим компоненту с root наверх
+    # move the component containing root to the front
     components.sort(key=lambda c: 0 if root in c else 1)
 
     for comp in components:
-        # стартовая вершина компоненты
+        # starting node of this component
         start = root if root in comp else min(comp, key=lambda n: G.degree(n))
         if start not in parent_map:
             parent_map[start] = None
@@ -238,19 +242,19 @@ def _build_parent_map(cn, root: Optional[int]) -> Tuple[List[Tuple[int, int]], D
 
 def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
     """
-    Сохраняет связность лимба в нескольких форматах:
-      branch_nodes.npy            — все индексы branch'ей в графе
-      branch_edges.npy            — неориентированные рёбра (u, v)
-      connectivity.json           — ориентированная иерархия от сомы:
+    Save a limb's connectivity in several formats:
+      branch_nodes.npy            -- every branch index in the graph
+      branch_edges.npy            -- undirected edges (u, v)
+      connectivity.json           -- the directed hierarchy from the soma:
             {
               "root_branch": <int|null>,
               "directed_edges": [[parent, child], ...],
               "parent_of": { "<child>": <parent or null>, ... },
               "children_of": { "<parent>": [<child>, ...], ... }
             }
-      branch_index_map.json       — соответствие branch_index <-> node_id в графе
-                                    (если индексы не совпадают)
-    Возвращает количество неориентированных рёбер (для summary).
+      branch_index_map.json       -- branch_index <-> graph node_id correspondence
+                                    (written only when the two differ)
+    Returns the number of undirected edges (for the summary).
     """
     cn = _get_limb_concept_network(limb)
     if cn is None:
@@ -273,7 +277,7 @@ def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
         edges_arr = np.asarray(edges, dtype=object)
     np.save(limb_dir / "branch_edges.npy", edges_arr)
 
-    # ---- ориентированная иерархия с корнем у сомы ----
+    # ---- directed hierarchy rooted at the soma ----
     root = _get_limb_starting_node(limb)
     directed_edges, parent_map = _build_parent_map(cn, root)
 
@@ -297,7 +301,7 @@ def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
     with open(limb_dir / "connectivity.json", "w", encoding="utf-8") as f:
         json.dump(connectivity_payload, f, ensure_ascii=False, indent=2)
 
-    # ---- соответствие индексов ветвей в limb.branches и node_id в графе ----
+    # ---- map limb.branches indices to graph node ids ----
     branches = getattr(limb, "branches", [])
     branch_to_node: List[Optional[int]] = []
     for bi, br in enumerate(branches):
@@ -323,16 +327,16 @@ def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
     return len(edges)
 
 
-# ---------------------- УСТАНОВКА NEURD (H01) ----------------------
+# ---------------------- NEURD SETUP ----------------------
 
 def ensure_neurd_defaults():
     """
-    Выставляем глобальные параметры NEURD под датасет H01.
+    Apply the NEURD parameter set selected by DATA_TYPE.
     """
     parameters.params.use(DATA_TYPE)
 
 
-# ---------------------- МАНИФЕСТ ----------------------
+# ---------------------- MANIFEST ----------------------
 
 def read_manifest(manifest_path: Path) -> Set[str]:
     if not manifest_path.exists():
@@ -358,7 +362,7 @@ def append_manifest_atomic(manifest_path: Path, entry: str) -> None:
     os.replace(tmp, manifest_path)
 
 
-# ---------------------- СОХРАНЕНИЕ ----------------------
+# ---------------------- SAVING ----------------------
 
 def _safe_export_mesh(mesh_obj, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -431,7 +435,7 @@ def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
                 cnt += 1
             spines_per_branch.append(cnt)
 
-        # короткая выжимка по связности — полезно держать в общем summary
+        # short connectivity digest -- handy to keep in the overall summary
         cn = _get_limb_concept_network(limb)
         n_nodes = cn.number_of_nodes() if cn is not None else 0
         n_edges = cn.number_of_edges() if cn is not None else 0
@@ -456,7 +460,7 @@ def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
 
 def save_segmentation(neuron_obj, base_dir: Path) -> None:
     """
-    Раскладка:
+    Layout:
       base_dir/
         soma/soma_mesh.off
         summary.json
@@ -512,9 +516,8 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
             if skeleton_branch is not None:
                 _safe_save_array(np.asarray(skeleton_branch), br_dir / "branch_skeleton.npy")
 
-            # Спайны: branch.spines — список trimesh-submesh'ей ветки (neuron.py:2536).
-            # Сохраняем каждый как spine_<i>.off в подпапку spines/. Если шипиков нет
-            # (ветка без шипиков) — папка не создаётся.
+            # branch.spines is the list of the branch's trimesh submeshes. Each is saved as
+            # spines/spine_<i>.off; branches without spines get no spines/ directory.
             spines = list(_iter_spines(branch))
             if spines:
                 spines_dir = br_dir / "spines"
@@ -524,14 +527,14 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
                         _safe_export_mesh(spine_mesh, spines_dir / f"spine_{spine_ind:03d}{EXPORT_EXT}")
 
 
-# ---------------------- ОБРАБОТКА ОДНОГО МЕША (без подпроцесса) ----------------------
+# ---------------------- PROCESS ONE MESH (in-process) ----------------------
 
 def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True) -> Path:
     basename = off_path.stem
     neuron_base = out_dir / basename
 
     mesh = tu.load_mesh_no_processing(str(off_path))
-    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=True)  # спайны включены (CGAL segmentation)
+    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=True)  # spines on (CGAL segmentation)
     save_segmentation(neuron_obj, neuron_base)
 
     del neuron_obj, mesh
@@ -539,7 +542,7 @@ def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True) ->
     return neuron_base
 
 
-# ---------------------- ОБРАБОТКА ПАПКИ С МАНИФЕСТОМ ----------------------
+# ---------------------- PROCESS A DIRECTORY, TRACKED BY MANIFEST ----------------------
 
 def process_folder_with_manifest(
     input_dir: str,
@@ -639,14 +642,14 @@ def process_folder_with_manifest(
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="NEURD-сегментация мешов нейронов для датасета H01.")
-    ap.add_argument("input_dir", type=str, help="Папка с мешами (.off/.ply/...)")
-    ap.add_argument("output_dir", type=str, help="Папка для сегментаций (каждая как исходный basename)")
-    ap.add_argument("--pattern", type=str, default="*.off", help="Глоб-маска входных файлов")
+    ap = argparse.ArgumentParser(description="NEURD segmentation of neuron meshes.")
+    ap.add_argument("input_dir", type=str, help="directory of meshes (.off/.ply/...)")
+    ap.add_argument("output_dir", type=str, help="output directory (one subdir per input basename)")
+    ap.add_argument("--pattern", type=str, default="*.off", help="glob for the input files")
     ap.add_argument("--manifest", type=str, default="processed.txt",
-                    help="Путь к манифесту (по умолчанию: <output_dir>/processed.txt)")
-    ap.add_argument("--no-save", action="store_true", help="Dry-run: не писать на диск")
-    ap.add_argument("--no-decimate", action="store_true", help="Отключить decimation")
+                    help="manifest path (default: <output_dir>/processed.txt)")
+    ap.add_argument("--no-save", action="store_true", help="dry run: do not write to disk")
+    ap.add_argument("--no-decimate", action="store_true", help="disable decimation")
     args = ap.parse_args()
 
     process_folder_with_manifest(
@@ -658,5 +661,5 @@ if __name__ == "__main__":
         no_decimate=args.no_decimate,
     )
 
-# Пример запуска: neuron_1830470325
-# python process_all_neurons.py /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01 /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/H01_Seg
+# Example:
+#   python process_all_neurons.py path/to/meshes path/to/output_segmentations

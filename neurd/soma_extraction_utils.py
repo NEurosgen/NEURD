@@ -210,155 +210,6 @@ def filter_away_inside_soma_pieces(
         return final_mesh_pieces
 
 
-# subtacting the soma
-
-
-def subtract_soma(current_soma_list,main_mesh,
-                 significance_threshold=200,
-                 distance_threshold = 1500,
-                  connectivity="edges",
-                 ):
-    if type(current_soma_list) == type(trimesh.Trimesh()):
-        current_soma_list = [current_soma_list]
-
-    if type(current_soma_list) != list:
-        raise Exception("Subtract soma was not passed a trimesh object or list for it's soma parameter")
-
-
-    print("\ninside Soma subtraction")
-    start_time = time.time()
-    current_soma = tu.combine_meshes(current_soma_list)
-    face_midpoints_soma = current_soma.triangles_center
-
-    all_bounds = [k.bounds for k in  current_soma_list]
-
-
-    curr_mesh_bbox_restriction,faces_bbox_inclusion = (
-                    tu.bbox_mesh_restriction(main_mesh,
-                                            all_bounds ,
-                                            mult_ratio=1.3)
-    )
-
-    face_midpoints_neuron = curr_mesh_bbox_restriction.triangles_center
-
-    soma_kdtree = KDTree(face_midpoints_soma)
-
-    distances,closest_node = soma_kdtree.query(face_midpoints_neuron)
-
-    distance_passed_faces  = distances<distance_threshold
-
-    #newer way: using numpy functions
-    faces_to_keep = np.delete(np.arange(len(main_mesh.faces)),
-                                    faces_bbox_inclusion[distance_passed_faces])
-
-
-
-    without_soma_mesh = main_mesh.submesh([faces_to_keep],append=True)
-
-
-
-
-    #get the significant mesh pieces
-    mesh_pieces = tu.split_significant_pieces(without_soma_mesh,significance_threshold=significance_threshold,
-                                             connectivity=connectivity)
-
-    # ----- 11/22 turns out weren't even using this part --------- #
-#     print(f"mesh pieces in subtact soma BEFORE the filtering inside pieces = {mesh_pieces}")
-
-#     current_mesh_pieces = filter_away_inside_soma_pieces(current_soma,mesh_pieces,
-#                                          significance_threshold=significance_threshold,
-#                                                         n_sample_points=5,
-#                                                         required_outside_percentage=0.9)
-#     print(f"mesh pieces in subtact soma AFTER the filtering inside pieces = {mesh_pieces}")
-    print(f"Total Time for soma mesh cancellation = {np.round(time.time() - start_time,3)}")
-
-
-    return mesh_pieces
-
-def find_soma_centroids(soma_mesh_list):
-    """
-    Will return a list of soma centers if given one mesh or list of meshes
-    the center is just found by averaging the vertices
-    """
-    if not nu.is_array_like(soma_mesh_list):
-        soma_mesh_list = [soma_mesh_list]
-    soma_mesh_list_centers = [np.array(np.mean(k.vertices,axis=0)).astype("float")
-                           for k in soma_mesh_list]
-    return soma_mesh_list_centers
-
-
-def find_soma_centroid_containing_meshes(soma_mesh_list,
-                                            split_meshes,
-                                        verbose=False):
-    """
-    Purpose: Will find the mesh piece that most likely has the
-    soma that was found by the poisson soma finding process
-
-    """
-    containing_mesh_indices=dict([(i,[]) for i,sm_c in enumerate(soma_mesh_list)])
-    for k,sm_mesh in enumerate(soma_mesh_list):
-        sm_center = tu.mesh_center_vertex_average(sm_mesh)
-        viable_meshes = np.array([j for j,m in enumerate(split_meshes)
-                 if trimesh.bounds.contains(m.bounds,sm_center.reshape(-1,3))
-                        ])
-        if verbose:
-            print(f"viable_meshes = {viable_meshes}")
-        if len(viable_meshes) == 0:
-            raise Exception(f"The Soma {k} with mesh {sm_center} was not contained in any of the boundying boxes")
-        elif len(viable_meshes) == 1:
-            containing_mesh_indices[k] = viable_meshes[0]
-        else:
-            #find which mesh is closer to the soma midpoint (NOT ACTUALLY WHAT WE WANT)
-            min_distances_to_soma = []
-            dist_min_to_soma = []
-            for v_i in viable_meshes:
-                # build the KD Tree
-                viable_neuron_kdtree = KDTree(split_meshes[v_i].vertices)
-                distances,closest_node = viable_neuron_kdtree.query(sm_mesh.vertices.reshape(-1,3))
-                min_distances_to_soma.append(np.sum(distances))
-                dist_min_to_soma.append(np.min(distances))
-            if verbose:
-                print(f"min_distances_to_soma = {min_distances_to_soma}")
-                print(f"dist_min_to_soma = {dist_min_to_soma}")
-            containing_mesh_indices[k] = viable_meshes[np.argmin(min_distances_to_soma)]
-
-    return containing_mesh_indices
-
-def grouping_containing_mesh_indices(containing_mesh_indices):
-    """
-    Purpose: To take a dictionary that maps the soma indiece to the
-             mesh piece containing the indices: {0: 0, 1: 0}
-
-             and to rearrange that to a dictionary that maps the mesh piece
-             to a list of all the somas contained inside of it
-
-    Pseudocode:
-    1) get all the unique mesh pieces and create a dictionary with an empty list
-    2) iterate through the containing_mesh_indices dictionary and add each
-       soma index to the list of the containing mesh index
-    3) check that none of the lists are empty or else something has failed
-
-    """
-
-    unique_meshes = np.unique(list(containing_mesh_indices.values()))
-    mesh_groupings = dict([(i,[]) for i in unique_meshes])
-
-    #2) iterate through the containing_mesh_indices dictionary and add each
-    #   soma index to the list of the containing mesh index
-
-    for soma_idx, mesh_idx in containing_mesh_indices.items():
-        mesh_groupings[mesh_idx].append(soma_idx)
-
-    #3) check that none of the lists are empty or else something has failed
-    len_lists = [len(k) for k in mesh_groupings.values()]
-
-    if 0 in len_lists:
-        raise Exception("One of the lists is empty when grouping somas lists")
-
-    return mesh_groupings
-
-
-
 def original_mesh_soma(
     mesh,
     original_mesh,
@@ -560,7 +411,6 @@ def _somas_from_poisson_piece(piece, p, dec_inner, mesh_filename):
     valid_soma_meshes, valid_soma_sdfs = [], []
     for ii in range(3):
         print(f"\n    --- On segmentation loop {ii} --")
-        print(f"largest_mesh_path_inner_decimated_clean = {to_segment}")
         print(f"soma_size_threshold = {p.soma_size_threshold}")
         print(f"soma_size_threshold_max = {p.soma_size_threshold_max}")
         print(f"soma_width_threshold = {p.soma_width_threshold}")
@@ -597,7 +447,7 @@ def _somas_from_mesh_piece(largest_mesh, p, poisson_obj, dec_inner, mesh_filenam
         largest_mesh = tu.remove_mesh_interior(largest_mesh,
                                                size_threshold_to_remove=p.size_threshold_to_remove,
                                               try_hole_close=False)
-    except:
+    except Exception:
         print("Unable to remove inside pieces in list_of_largest_mesh")
 
     # ******* This ERRORED AND CALLED OUR NERUON NONE: 77697401493989254 *********
@@ -658,7 +508,7 @@ def _backtrack_to_original(soma_mesh, sdf, original_mesh, p, verbose=False):
                                         soma_size_threshold=p.backtrack_soma_size_threshold,
                                         match_distance_threshold=p.backtrack_match_distance_threshold,
                                         verbose = verbose)
-    except:
+    except Exception:
         import traceback
         traceback.print_exc()
         print("--->This soma mesh was not added because Was not able to backtrack soma to mesh")
@@ -931,7 +781,7 @@ def extract_soma_center(
     ordered_mesh_splits = _ordered_splits(new_mesh)
     list_of_largest_mesh = [k for k in ordered_mesh_splits if len(k.faces) > p.large_mesh_threshold]
 
-    print(f"Total found significant pieces before Poisson = {list_of_largest_mesh}")
+    print(f"Total found significant pieces before Poisson = {len(list_of_largest_mesh)}")
 
     #if no significant pieces were found then will use smaller threshold
     if len(list_of_largest_mesh)<=0:

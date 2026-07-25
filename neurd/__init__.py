@@ -101,6 +101,43 @@ del _sys3, _MT3
 
 from pathlib import Path
 
+# --- perf/compat patch registry ------------------------------------------------------
+# Every patch below rewrites a function that lives in mesh_tools / datasci_tools, so a
+# rename upstream makes it silently stop applying: the build still succeeds, just ~15 min
+# slower and without the OFF-renumber repair. That failure mode is invisible, so each
+# patch records its outcome here and a failure warns loudly instead of `pass`-ing.
+#
+#   PATCH_STATUS[name] is True  -> installed
+#                         False -> tried and FAILED (a warning was emitted)
+#                         None  -> deliberately skipped via its NEURD_* env flag
+#
+# tests/unit/test_perf_patches.py asserts nothing is False and that the fast paths are
+# actually the ones bound. Read that test before renaming anything here.
+import warnings as _warnings
+
+PATCH_STATUS = {}
+
+
+def _patch_ok(name):
+    PATCH_STATUS[name] = True
+
+
+def _patch_skipped(name):
+    """Opted out on purpose through the patch's env flag -- not a failure."""
+    PATCH_STATUS[name] = None
+
+
+def _patch_failed(name, exc):
+    PATCH_STATUS[name] = False
+    _warnings.warn(
+        f"neurd perf/compat patch {name!r} did NOT install "
+        f"({type(exc).__name__}: {exc}). The pipeline still runs, but slower and without "
+        f"this fix -- most likely the upstream mesh_tools/datasci_tools API moved.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+
 # MeshLab Poisson is a silent NO-OP on MeshLabServer 2020.09 here, but costs ~60 s of
 # subprocess+xvfb spawn per call (~9 calls ≈ 536 s — the single biggest cost in the
 # pipeline, see PIPELINE.md / profile). The Screened Poisson filter does not actually
@@ -166,8 +203,9 @@ try:
 
     _Poisson.__call__ = _poisson_inprocess_noop
     del _Poisson, _poisson_inprocess_noop
-except Exception:
-    pass
+    _patch_ok("poisson_noop")
+except Exception as _e:
+    _patch_failed("poisson_noop", _e)
 
 # MeshLab FillHoles is likewise BROKEN on this build: the Close-Holes script fails
 # (returncode 255, "filter Remove Faces from Non Manifold Edges not found"), and every
@@ -202,15 +240,19 @@ try:
 
     _FillHoles.__call__ = _fillholes_inprocess_noop
     del _FillHoles, _fillholes_inprocess_noop
-except Exception:
-    pass
+    _patch_ok("fillholes_noop")
+except Exception as _e:
+    _patch_failed("fillholes_noop", _e)
 
 # datasci_tools.compressed_pickle: EVERY call reachable in a build is a debug dump-before-raise --
-# compartment_utils.resolve_empty_conflicting_face_labels (:1274/:1424) and
-# preprocess_neuron.correspondence_1_to_1 (:223) pickle the big curr_limb_mesh to disk right before an
-# Exception that the caller CATCHES and swallows (neuron_utils.py:867, "keep the pre-refinement
-# partition"). On a dense H01 neuron that fires on many limbs -> ~98 s (4.6%) of pure wasted bz2 writes
-# (py-spy wall attribution). No production output uses compressed_pickle. No-op it by default; set
+# it pickles the big curr_limb_mesh to disk right before an Exception that the caller CATCHES and
+# swallows (neuron_utils.py:867, "keep the pre-refinement partition"). On a dense H01 neuron that
+# fires on many limbs -> ~98 s (4.6%) of pure wasted bz2 writes (py-spy wall attribution). No
+# production output uses compressed_pickle.
+#
+# NEURD's own dump sites have since been deleted outright; what remains are the calls inside
+# mesh_tools.compartment_utils.resolve_empty_conflicting_face_labels (:1274/:1424), which is a
+# LOCKED upstream path -- hence this patch is still needed. No-op it by default; set
 # NEURD_ENABLE_COMPRESSED_PICKLE=1 to restore (e.g. fixture generation). The raise still fires, so
 # behaviour is identical -- only the wasted dump is skipped.
 try:
@@ -223,8 +265,11 @@ try:
 
         _su_cp.compressed_pickle = _compressed_pickle_noop
         del _su_cp, _compressed_pickle_noop
-except Exception:
-    pass
+        _patch_ok("compressed_pickle_noop")
+    else:
+        _patch_skipped("compressed_pickle_noop")
+except Exception as _e:
+    _patch_failed("compressed_pickle_noop", _e)
 
 # MeshLab Decimator (Quadric Edge Collapse) is real work, but each call forks
 # xvfb+meshlabserver and round-trips the mesh through OFF. On the big H01 neuron the
@@ -281,8 +326,11 @@ try:
         _Decimator.__init__ = _decimator_init_capture
         _Decimator.__call__ = _decimate_inprocess
         # NB: do NOT `del _decimator_init_orig` — the wrapped __init__ closes over it.
-except Exception:
-    pass
+        _patch_ok("decimator_open3d")
+    else:
+        _patch_skipped("decimator_open3d")
+except Exception as _e:
+    _patch_failed("decimator_open3d", _e)
 
 # MeshLabServer 2020.09 OFF-exporter bug: after a vertex-deleting filter (e.g. the
 # interior-removal chain in remove_mesh_interior), it writes the compacted vertex
@@ -322,8 +370,9 @@ try:
 
     _Meshlab.fetch_mesh_from_off = staticmethod(_fetch_mesh_from_off_repaired)
     del _Meshlab, _fetch_mesh_from_off_repaired
-except Exception:
-    pass
+    _patch_ok("off_renumber_repair")
+except Exception as _e:
+    _patch_failed("off_renumber_repair", _e)
 
 # Newer pykdtree strictly requires 2D data_pts, but upstream mesh_tools.skeleton_utils
 # builds KDTrees from 1D cumulative skeletal-distance arrays (e.g. in
@@ -354,8 +403,9 @@ try:
 
     _sku.KDTree = _KDTree2DTolerant
     del _sku
-except Exception:
-    pass
+    _patch_ok("skeleton_kdtree_1d")
+except Exception as _e:
+    _patch_failed("skeleton_kdtree_1d", _e)
 
 # trimesh_utils.vertex_components == [list(k) for k in nx.connected_components(
 # mesh.vertex_adjacency_graph)]. Building that networkx graph (`add_edges_from` over
@@ -383,8 +433,11 @@ try:
 
         _tu_vc.vertex_components = _vertex_components_scipy
         del _tu_vc, _vertex_components_scipy
-except Exception:
-    pass
+        _patch_ok("vertex_components_scipy")
+    else:
+        _patch_skipped("vertex_components_scipy")
+except Exception as _e:
+    _patch_failed("vertex_components_scipy", _e)
 
 # datasci_tools.numpy_utils.get_matching_vertices finds unordered vertex pairs within
 # `equiv_distance` by building the FULL NxN coordinate distance matrix (pdist->squareform),
@@ -424,8 +477,11 @@ try:
 
         _nu_mv.get_matching_vertices = _get_matching_vertices_kdtree
         del _nu_mv, _get_matching_vertices_kdtree
-except Exception:
-    pass
+        _patch_ok("matching_vertices_ckdtree")
+    else:
+        _patch_skipped("matching_vertices_ckdtree")
+except Exception as _e:
+    _patch_failed("matching_vertices_ckdtree", _e)
 
 from .version import __version__
 

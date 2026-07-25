@@ -28,7 +28,6 @@ def convert_soma_to_piece_connectivity_to_graph(soma_to_piece_connectivity):
     for soma_key,list_of_limbs in soma_to_piece_connectivity.items():
         total_edges += [[f"S{soma_key}",f"L{curr_limb}"] for curr_limb in list_of_limbs]
 
-    print(f"total_edges = {total_edges}")
     concept_network = xu.GraphOrderedEdges()
     concept_network.add_edges_from(total_edges)
     return concept_network
@@ -308,7 +307,7 @@ class Branch:
         if self._mesh_volume is None:
             try:
                 self._mesh_volume = tu.mesh_volume(self.mesh)
-            except:
+            except Exception:
                 self._mesh_volume = 0
         divisor=1_000_000_000
         return self._mesh_volume/divisor
@@ -699,7 +698,7 @@ class Limb:
             curr_width = b.width
             try:
                 curr_width = b.width_new["median_mesh_center"]
-            except:
+            except Exception:
                 pass
 
             limb_corr[idx] = dict(branch_skeleton=b.skeleton,
@@ -924,7 +923,7 @@ class Limb:
         #make sure that there is one and only one starting node embedded in the graph
         try:
             xu.get_starting_node(curr_limb_concept_network)
-        except:
+        except Exception:
             print("There was not exactly one starting nodes in the current self.concept_network"
                   " when trying to convert to concept network ")
             xu.get_starting_node(curr_limb_concept_network)
@@ -936,7 +935,7 @@ class Limb:
                     width_source = "no_spine_average_mesh_center"
                 else:
                     width_source = "width"
-            except:
+            except Exception:
                 width_source = "width"
 
         if print_flag:
@@ -1218,7 +1217,7 @@ def _refine_neuron(neuron_obj, calculate_spines=False):
 
     try:
         bu.set_branches_endpoints_upstream_downstream_idx(neuron_obj)
-    except:
+    except Exception:
         pass
 
 
@@ -1258,12 +1257,20 @@ class Neuron:
     d. Get all of the starting coordinates and starting edges and put as member attributes in the limb
 
     """
-    def __init__(self,mesh,segment_id = None, calculate_spines = False):
+    def __init__(self,mesh,segment_id = None, calculate_spines = False,
+                 max_somas = None, verbose = True):
         """Decompose `mesh` into somas and limbs of branches.
 
         The heavy lifting is `preprocess_neuron`; this turns its output into the
         object graph (`concept_network`, with Soma/Limb objects as node "data") and
         then refines it.
+
+        Args:
+            max_somas: cap on the soma search; pass 1 for single-neuron files. Only the
+                first soma is used, so this bounds work rather than changing the result
+                on a genuine single-neuron mesh.
+            verbose: forwarded to `preprocess_neuron` for its timing line. Stage progress
+                is printed unconditionally either way.
         """
         neuron_start_time = time.time()
 
@@ -1278,7 +1285,8 @@ class Neuron:
 
         print("--- 0) Having to preprocess the Neuron becuase no preprocessed data\nPlease wait this could take a while.....")
         from neurd import preprocess_neuron as pre  # P3: local import breaks neuron<->preprocess_neuron cycle
-        preprocessed_data = pre.preprocess_neuron(mesh,segment_id=segment_id)
+        preprocessed_data = pre.preprocess_neuron(mesh,segment_id=segment_id,
+                                                 verbose=verbose,max_somas=max_somas)
 
         self.nucleus_id = preprocessed_data.get("nucleus_id",None)
         self.split_index = preprocessed_data.get("split_index",None)
@@ -1793,7 +1801,7 @@ class Neuron:
         """
         try:
             return self.pipeline_products["auto_proof"]["split_locations_before_filter"]
-        except:
+        except Exception:
             return dict()
 
 #--- from neurd_packages ---

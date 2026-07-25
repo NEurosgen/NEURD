@@ -21,7 +21,6 @@ skip_if_datasci_tools_unusable()
 # Core modules kept after Phase-5 refactor (cluster modules removed).
 CORE_MODULES = [
     "branch_utils",
-    "concept_network_utils",
     "neuron_searching",
     "neuron_statistics",
     "neuron_utils",
