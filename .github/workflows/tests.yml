@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+    branches: [main, 'refactor/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit gate (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10-3.12 only: 3.13+ has no open3d wheel (see scripts/install_local.sh).
+        python-version: ['3.10', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system libs
+        run: |
+          sudo apt-get update -qq
+          # libgl1/libegl1: open3d + trimesh import them even headless.
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libgomp1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # mesh_processing_tools is pure-Python but pins open3d==0.11.2 in its
+          # metadata; --no-deps lets us keep modern open3d. Mirrors
+          # scripts/install_local.sh, which is the documented local install.
+          pip install --no-deps mesh_processing_tools==1.0.4
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Import shims activate
+        # neurd/__init__.py installs the numpy-2 / meshlab / perf patches at import
+        # time; a failure here means the compat layer broke.
+        run: python -c "import neurd; print('neurd import OK')"
+
+      - name: Unit gate
+        # pytest.ini scopes testpaths to tests/unit. The integration test needs
+        # xvfb + meshlabserver and is intentionally not run here.
+        run: pytest -q
