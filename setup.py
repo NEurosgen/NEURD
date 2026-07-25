@@ -6,15 +6,18 @@ from typing import List
 here = path.abspath(path.dirname(__file__))
 
 def get_install_requires(filepath=None):
+    """Returns requirements.txt parsed to a list, minus comments and blank lines."""
     if filepath is None:
         filepath = "./"
-    """Returns requirements.txt parsed to a list"""
     fname = Path(filepath).parent / 'requirements.txt'
     targets = []
     if fname.exists():
         with open(fname, 'r') as f:
-            targets = f.read().splitlines()
-            
+            for line in f.read().splitlines():
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    targets.append(line)
+
     targets += get_links()
     return targets
 
@@ -39,16 +42,22 @@ with open(path.join(here, 'neurd', 'version.py')) as f:
     exec(f.read())
 
 setup(
-    name='neurd', # the name of the package, which can be different than the folder when using pip instal
+    name='neurd',  # import name stays `neurd`: this is a fork, not a rename
     version=__version__,
-    description='A mesh decomposition framework for automated proofreading and morphological analysis of neuronal EM reconstructions',
+    description=(
+        'Slim single-soma fork of NEURD: mesh -> somas/limbs/branches + skeletons '
+        '+ raw spines, optimized for wall time and peak RAM'
+    ),
     long_description=get_long_description(),
-	project_urls={
-	    'Source':"https://github.com/reimerlab/NEURD/",
-	    'Documentation':"https://reimerlab.github.io/NEURD/",
-	},
-	author='Brendan Celii',
-	author_email='brendanacelii@gmail.com',
+    long_description_content_type='text/markdown',
+    project_urls={
+        'Source': "https://github.com/NEurosgen/NEURD/",
+        'Upstream': "https://github.com/reimerlab/NEURD/",
+    },
+    author='Eugen Didenko',
+    # Upstream NEURD by Brendan Celii <brendanacelii@gmail.com> (reimerlab/NEURD).
+    # 3.13+ has no open3d wheel; 3.9 lacks numpy-2 wheels for parts of the stack.
+    python_requires='>=3.10,<3.13',
     packages=find_packages(),  #teslls what packages to be included for the install
     # package_data = {
     #     'neurd':['neurd/model_data/*'],
@@ -56,21 +65,27 @@ setup(
     include_package_data=True,
     install_requires=get_install_requires(), #external packages as dependencies
     # dependency_links = get_links(),
-    # pip install neurd[connectome]  — datajoint-based connectome tables
-    # pip install neurd[viz]         — seaborn + ipyvolume interactive 3D
-    # pip install neurd[all]         — everything above
+    # pip install -e ".[dev]"      — test runner for the tests/unit gate
+    # pip install -e ".[poisson]"  — MeshLab-accurate Poisson (NEURD_REAL_POISSON=1)
+    # pip install -e ".[viz]"      — seaborn + ipyvolume interactive 3D
     extras_require={
-        'connectome': [
-            'datajoint>=0.12.9',
-            'python-dotenv',
+        'dev': [
+            'pytest',
+            'pytest-mock',
+        ],
+        # Only needed with NEURD_REAL_POISSON=1; the default path no-ops Poisson
+        # (see neurd/__init__.py) so pymeshlab is not a runtime requirement.
+        'poisson': [
+            'pymeshlab',
         ],
         'viz': [
             'seaborn>=0.12.2',
             'ipyvolume>=0.6.3',
         ],
         'all': [
-            'datajoint>=0.12.9',
-            'python-dotenv',
+            'pytest',
+            'pytest-mock',
+            'pymeshlab',
             'seaborn>=0.12.2',
             'ipyvolume>=0.6.3',
         ],

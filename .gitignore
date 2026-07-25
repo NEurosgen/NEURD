@@ -152,14 +152,17 @@ Applications/**/*.pbz2
 
 
 
-__pycache__/
 .DS_Store
-docs/_build/
-docs/_static/
-docs/_templates
+
+# Editor scratch
+*.swp
+*.swo
+*~
 
 # Runtime artifacts written by tests / meshlab / soma extraction
 /temp/
+/cgal_temp/
+/Poisson_temp/
 tests/temp/
 tests/Poisson_temp/
 tests/integration/temp/
@@ -188,8 +191,12 @@ tests/integration/_seg_output_big/
 # write into CWD on failure or skeletonization (curr_limb_mesh.pbz2, face_lookup.pbz2,
 # mesh_watertight.off, ...). Scratch only — never committed.
 /*.pbz2
-/mesh_watertight.off
+/*.off
+/*.ply
+/*.mls
+/*.cgal
 tests/integration/_seg_output_spines/
 
-# local profiling batch outputs (generated, ~150M)
-batch_first_cut/
+# local profiling batch outputs (generated, GBs)
+batch_*/
+batch_*.log

@@ -34,13 +34,13 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 
 # mesh_processing_tools is pure-Python but pins open3d==0.11.2 in its metadata.
-# Install with --no-deps so we can use modern open3d (see requirements-local.txt).
+# Install with --no-deps so we can use modern open3d (see requirements.txt).
 pip install --no-deps mesh_processing_tools==1.0.4
 
-pip install -r requirements-local.txt
+pip install -r requirements.txt
 
-# NEURD itself in editable mode.
-pip install -e .
+# NEURD itself in editable mode, plus the test runner for the tests/unit gate.
+pip install -e ".[dev]"
 
 # CGAL mean-curvature-flow skeletonizer (calcification_param_Module). Required for the
 # MAP decomposition path (thick branches); without it mesh_tools raises

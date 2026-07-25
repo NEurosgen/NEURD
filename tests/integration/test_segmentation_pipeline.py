@@ -19,12 +19,8 @@ import os
 import shutil
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import pytest
 
-# extract_metrics lives in tests/tools (not a package)
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-  # noqa: E402
+import pytest
 
 # Importing neurd first activates the numpy-2 / cgal / meshlab compat shims that
 # datasci_tools and mesh_tools rely on (see neurd/__init__.py).
