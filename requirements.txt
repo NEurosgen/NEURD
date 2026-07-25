@@ -24,6 +24,11 @@ meshparty>=2.0
 open3d>=0.19
 # pykdtree: submesh_ops.original_faces, matching tu's KDTree behaviour byte-for-byte.
 pykdtree>=1.4
+# pymeshfix: NOT used by neurd itself, but `mesh_tools.trimesh_utils` does a bare
+# module-level `import pymeshfix` (trimesh_utils.py:22). Since mesh_processing_tools is
+# installed with --no-deps (see above), every one of ITS imports must be declared here or
+# `from mesh_tools import trimesh_utils` fails. Do not remove after grepping only neurd/.
+pymeshfix>=0.16
 
 # --- NEURD-ecosystem author packages ---
 datasci-stdlib-tools>=1.0.1

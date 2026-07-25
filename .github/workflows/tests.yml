@@ -41,9 +41,27 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Import shims activate
-        # neurd/__init__.py installs the numpy-2 / meshlab / perf patches at import
-        # time; a failure here means the compat layer broke.
-        run: python -c "import neurd; print('neurd import OK')"
+        # neurd/__init__.py installs the numpy-2 / meshlab / perf patches at import time.
+        # Importing succeeds even when a patch fails (each is behind try/except by design),
+        # so check the registry too -- a missing dependency of the --no-deps
+        # mesh_processing_tools install shows up here as a failed patch, which is far easier
+        # to read than the pytest collection errors it causes downstream.
+        run: |
+          python - <<'PY'
+          import sys, neurd
+          for name, ok in sorted(neurd.PATCH_STATUS.items()):
+              print(f"  {str(ok):<6} {name}")
+          failed = sorted(k for k, v in neurd.PATCH_STATUS.items() if v is False)
+          if failed:
+              sys.exit(f"perf/compat patches failed to install: {failed}")
+          print("neurd import OK, all patches installed")
+          PY
+
+      - name: mesh_tools imports
+        # The tests import `from mesh_tools import trimesh_utils` at module level, which
+        # pulls in every one of its own module-level deps. Fails loudly here rather than as
+        # a collection error.
+        run: python -c "from mesh_tools import trimesh_utils, skeleton_utils; print('mesh_tools OK')"
 
       - name: Unit gate
         # pytest.ini scopes testpaths to tests/unit. The integration test needs
