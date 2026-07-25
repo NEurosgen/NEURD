@@ -37,6 +37,9 @@ preprocess_neuron
   `compartment_utils:1187` (inside `resolve_empty`). All now wrapped by `_correspondence_backend.py`
   (the rng seam lives there). Failure classes: **A** post-stitch frame desync (→ `_rebuild_limb_frames`),
   **B** cut-branch re-correspondence fails (rate ~1–3 %, real), **C** degenerate CGAL submesh (skip).
+  *Addendum:* the seam has since grown a second job — it also gates the owned correspondence/width
+  kernel (`NEURD_OWNED_SKELETAL_DISTANCE` → `neurd/skeletal_distance_ops.py`, off by default), and the
+  `cu.skeletal_distance` algorithm was replaced with precomputed subgraph components.
 - **Correspondence re-call (Area A):** ~25 runs/neuron, **~92 % from floating-piece stitching**, not the
   main MAP/MP decomposition. The inner adaptive re-run fires **100 %** (unavoidable, inside the dep); the
   **outer `first_pass` double-call fires 0/341 branches** across 3 neurons/2 datasets — dead **by
