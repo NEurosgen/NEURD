@@ -1,2 +1,6 @@
+# Package data shipped inside neurd/.
+#
+# NOTE: neurd/model_data/ (4 files, 124K) is E/I cell-typing model data. Cell typing was
+# removed from this fork, and nothing in the codebase reads these files any more -- they are
+# kept only in case that subsystem is ever restored from upstream. Safe to delete outright.
 include neurd/model_data/*
-include neurd/parameter_configs/*
