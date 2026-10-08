@@ -1666,6 +1666,9 @@ def calculate_spines_on_branch(
     face indices after the initial size/length filter. Pass a dict as
     geometric_refinement_diagnostics to collect decisions and elapsed time;
     geometric_refinement_config accepts a RefinementConfig or a parameter dict.
+    Set trim_shaft_connections=True in that config to enable experimental shaft
+    subtraction and splitting. Diagnostics output_indices/final_output_indices
+    map every part of a split candidate; the singular keys name its first part.
     
     Pseudocode
     ----------------
@@ -1852,32 +1855,47 @@ def calculate_spines_on_branch(
         
         
     # Refine only candidates that passed the expensive length/size filter.
-    # Growth preserves the seed; bbox, endpoint, soma and volume checks below
-    # still inspect the resulting mesh. All raw neighbours remain protected.
+    # Growth preserves the seed. Optional shaft trimming can split a candidate;
+    # each changed part must pass the size/length filter again. Bbox, endpoint,
+    # soma and volume checks below inspect every resulting mesh.
     if geometric_refinement:
         from .spine_refinement import refine_spine_face_indices
 
         selected_raw_ids = [raw_mesh_indices[id(mesh)] for mesh in spine_submesh_split_filtered]
         selected_indices = [original_indices[i] for i in selected_raw_ids]
+        pre_trim_indices = {}
         refined_indices, refinement = refine_spine_face_indices(
             branch.mesh, branch.skeleton, selected_indices,
             config=geometric_refinement_config,
-            protected_face_groups=original_indices)
+            protected_face_groups=original_indices,
+            pre_trim_face_groups=pre_trim_indices)
         original_filtered = spine_submesh_split_filtered
         spine_submesh_split_filtered = []
         for record in refinement["candidates"]:
             input_index = record["input_index"]
             record["raw_input_index"] = selected_raw_ids[input_index]
-            output_index = record["output_index"]
-            if output_index is None:
-                continue
-            indices = refined_indices[output_index]
-            if np.array_equal(np.sort(selected_indices[input_index]), indices):
-                mesh = original_filtered[input_index]
-            else:
-                mesh = branch.mesh.submesh([indices], append=True)
-            spine_submesh_split_filtered.append(mesh)
+            for output_index in record.get("output_indices", [record["output_index"]]):
+                if output_index is None:
+                    continue
+                indices = refined_indices[output_index]
+                if np.array_equal(np.sort(selected_indices[input_index]), indices):
+                    mesh = original_filtered[input_index]
+                else:
+                    mesh = branch.mesh.submesh([indices], append=True)
+                spine_submesh_split_filtered.append(mesh)
         refinement_mesh_ids = {id(mesh): i for i, mesh in enumerate(spine_submesh_split_filtered)}
+        trimmed_meshes = [spine_submesh_split_filtered[i]
+                          for r in refinement["candidates"]
+                          if r.get("shaft_trim", {}).get("action") in ("trim", "split")
+                          for i in r["output_indices"]]
+        if trimmed_meshes and (spine_n_face_threshold > 0 or spine_sk_length_threshold > 0):
+            passed_trimmed = spu.filter_spine_meshes(
+                trimmed_meshes, spine_n_face_threshold=spine_n_face_threshold,
+                spine_sk_length_threshold=spine_sk_length_threshold)
+            passed_ids = {id(mesh) for mesh in passed_trimmed}
+            trim_ids = {id(mesh) for mesh in trimmed_meshes}
+            spine_submesh_split_filtered = [mesh for mesh in spine_submesh_split_filtered
+                                           if id(mesh) not in trim_ids or id(mesh) in passed_ids]
         if geometric_refinement_diagnostics is not None:
             geometric_refinement_diagnostics.clear()
             geometric_refinement_diagnostics.update(refinement)
@@ -1885,103 +1903,160 @@ def calculate_spines_on_branch(
             print(f"Geometry refinement: {refinement['counts']}, "
                   f"{refinement['seconds']:.3f}s")
 
-    # Step 3: Filter Spines by Bounding Box
-    if filter_by_bounding_box_longest_side_length:
-        old_length = len(spine_submesh_split_filtered)
-        spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
-                                                                                 side_length_threshold=side_length_threshold)
+    def apply_final_filters(meshes):
+        nonlocal soma_kdtree
+        spine_submesh_split_filtered = meshes
+        spine_volumes = np.zeros(len(meshes))
+        # Step 3: Filter Spines by Bounding Box
+        if filter_by_bounding_box_longest_side_length:
+            old_length = len(spine_submesh_split_filtered)
+            spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
+                                                                                     side_length_threshold=side_length_threshold)
     
         
         
-    if filter_out_border_spines:
-        if print_flag:
-            print("Using the filter_out_border_spines option")
-        spine_submesh_split_filtered = spu.filter_out_border_spines(branch.mesh,
-                                                                    spine_submesh_split_filtered,
-                                                                    border_percentage_threshold=border_percentage_threshold,
-                                                                    check_spine_border_perc=check_spine_border_perc,
-                                                                    verbose=print_flag
-                                                                   )
-        
-            
-    if skeleton_endpoint_nullification:
-        if print_flag:
-            print("Using the skeleton_endpoint_nullification option")
-
-
-        curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(branch.skeleton)
-        spine_submesh_split_filtered = tu.filter_meshes_by_containing_coordinates(spine_submesh_split_filtered,
-                                                    curr_branch_end_coords,
-                                                    distance_threshold=skeleton_endpoint_nullification_distance)
-        
-            
-    
-    
-    if soma_vertex_nullification:
-        if soma_verts is not None:
-            soma_kdtree = KDTree(soma_verts)
-        if soma_kdtree is None:
-            raise Exception("Requested endpoint nullification but no soma information given")
-            
-        if print_flag:
-            print("Using the soma_vertex_nullification option")
-
-        spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
-                                                    soma_kdtree=soma_kdtree)
-        
-            
-            
-    if calculate_spine_volume or filter_by_volume: 
-        spine_volumes = np.array([tu.mesh_volume(k) for k in spine_submesh_split_filtered])
-        
-    if filter_by_volume:
-        """
-        Pseudocode: 
-        1) Calculate the volumes of all the spines
-        2) Filter those spines for only those above the volume
-
-        """
-        if len(spine_submesh_split_filtered) > 0:
-            volume_kept_idx = np.where(spine_volumes > filter_by_volume_threshold)[0]
+        if filter_out_border_spines:
             if print_flag:
-                print(f"Number of spines filtered away by volume = {len(spine_volumes) - len(volume_kept_idx)}")
-            #spine_submesh_split_filtered_not = [spine_submesh_split_filtered[k] for k in range(len(spine_volumes)) if k not in volume_kept_idx]
-            spine_submesh_split_filtered = [spine_submesh_split_filtered[k] for k in volume_kept_idx]
-            
-            spine_volumes = spine_volumes[volume_kept_idx]
-            
-        
-    # --- 4/14/25 addition --
-    if filter_by_face_area_mean:
-        kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.face_area_mean(k)>=filter_by_face_area_mean_min]
-        
-        if print_flag:
-            print(f"Number of spines filtered away by face_area_mean = {len(spine_submesh_split_filtered) - len(kept_idx)}")
-        
-        
-        spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
-        spine_volumes = [spine_volumes[k] for k in kept_idx]
+                print("Using the filter_out_border_spines option")
+            spine_submesh_split_filtered = spu.filter_out_border_spines(branch.mesh,
+                                                                        spine_submesh_split_filtered,
+                                                                        border_percentage_threshold=border_percentage_threshold,
+                                                                        check_spine_border_perc=check_spine_border_perc,
+                                                                        verbose=print_flag
+                                                                       )
         
             
-    # --- 4/14/25 addition --
-    if filter_by_boundary_to_area_ratio:
-        kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.area_to_boundary_length_ratio(k)>=filter_by_boundary_to_area_ratio_min]
+        if skeleton_endpoint_nullification:
+            if print_flag:
+                print("Using the skeleton_endpoint_nullification option")
+
+
+            curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(branch.skeleton)
+            spine_submesh_split_filtered = tu.filter_meshes_by_containing_coordinates(spine_submesh_split_filtered,
+                                                        curr_branch_end_coords,
+                                                        distance_threshold=skeleton_endpoint_nullification_distance)
         
-        if print_flag:
-            print(f"Number of spines filtered away by boundary_to_area_ratio = {len(spine_submesh_split_filtered) - len(kept_idx)}")
+            
+    
+    
+        if soma_vertex_nullification:
+            if soma_verts is not None:
+                soma_kdtree = KDTree(soma_verts)
+            if soma_kdtree is None:
+                raise Exception("Requested endpoint nullification but no soma information given")
+            
+            if print_flag:
+                print("Using the soma_vertex_nullification option")
+
+            spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
+                                                        soma_kdtree=soma_kdtree)
+        
+            
+            
+        if calculate_spine_volume or filter_by_volume:
+            spine_volumes = np.array([tu.mesh_volume(k) for k in spine_submesh_split_filtered])
+
+        if filter_by_volume:
+            """
+            Pseudocode:
+            1) Calculate the volumes of all the spines
+            2) Filter those spines for only those above the volume
+
+            """
+            if len(spine_submesh_split_filtered) > 0:
+                volume_kept_idx = np.where(spine_volumes > filter_by_volume_threshold)[0]
+                if print_flag:
+                    print(f"Number of spines filtered away by volume = {len(spine_volumes) - len(volume_kept_idx)}")
+                #spine_submesh_split_filtered_not = [spine_submesh_split_filtered[k] for k in range(len(spine_volumes)) if k not in volume_kept_idx]
+                spine_submesh_split_filtered = [spine_submesh_split_filtered[k] for k in volume_kept_idx]
+            
+                spine_volumes = spine_volumes[volume_kept_idx]
+            
+        
+        # --- 4/14/25 addition --
+        if filter_by_face_area_mean:
+            kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.face_area_mean(k)>=filter_by_face_area_mean_min]
+        
+            if print_flag:
+                print(f"Number of spines filtered away by face_area_mean = {len(spine_submesh_split_filtered) - len(kept_idx)}")
         
         
-        spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
-        spine_volumes = [spine_volumes[k] for k in kept_idx]
+            spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
+            spine_volumes = [spine_volumes[k] for k in kept_idx]
+        
+            
+        # --- 4/14/25 addition --
+        if filter_by_boundary_to_area_ratio:
+            kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.area_to_boundary_length_ratio(k)>=filter_by_boundary_to_area_ratio_min]
+        
+            if print_flag:
+                print(f"Number of spines filtered away by boundary_to_area_ratio = {len(spine_submesh_split_filtered) - len(kept_idx)}")
+        
+        
+            spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
+            spine_volumes = [spine_volumes[k] for k in kept_idx]
         
                          
     
         
+        return spine_submesh_split_filtered, spine_volumes
+
+    spine_submesh_split_filtered, spine_volumes = apply_final_filters(spine_submesh_split_filtered)
+
+    if geometric_refinement:
+        reverted = 0
+        for record in refinement["candidates"]:
+            if record.get("shaft_trim", {}).get("action") != "split":
+                continue
+            proposed = record["output_indices"]
+            proposed_set = set(proposed)
+            surviving = [i for i, mesh in enumerate(spine_submesh_split_filtered)
+                         if refinement_mesh_ids[id(mesh)] in proposed_set]
+            if len(surviving) == len(proposed):
+                continue
+            # A smaller real part can fail the original object's volume/length
+            # threshold. Treat the whole proposal as uncertain and replay the
+            # identical final filters on its intact pre-cut surface.
+            intact_indices = pre_trim_indices[record["input_index"]]
+            intact = branch.mesh.submesh([intact_indices], append=True)
+            restored, restored_volumes = apply_final_filters([intact])
+            keep = [i for i in range(len(spine_submesh_split_filtered)) if i not in surviving]
+            spine_submesh_split_filtered = [spine_submesh_split_filtered[i] for i in keep] + restored
+            spine_volumes = np.r_[np.asarray(spine_volumes)[keep], restored_volumes]
+            restored_output = len(refined_indices)
+            refined_indices.append(intact_indices)
+            if restored:
+                refinement_mesh_ids[id(restored[0])] = restored_output
+            record["proposed_output_indices"] = proposed
+            record["proposed_output_faces"] = record["output_faces"]
+            record["shaft_trim"].update(proposed_action="split", action="unknown_keep",
+                                         reason="split_part_rejected_by_final_filters",
+                                         final_parts_before_fallback=len(surviving), applied=False)
+            record.update(action="keep_after_split_filter_rejection", output_index=restored_output,
+                          output_indices=[restored_output], output_faces=len(intact_indices),
+                          added_faces=len(np.setdiff1d(intact_indices, selected_indices[record["input_index"]])),
+                          removed_faces=len(np.setdiff1d(selected_indices[record["input_index"]], intact_indices)))
+            reverted += 1
+        if reverted:
+            refinement.setdefault("statistics", {})["splits_reverted_by_final_filters"] = reverted
+            refinement["counts"] = {}
+            for record in refinement["candidates"]:
+                action = record["action"]
+                refinement["counts"][action] = refinement["counts"].get(action, 0) + 1
+
     if geometric_refinement and geometric_refinement_diagnostics is not None:
+        geometric_refinement_diagnostics.clear()
+        geometric_refinement_diagnostics.update(refinement)
         final_indices = {refinement_mesh_ids[id(mesh)]: i
                          for i, mesh in enumerate(spine_submesh_split_filtered)}
         for record in geometric_refinement_diagnostics["candidates"]:
             record["final_output_index"] = final_indices.get(record["output_index"])
+            outputs = record.get("output_indices", [record["output_index"]])
+            record["final_output_indices"] = [final_indices[i] for i in outputs
+                                               if i in final_indices]
+            record["final_output_mapping"] = [dict(output_index=i, part_index=part,
+                                                  final_output_index=final_indices.get(i))
+                                               for part, i in enumerate(outputs)]
 
     if calculate_spine_volume:
         return spine_submesh_split_filtered,spine_volumes

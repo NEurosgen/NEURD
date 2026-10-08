@@ -14,7 +14,7 @@ import numpy as np
 import trimesh
 from matplotlib.path import Path as PolygonPath
 from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import dijkstra
+from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import cKDTree
 
 
@@ -46,6 +46,22 @@ class RefinementConfig:
     growth_profile_step_nm: float = 400.0
     maximum_growth_profiles: int = 32
     maximum_repairs_per_branch: int = 8
+    # Optional subtraction/splitting of shaft pollution. This is separate from
+    # seed-preserving head growth, and remains disabled pending H01 validation.
+    trim_shaft_connections: bool = False
+    trim_clearance_nm: float = 50.0
+    trim_collar_nm: float = 100.0
+    trim_minimum_area_nm2: float = 100_000.0
+    trim_minimum_area_fraction: float = 0.15
+    trim_minimum_protrusion_nm: float = 300.0
+    trim_maximum_surface_spread_nm: float = 300.0
+    trim_maximum_axis_distance_nm: float = 3000.0
+    trim_use_non_candidate_sections: bool = True
+    trim_allow_mesh_direction: bool = True
+    trim_maximum_section_bridge_nm: float = 700.0
+    # A leaning neck can also run close to the estimated shaft surface. Keep
+    # single protrusions intact unless this exploratory mode is requested.
+    trim_single_protrusions: bool = False
 
     def __post_init__(self):
         positive = (self.section_radius_nm, self.skeleton_step_nm,
@@ -57,6 +73,14 @@ class RefinementConfig:
             raise ValueError("Invalid minimum_sections")
         if self.growth_clearance_nm < 0 or self.growth_margin_nm < 0:
             raise ValueError("Growth clearance and margin must be nonnegative")
+        trim_values = (self.trim_clearance_nm, self.trim_collar_nm,
+                       self.trim_minimum_area_nm2, self.trim_minimum_protrusion_nm,
+                       self.trim_maximum_surface_spread_nm, self.trim_maximum_axis_distance_nm,
+                       self.trim_maximum_section_bridge_nm)
+        if any(not np.isfinite(v) or v < 0 for v in trim_values):
+            raise ValueError("Shaft trimming thresholds must be finite and nonnegative")
+        if not 0 <= self.trim_minimum_area_fraction <= 1:
+            raise ValueError("Invalid shaft trimming area fraction")
 
 
 def _quantile(values, weights, quantiles):
@@ -247,18 +271,25 @@ def _surface_boundary(parent, indices):
     return (samples, weights, float(weights.sum() / np.sqrt(area))), unique_indices
 
 
-def _section_polygons(vertices, faces, anchor, basis, offset):
+def _section_polygons(vertices, faces, anchor, basis, offset, support_faces=None):
     # Triangle/plane intersections follow the diagnostic attachment estimator.
     # Duplicate parent triangles are ignored locally without editing the input.
     d = (vertices - anchor) @ basis[:, 2] - offset - 1e-5
     dt = d[faces]
-    faces = faces[(dt.min(axis=1) < 0) & (dt.max(axis=1) > 0)]
+    intersect = (dt.min(axis=1) < 0) & (dt.max(axis=1) > 0)
+    faces = faces[intersect]
+    if support_faces is not None:
+        support_faces = np.asarray(support_faces)[intersect]
     if not len(faces):
         return []
     edges = np.stack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]), axis=1)
     cross = (d[edges[:, :, 0]] > 0) != (d[edges[:, :, 1]] > 0)
     crossed = np.sort(edges[cross], axis=1)
     unique, inverse = np.unique(crossed, axis=0, return_inverse=True)
+    support_nodes = None
+    if support_faces is not None:
+        support_nodes = np.zeros(len(unique), dtype=bool)
+        np.maximum.at(support_nodes, inverse, np.repeat(support_faces, 2))
     a, b = vertices[unique[:, 0]], vertices[unique[:, 1]]
     da, db = d[unique[:, 0]], d[unique[:, 1]]
     points = a + (da / (da - db))[:, None] * (b - a)
@@ -293,7 +324,10 @@ def _section_polygons(vertices, faces, anchor, basis, offset):
         area = abs(np.sum(polygon[:, 0] * np.roll(polygon[:, 1], -1)
                           - np.roll(polygon[:, 0], -1) * polygon[:, 1])) / 2
         if area > np.pi * 30 ** 2:
-            polygons.append((polygon, float(area)))
+            if support_nodes is None:
+                polygons.append((polygon, float(area)))
+            else:
+                polygons.append((polygon, float(area), support_nodes[ordered]))
     return polygons
 
 
@@ -306,10 +340,13 @@ class _Context:
         # Lazy: most candidates only need cheap boundary descriptors.
         self.canonical = self.representatives = self.adjacency = None
         self.groups = groups
+        self.excluded_support = np.zeros(len(parent.faces), dtype=bool)
+        for group in groups:
+            self.excluded_support[group] = True
         self.profiles = {}
         self.growth_scores = self.growth_scored = None
         self.statistics = dict(section_models=0, screened=0, assessed=0, repairs_attempted=0,
-                               growth_faces_scored=0)
+                               growth_faces_scored=0, trims_attempted=0)
         self.max_face_radius = float(np.max(np.linalg.norm(parent.triangles - self.centers[:, None], axis=2)))
 
     def unique_faces(self):
@@ -318,10 +355,13 @@ class _Context:
                                                      return_index=True, return_inverse=True)
             self.representatives = np.sort(representatives)
             self.canonical = representatives[inverse]
+            if hasattr(self, "excluded_support"):
+                physical = self.canonical[np.flatnonzero(self.excluded_support)]
+                self.excluded_support |= np.isin(self.canonical,physical)
         return self.representatives
 
-    def model(self, anchor):
-        basis = _frame(self.axis.tangent(anchor))
+    def model(self, anchor, *, basis=None, shaft_support_only=False):
+        basis = _frame(self.axis.tangent(anchor)) if basis is None else basis
         radius = np.hypot(self.config.section_radius_nm, max(abs(x) for x in self.config.section_offsets_nm))
         ids = np.asarray(self.face_tree.query_ball_point(anchor, radius + self.max_face_radius), dtype=int)
         # Only transform nearby vertices, not the full branch at every section.
@@ -332,10 +372,15 @@ class _Context:
         faces = inverse.reshape(-1, 3)
         vertices = self.parent.vertices[vertices]
         radial = np.linalg.norm((vertices - anchor) @ basis[:, :2], axis=1)
-        faces = faces[(radial[faces] < self.config.section_radius_nm).any(axis=1)]
+        selected = (radial[faces] < self.config.section_radius_nm).any(axis=1)
+        faces = faces[selected]
+        support = ~self.excluded_support[ids[selected]] if shaft_support_only else None
         polygons, areas = [], []
         for offset in self.config.section_offsets_nm:
-            candidates = _section_polygons(vertices, faces, anchor, basis, offset)
+            candidates = _section_polygons(vertices, faces, anchor, basis, offset, support)
+            if shaft_support_only:
+                candidates = [result for item in candidates
+                              if (result := _shaft_contour(item, self.config.trim_maximum_section_bridge_nm)) is not None]
             if not candidates:
                 continue
             polygon, area = min(candidates, key=lambda item:
@@ -360,10 +405,10 @@ class _Context:
         xy = (points - anchor) @ basis[:, :2]
         return np.quantile(np.stack([_polygon_distance(xy, polygon) for polygon in polygons]), 0.25, axis=0)
 
-    def assess(self, indices, boundary=None, *, measure_surface_spread=False):
+    def assess(self, indices, boundary=None, *, measure_surface_spread=False, model=None):
         rim, weights, ratio = _boundary(self.parent, indices) if boundary is None else boundary
         anchor = self.axis.project([np.average(rim, axis=0, weights=weights)])[0][0]
-        model = self.model(anchor)
+        model = self.model(anchor) if model is None else model
         gap = float(_quantile(self.score(rim, model), weights, 0.1))
         if measure_surface_spread:
             anchor, basis, polygons = model
@@ -489,18 +534,260 @@ class _Context:
             raise ValueError("growth_extent_limit")
         return grown
 
+    def trim(self, indices):
+        """Subtract a well-supported shaft patch and recover a small collar.
 
-def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, protected_face_groups=()):
+        Connectivity alone never authorizes splitting. Parts must remain
+        distinct at three nearby surface thresholds, and substantial distal
+        surface cannot be lost. No faces outside the input are taken here.
+        """
+        cfg = self.config
+        boundary, measured = _surface_boundary(self.parent, indices)
+        rim, weights, _ = boundary
+        origin = np.average(rim, axis=0, weights=weights)
+        axis_distance = _quantile(self.axis.project(rim)[1], weights, .9)
+        covered = axis_distance <= cfg.trim_maximum_axis_distance_nm
+        failures, unchanged = [], None
+        try:
+            model, direction = None, "skeleton"
+            if covered:
+                anchor = self.axis.project([origin])[0][0]
+                try:
+                    model = self.model(anchor, shaft_support_only=cfg.trim_use_non_candidate_sections)
+                except ValueError:
+                    if not cfg.trim_allow_mesh_direction:
+                        raise
+            if model is None:
+                if not cfg.trim_allow_mesh_direction:
+                    raise ValueError("shaft_trim_axis_does_not_cover_attachment")
+                anchor, basis = self.mesh_frame(origin)
+                model = self.model(anchor, basis=basis, shaft_support_only=True)
+                direction = "mesh"
+            parts, detail = self._trim_proposal(indices, measured, boundary, model, allow_remove=True)
+            detail["model_direction"] = direction
+            detail["shaft_support_only"] = cfg.trim_use_non_candidate_sections or direction=="mesh"
+            if detail["action"] != "screened_keep":
+                return parts, detail
+            unchanged = parts, detail
+        except ValueError as exc:
+            failures.append(str(exc))
+        # Candidate arcs can hide the shaft curvature when omitted. A full
+        # contour may establish *separate* attached protrusions, but never
+        # authorizes a new surface rejection or trimming a single leaning neck.
+        if covered and cfg.trim_use_non_candidate_sections:
+            try:
+                anchor = self.axis.project([origin])[0][0]
+                model = self.model(anchor)
+                parts, detail = self._trim_proposal(indices, measured, boundary, model, allow_remove=False)
+                if len(parts)>1:
+                    detail.update(model_direction="skeleton",shaft_support_only=False)
+                    return parts, detail
+            except ValueError as exc:
+                failures.append(str(exc))
+        if unchanged is not None:
+            return unchanged
+        raise ValueError(failures[0] if failures else "shaft_trim_no_reliable_surface_model")
+
+    def _trim_proposal(self, indices, measured, boundary, model, *, allow_remove):
+        cfg = self.config
+        geometry, model = self.assess(measured, boundary, measure_surface_spread=True, model=model)
+        if geometry["section_surface_spread_q95_nm"] > cfg.trim_maximum_surface_spread_nm:
+            raise ValueError("shaft_trim_sections_disagree")
+        score = self.score(self.centers[measured], model)
+        near = score <= cfg.trim_clearance_nm
+        total = self.areas[measured].sum()
+        low_area = self.areas[measured[near]].sum()
+        if low_area < cfg.trim_minimum_area_nm2 or low_area / total < cfg.trim_minimum_area_fraction:
+            return [indices], dict(action="screened_keep", geometry=geometry)
+        if (allow_remove and geometry["surface_q95_nm"] <= cfg.sheet_protrusion_nm
+                and geometry["boundary_perimeter_normalized"] >= cfg.sheet_boundary_ratio):
+            return [], dict(action="remove_surface_patch", geometry=geometry)
+        if geometry["surface_q95_nm"] < cfg.trim_minimum_protrusion_nm:
+            raise ValueError("shaft_trim_short_protrusion_uncertain")
+        self.statistics["trims_attempted"] += 1
+        pairs = _edge_pairs(self.parent.faces[measured])
+        edge_length = np.maximum(np.linalg.norm(self.centers[measured[pairs[:, 0]]]
+                                  - self.centers[measured[pairs[:, 1]]], axis=1), 1e-6)
+        graph = coo_matrix((edge_length, (pairs[:, 0], pairs[:, 1])),
+                           shape=(len(measured), len(measured))).tocsr()
+
+        def cores(threshold):
+            active = score > threshold
+            links = pairs[active[pairs].all(axis=1)]
+            _, labels = connected_components(coo_matrix((np.ones(len(links)), (links[:, 0], links[:, 1])),
+                                               shape=graph.shape).tocsr(), directed=False)
+            groups = [np.flatnonzero(active & (labels == label)) for label in np.unique(labels[active])]
+            main, small = [], []
+            for group in groups:
+                if (len(group) >= cfg.minimum_faces and self.areas[measured[group]].sum() >= cfg.trim_minimum_area_nm2
+                        and _quantile(score[group], self.areas[measured[group]], .9) >= cfg.trim_minimum_protrusion_nm):
+                    main.append(group)
+                else:
+                    small.append(group)
+            if not main:
+                raise ValueError("shaft_trim_no_reliable_protrusion_core")
+            lost = np.concatenate(small) if small else np.empty(0, dtype=int)
+            if self.areas[measured[lost]].sum() > .03 * total:
+                raise ValueError("shaft_trim_would_lose_distal_surface")
+            return main
+
+        main = cores(cfg.trim_clearance_nm)
+        if len(main)==1 and (not cfg.trim_single_protrusions or not allow_remove):
+            return [indices], dict(action="screened_keep",geometry=geometry,
+                                   reason="shaft_trim_single_neck_uncertain")
+        for threshold in (max(0, cfg.trim_clearance_nm - 25), cfg.trim_clearance_nm + 25):
+            check = cores(threshold)
+            if len(check) != len(main):
+                raise ValueError("shaft_trim_unstable_protrusion_count")
+            overlap = np.array([[self.areas[measured[np.intersect1d(a,b)]].sum()
+                                 / min(self.areas[measured[a]].sum(), self.areas[measured[b]].sum())
+                                 for b in check] for a in main])
+            if (overlap.max(axis=1) < .85).any() or len(np.unique(overlap.argmax(axis=1))) != len(main):
+                raise ValueError("shaft_trim_unstable_protrusion_membership")
+        sources = np.concatenate(main)
+        owner = np.full(len(measured), -1, dtype=int)
+        for part, group in enumerate(main):
+            owner[group] = part
+        distance, _, nearest = dijkstra(graph, directed=False, indices=sources, min_only=True,
+                                        return_predecessors=True, limit=cfg.trim_collar_nm)
+        assignment = np.full(len(measured), -1, dtype=int)
+        reached = np.isfinite(distance) & (nearest >= 0)
+        assignment[reached] = owner[nearest[reached]]
+        # A collar that rejoins two cores indicates a shared base or ambiguous
+        # local estimate. Keep a possibly branched true spine intact.
+        collar_links = pairs[reached[pairs].all(axis=1)]
+        if (assignment[collar_links[:, 0]] != assignment[collar_links[:, 1]]).any():
+            raise ValueError("shaft_trim_protrusions_share_a_base")
+        self.unique_faces()
+        canonical = self.canonical[indices]
+        output = [indices[np.isin(canonical, measured[assignment == part])] for part in range(len(main))]
+        retained = np.concatenate(output)
+        removed = np.setdiff1d(indices, retained)
+        removed_area = self.areas[removed].sum()
+        if removed_area < cfg.trim_minimum_area_nm2 or removed_area / self.areas[indices].sum() < cfg.trim_minimum_area_fraction:
+            return [indices], dict(action="screened_keep", geometry=geometry)
+        # Everything above the shaft collar belongs to one retained part;
+        # otherwise a ragged/fragmented head could silently disappear.
+        lost_high = measured[(assignment < 0) & (score > cfg.trim_minimum_protrusion_nm)]
+        if self.areas[lost_high].sum() > .01 * total:
+            raise ValueError("shaft_trim_would_lose_head_surface")
+        part_geometry = [self._validate_trim_part(part, model) for part in output]
+        detail = dict(action="split" if len(output)>1 else "trim", geometry=geometry,
+                      removed_faces=len(removed), removed_area_fraction=float(removed_area/self.areas[indices].sum()),
+                      protrusion_parts=len(output), part_geometry=part_geometry)
+        return output, detail
+
+    def _validate_trim_part(self, indices, model):
+        """A tall tail cannot make a broad shaft patch a reliable new spine.
+
+        Validate the majority of each child's area against both the section
+        uncertainty and its own cut rim. A locally underestimated shaft can
+        elevate the whole patch, including its rim, without forming a neck.
+        Failure rejects the entire split and preserves the intact candidate.
+        """
+        boundary, measured = _surface_boundary(self.parent, indices)
+        rim, weights, _ = boundary
+        geometry, _ = self.assess(measured, boundary, measure_surface_spread=True, model=model)
+        median = float(_quantile(self.score(self.centers[measured], model), self.areas[measured], .5))
+        rim_median = float(_quantile(self.score(rim, model), weights, .5))
+        geometry.update(surface_q50_nm=median, rim_q50_nm=rim_median)
+        if median <= geometry["section_surface_spread_q95_nm"] + self.config.trim_clearance_nm:
+            raise ValueError("shaft_trim_part_within_section_uncertainty")
+        if median - rim_median < self.config.trim_minimum_protrusion_nm:
+            raise ValueError("shaft_trim_part_has_no_distinct_protrusion")
+        return geometry
+
+    def mesh_frame(self, origin):
+        """Local shaft support supplies orientation when stored axes fail.
+
+        Two independent direction estimates must agree. This is a local frame
+        for sectioning the existing mesh, not a reconstructed skeleton.
+        """
+        ids = np.asarray(self.face_tree.query_ball_point(origin, 2200.0), dtype=int)
+        self.unique_faces()
+        ids = ids[(self.canonical[ids] == ids) & ~self.excluded_support[ids] & (self.areas[ids] > 1e-8)]
+        if len(ids) < 80:
+            raise ValueError("shaft_trim_insufficient_local_shaft_support")
+        weights = self.areas[ids]
+        normals = self.parent.face_normals[ids]
+        ne, nv = np.linalg.eigh((normals.T * weights) @ normals / weights.sum())
+        anchor = np.average(self.centers[ids], axis=0, weights=weights)
+        delta = self.centers[ids] - anchor
+        pe, pv = np.linalg.eigh((delta.T * weights) @ delta / weights.sum())
+        if ne[0] > .28 or ne[1] < .1 or pe[-2] / pe[-1] > .7 or abs(nv[:,0] @ pv[:,-1]) < .85:
+            raise ValueError("shaft_trim_ambiguous_mesh_direction")
+        return anchor, _frame(nv[:,0])
+
+
+def _edge_pairs(faces):
+    """All shared-edge neighbours, including locally nonmanifold edges.
+
+    Input faces are unique. A fan with more than two incident triangles is
+    connected through its first face; duplicated parent triangles are handled
+    by the caller's canonical mapping instead of splitting a physical surface.
+    """
+    edges = np.sort(np.concatenate((faces[:, [0,1]], faces[:, [1,2]], faces[:, [2,0]])), axis=1)
+    owners = np.tile(np.arange(len(faces)), 3)
+    _, inverse, counts = np.unique(edges, axis=0, return_inverse=True, return_counts=True)
+    order = np.argsort(inverse, kind="stable")
+    offsets = np.r_[0,np.cumsum(counts)]
+    chunks = [np.column_stack((np.full(counts[i]-1,owners[order[offsets[i]]]), owners[order[offsets[i]+1:offsets[i+1]]]))
+              for i in np.flatnonzero(counts>1)]
+    return np.concatenate(chunks) if chunks else np.empty((0,2),dtype=int)
+
+
+def _shaft_contour(item, maximum_bridge_nm):
+    """Remove candidate arcs, closing only short gaps in the shaft contour."""
+    polygon, _, supported = item
+    ids = np.flatnonzero(supported)
+    if len(ids) < 6:
+        return None
+    next_ids = np.roll(ids, -1)
+    gaps = (next_ids - ids) % len(polygon) > 1
+    if np.linalg.norm(polygon[next_ids[gaps]] - polygon[ids[gaps]],axis=1).max(initial=0) > maximum_bridge_nm:
+        return None
+    contour = polygon[ids]
+    # Closing a missing arc must not cross an existing shaft edge. Such a
+    # shortcut would make the signed surface distance depend on a self-crossing
+    # polygon rather than a well-defined shaft section.
+    start, end = contour, np.roll(contour,-1,axis=0)
+    edges = end-start
+    for i in np.flatnonzero(gaps):
+        direction = edges[i]
+        delta = start-start[i]
+        denominator = direction[0]*edges[:,1]-direction[1]*edges[:,0]
+        valid = abs(denominator)>1e-10
+        numerator_t = delta[:,0]*edges[:,1]-delta[:,1]*edges[:,0]
+        numerator_s = delta[:,0]*direction[1]-delta[:,1]*direction[0]
+        t = np.divide(numerator_t,denominator,out=np.zeros(len(edges)),where=valid)
+        s = np.divide(numerator_s,denominator,out=np.zeros(len(edges)),where=valid)
+        if (valid & (t>1e-8) & (t<1-1e-8) & (s>=-1e-8) & (s<=1+1e-8)).any():
+            return None
+    area = abs(np.sum(contour[:,0]*np.roll(contour[:,1],-1)
+                      -np.roll(contour[:,0],-1)*contour[:,1])) / 2
+    if area < np.pi*30**2:
+        return None
+    return contour, float(area)
+
+
+def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, protected_face_groups=(),
+                              pre_trim_face_groups=None):
     """Return ``(face_groups, diagnostics)`` without mutating input geometry.
 
     Diagnostics give an input/output mapping and explain skipped or rejected
     changes. Surface scraps are removed only when BOTH protrusion is weak and
     the cut rim is extensive. Short necks and open bases alone are allowed.
     Growth preserves every seed and competes with all neighbouring seeds.
+    Optional trim_shaft_connections can subtract shaft surface or split a
+    candidate. output_indices maps all its parts; output_index names the first.
+    pre_trim_face_groups, when supplied, collects the pre-cut masks so the
+    branch API can restore an entire candidate if final filters reject a part.
     protected_face_groups additionally protects candidates rejected by upstream
     filters, without spending time assessing those candidates.
     """
     started = perf_counter()
+    if pre_trim_face_groups is not None:
+        pre_trim_face_groups.clear()
     config = RefinementConfig() if config is None else config
     if isinstance(config, dict):
         config = RefinementConfig(**config)
@@ -589,10 +876,29 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
         elif context is not None:
             record["action"] = "small_keep"
         if result is not None:
-            record.update(output_index=len(refined), output_faces=len(result), added_faces=len(result) - len(indices))
-            refined.append(result)
+            parts = [result]
+            if context is not None and config.trim_shaft_connections:
+                try:
+                    parts, trim = context.trim(result)
+                    record["shaft_trim"] = trim
+                    if trim["action"] in ("trim", "split", "remove_surface_patch"):
+                        if pre_trim_face_groups is not None:
+                            pre_trim_face_groups[i] = result
+                        record["action_before_trim"] = record["action"]
+                        if "reason" in record:
+                            record["reason_before_trim"] = record.pop("reason")
+                        record["action"] = ("remove_surface_patch" if not parts else
+                                             "split_shaft_connection" if len(parts)>1 else "trim_shaft_surface")
+                except ValueError as exc:
+                    record["shaft_trim"] = dict(action="unknown_keep", reason=str(exc))
+            output_indices = list(range(len(refined),len(refined)+len(parts)))
+            union = np.unique(np.concatenate(parts)) if parts else np.empty(0,dtype=int)
+            record.update(output_index=output_indices[0] if parts else None, output_indices=output_indices,
+                          output_faces=sum(len(p) for p in parts),
+                          added_faces=len(np.setdiff1d(union,indices)), removed_faces=len(np.setdiff1d(indices,union)))
+            refined.extend(parts)
         else:
-            record.update(output_index=None, output_faces=0, added_faces=0)
+            record.update(output_index=None, output_indices=[], output_faces=0, added_faces=0, removed_faces=len(indices))
     counts = {}
     for record in records:
         counts[record["action"]] = counts.get(record["action"], 0) + 1

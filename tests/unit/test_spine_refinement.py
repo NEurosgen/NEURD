@@ -243,3 +243,92 @@ def test_ragged_head_kept_when_sections_also_include_the_protrusion():
     assert np.array_equal(result[0], cap)
     assert record["reason"] == "unstable_shaft_surface_estimate"
     assert diagnostics["statistics"]["repairs_attempted"] == 0
+
+
+def test_shaft_bridge_splits_into_distinct_protrusions_on_parent_faces():
+    mesh, skeleton, radius = branch_surface(bumps=(-850,850))
+    points = mesh.triangles_center
+    # Two actual protrusions joined only by a strip of the shaft surface.
+    merged = np.flatnonzero((radius > 340) | ((abs(points[:,2]) < 1600) & (points[:,0] > 100)))
+    original, _ = sr.refine_spine_face_indices(mesh,skeleton,[merged])
+    assert len(original)==1 and np.array_equal(original[0],merged)
+    before = mesh.vertices.copy(), mesh.faces.copy()
+    refined, d = sr.refine_spine_face_indices(mesh,skeleton,[merged],config={'trim_shaft_connections':True})
+    assert len(refined)==2,d
+    assert d['candidates'][0]['action']=='split_shaft_connection'
+    assert d['candidates'][0]['output_indices']==[0,1]
+    assert not np.intersect1d(*refined).size
+    assert all(np.isin(part,merged).all() for part in refined)
+    assert np.isin(np.flatnonzero(radius>1100),np.concatenate(refined)).all()
+    assert np.array_equal(mesh.vertices,before[0]) and np.array_equal(mesh.faces,before[1])
+
+
+def test_intact_short_spine_is_preserved_with_shaft_trimming():
+    mesh,skeleton,radius=branch_surface()
+    intact=np.flatnonzero(radius>340)
+    refined,d=sr.refine_spine_face_indices(mesh,skeleton,[intact],config={'trim_shaft_connections':True})
+    assert len(refined)==1 and np.array_equal(refined[0],intact),d
+
+
+def test_trim_requires_attachment_coverage_and_handles_nonmanifold_edges():
+    mesh,skeleton,radius=branch_surface()
+    indices=np.flatnonzero(radius>340)
+    ctx=sr._Context(mesh,skeleton+100_000,[indices],sr.RefinementConfig(trim_shaft_connections=True,trim_allow_mesh_direction=False))
+    with pytest.raises(ValueError,match='axis_does_not_cover'):
+        ctx.trim(indices)
+    # Three triangles meeting at an edge remain one physical component.
+    pairs=sr._edge_pairs(np.array([[0,1,2],[1,0,3],[0,1,4]]))
+    assert len(pairs)==2
+
+
+def test_invalid_ragged_head_not_trimmed_by_an_inconsistent_contour():
+    mesh,skeleton,radius=branch_surface(bump_width=400)
+    cap=np.flatnonzero((radius>1100)&(abs(mesh.triangles_center[:,2])<200))[::2]
+    refined,d=sr.refine_spine_face_indices(mesh,skeleton,[cap],config={'trim_shaft_connections':True})
+    assert len(refined)==1 and np.array_equal(refined[0],cap),d
+    assert d['candidates'][0]['shaft_trim']['reason']=='shaft_trim_sections_disagree'
+
+
+def test_missing_candidate_arcs_do_not_use_a_head_as_shaft_support():
+    polygon=np.array([[0,0],[100,0],[200,1000],[300,0],[400,0],[400,-200],[0,-200]],float)
+    support=np.array([True,True,False,True,True,True,True])
+    result=sr._shaft_contour((polygon,1,support),maximum_bridge_nm=250)
+    assert result is not None
+    assert result[0][:,1].max()==0
+    assert sr._shaft_contour((polygon,1,support),maximum_bridge_nm=150) is None
+
+
+def test_local_mesh_sections_can_classify_a_patch_with_a_mismatched_axis():
+    mesh,skeleton,_=branch_surface(bumps=())
+    p=mesh.triangles_center
+    patch=np.flatnonzero((abs(p[:,2])<1500)&(p[:,0]>290))
+    ctx=sr._Context(mesh,skeleton+100_000,[patch],sr.RefinementConfig(trim_shaft_connections=True))
+    result,d=ctx.trim(patch)
+    assert result==[] and d['action']=='remove_surface_patch'
+    assert d['model_direction']=='mesh'
+
+
+def test_missing_arc_cannot_be_closed_across_another_shaft_edge():
+    # A concave section with an external arc below a narrow indentation.
+    # Removing that arc would make the replacement chord cross both bay walls.
+    polygon=np.array([[0,0],[4,-4],[8,0],[8,8],[6,8],[6,-1],[2,-1],[2,8],[0,8]],float)*100
+    supported=np.ones(len(polygon),bool);supported[1]=False
+    assert sr._shaft_contour((polygon,1,supported),maximum_bridge_nm=1000) is None
+
+
+def test_split_child_cannot_be_a_patch_elevated_by_a_biased_shaft_model():
+    mesh = trimesh.creation.cylinder(radius=500, height=2400, sections=64)
+    centers = mesh.triangles_center
+    patch = np.flatnonzero((centers[:, 0] > 100) & (abs(centers[:, 2]) < 1000))
+    skeleton = np.array([[[0, 0, -1200], [0, 0, 1200]]], dtype=float)
+    ctx = sr._Context(mesh, skeleton, [patch], sr.RefinementConfig(trim_shaft_connections=True))
+    angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    # A bad local estimate makes the entire real shaft patch appear >300 nm
+    # above its surface. The patch still has no elevation above its own rim.
+    polygon = 100 * np.column_stack((np.cos(angles), np.sin(angles)))
+    model = (np.zeros(3), np.eye(3), [sr._Contour(polygon)] * 3)
+    boundary, measured = sr._surface_boundary(mesh, patch)
+    geometry, _ = ctx.assess(measured, boundary, model=model)
+    assert geometry['surface_q95_nm'] > ctx.config.trim_minimum_protrusion_nm
+    with pytest.raises(ValueError, match='part_has_no_distinct_protrusion'):
+        ctx._validate_trim_part(patch, model)

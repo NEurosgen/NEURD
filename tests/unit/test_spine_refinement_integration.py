@@ -77,3 +77,67 @@ def test_refinement_runs_after_length_and_before_volume(monkeypatch):
     assert meshes[0] is mesh
     assert events == ["length", "refine", "volume"]
     assert diagnostics["candidates"][0]["final_output_index"] == 0
+
+
+def test_split_parts_repeat_length_filter_and_restore_a_rejected_part(monkeypatch):
+    parent=trimesh.creation.box()
+    original=np.arange(len(parent.faces))
+    events=[]
+
+    def extract(*args,**kwargs):
+        return [parent],[original]
+
+    def length(meshes,**kwargs):
+        events.append(('length',len(meshes)))
+        return meshes if len(meshes)==1 else meshes[1:]
+
+    def refine(*args,**kwargs):
+        events.append(('refine',1))
+        kwargs['pre_trim_face_groups'][0]=original
+        return [original[:6],original[6:]],dict(candidates=[dict(input_index=0,output_index=0,
+                   output_indices=[0,1],output_faces=len(original),action='split_shaft_connection',shaft_trim={'action':'split'})],
+                   counts={'split_shaft_connection':1},seconds=0)
+
+    def volume(mesh,**kwargs):
+        events.append(('volume',len(mesh.faces)))
+        return 1
+
+    monkeypatch.setattr(spu,'get_spine_meshes_unfiltered_from_mesh',extract)
+    monkeypatch.setattr(spu,'filter_spine_meshes',length)
+    monkeypatch.setattr(sr,'refine_spine_face_indices',refine)
+    monkeypatch.setattr(spu.tu,'mesh_volume',volume)
+    d={};opts={**options(),'spine_n_face_threshold':1,'calculate_spine_volume':True}
+    result,_=spu.calculate_spines_on_branch(SimpleNamespace(mesh=parent,skeleton=np.zeros((1,2,3))),
+                          geometric_refinement=True,geometric_refinement_diagnostics=d,**opts)
+    assert len(result)==1 and len(result[0].faces)==12
+    assert events==[('length',1),('refine',1),('length',2),('volume',6),('volume',12)]
+    assert d['candidates'][0]['raw_input_index']==0
+    assert d['candidates'][0]['final_output_index']==0
+    assert d['candidates'][0]['final_output_indices']==[0]
+    assert d['candidates'][0]['final_output_mapping']==[
+        dict(output_index=2,part_index=0,final_output_index=0)]
+    assert d['candidates'][0]['proposed_output_indices']==[0,1]
+    assert d['candidates'][0]['shaft_trim']['reason']=='split_part_rejected_by_final_filters'
+    assert d['counts']=={'keep_after_split_filter_rejection':1}
+    assert d['statistics']['splits_reverted_by_final_filters']==1
+
+
+def test_successful_split_maps_all_parts_without_fallback(monkeypatch):
+    parent=trimesh.creation.box();ids=np.arange(len(parent.faces))
+
+    def extract(*a,**kw):return [parent],[ids]
+
+    def refine(*a,**kw):
+        kw['pre_trim_face_groups'][0]=ids
+        return [ids[:6],ids[6:]],dict(candidates=[dict(input_index=0,output_index=0,output_indices=[0,1],
+                      action='split_shaft_connection',shaft_trim={'action':'split'})],counts={},seconds=0)
+
+    monkeypatch.setattr(spu,'get_spine_meshes_unfiltered_from_mesh',extract)
+    monkeypatch.setattr(sr,'refine_spine_face_indices',refine)
+    d={};result=spu.calculate_spines_on_branch(SimpleNamespace(mesh=parent,skeleton=np.zeros((1,2,3))),
+                 geometric_refinement=True,geometric_refinement_diagnostics=d,**options())
+    assert len(result)==2
+    assert d['candidates'][0]['final_output_indices']==[0,1]
+    assert d['candidates'][0]['final_output_mapping']==[
+        dict(output_index=0,part_index=0,final_output_index=0),
+        dict(output_index=1,part_index=1,final_output_index=1)]
