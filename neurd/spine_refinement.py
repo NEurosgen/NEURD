@@ -26,6 +26,10 @@ class RefinementConfig:
     screen_gap_nm: float = 200.0
     sheet_protrusion_nm: float = 100.0
     sheet_boundary_ratio: float = 6.0
+    # A branched cut rim prevents safe growth, but does not prevent measuring
+    # whether the candidate is just a patch on the parent shaft surface.
+    filter_ragged_surface_patches: bool = True
+    maximum_section_surface_spread_nm: float = 700.0
     incomplete_gap_nm: float = 200.0
     growth_clearance_nm: float = 50.0
     growth_margin_nm: float = 2500.0
@@ -210,6 +214,39 @@ def _boundary(parent, indices):
     return samples, weights, float(weights.sum() / np.sqrt(area))
 
 
+def _surface_boundary(parent, indices):
+    """Cut-edge samples for rejection, without assuming a simple rim loop.
+
+    CGAL can join surface fragments through one vertex or split a patch around
+    small holes. Those cuts have branched boundaries even on a valid parent.
+    Rejecting a surface scrap only needs its cut-edge lengths and protrusion;
+    it does not need an ordered closed rim. Duplicate triangles are ignored
+    locally for this measurement. The original mesh and seed remain intact.
+    This descriptor must never authorize growth across an invalid boundary.
+    """
+    faces = parent.faces[indices]
+    _, unique = np.unique(np.sort(faces, axis=1), axis=0, return_index=True)
+    unique_indices = indices[np.sort(unique)]
+    # Degenerate triangles do not describe a surface or a physical cut edge.
+    unique_indices = unique_indices[parent.area_faces[unique_indices] > 1e-12]
+    faces = parent.faces[unique_indices]
+    edges = np.sort(np.concatenate((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]])), axis=1)
+    edges, counts = np.unique(edges, axis=0, return_counts=True)
+    edges = edges[counts == 1]
+    if not len(edges):
+        raise ValueError("no_open_boundary")
+    vertices = parent.vertices[edges]
+    length = np.linalg.norm(vertices[:, 1] - vertices[:, 0], axis=1)
+    fractions = np.array([1 / 6, 0.5, 5 / 6])
+    samples = (vertices[:, 0, None] * (1 - fractions)[None, :, None]
+               + vertices[:, 1, None] * fractions[None, :, None]).reshape(-1, 3)
+    weights = np.repeat(length / 3, 3)
+    area = parent.area_faces[unique_indices].sum()
+    if area <= 0 or weights.sum() <= 0:
+        raise ValueError("empty_or_degenerate_surface")
+    return (samples, weights, float(weights.sum() / np.sqrt(area))), unique_indices
+
+
 def _section_polygons(vertices, faces, anchor, basis, offset):
     # Triangle/plane intersections follow the diagnostic attachment estimator.
     # Duplicate parent triangles are ignored locally without editing the input.
@@ -323,15 +360,26 @@ class _Context:
         xy = (points - anchor) @ basis[:, :2]
         return np.quantile(np.stack([_polygon_distance(xy, polygon) for polygon in polygons]), 0.25, axis=0)
 
-    def assess(self, indices, boundary=None):
+    def assess(self, indices, boundary=None, *, measure_surface_spread=False):
         rim, weights, ratio = _boundary(self.parent, indices) if boundary is None else boundary
         anchor = self.axis.project([np.average(rim, axis=0, weights=weights)])[0][0]
         model = self.model(anchor)
         gap = float(_quantile(self.score(rim, model), weights, 0.1))
-        protrusion = float(_quantile(self.score(self.centers[indices], model), self.areas[indices], 0.95))
+        if measure_surface_spread:
+            anchor, basis, polygons = model
+            xy = (self.centers[indices] - anchor) @ basis[:, :2]
+            distances = np.stack([_polygon_distance(xy, polygon) for polygon in polygons])
+            lower, upper = np.quantile(distances, (0.25, 0.75), axis=0)
+            spread = float(_quantile(upper - lower, self.areas[indices], 0.95))
+        else:
+            lower = self.score(self.centers[indices], model)
+        protrusion = float(_quantile(lower, self.areas[indices], 0.95))
         self.statistics["assessed"] += 1
-        return dict(gap_q10_nm=gap, surface_q95_nm=protrusion,
-                    boundary_perimeter_normalized=ratio), model
+        geometry = dict(gap_q10_nm=gap, surface_q95_nm=protrusion,
+                        boundary_perimeter_normalized=ratio)
+        if measure_surface_spread:
+            geometry["section_surface_spread_q95_nm"] = spread
+        return geometry, model
 
     def suspicious(self, boundary):
         rim, weights, ratio = boundary
@@ -487,17 +535,42 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
         result = indices
         if context is not None and len(indices) >= config.minimum_faces:
             try:
-                boundary = _boundary(parent, indices)
+                boundary_error = None
+                measurement_indices = indices
+                try:
+                    boundary = _boundary(parent, indices)
+                except ValueError as exc:
+                    boundary_error = str(exc)
+                    if (not config.filter_ragged_surface_patches or boundary_error not in
+                            ("nonmanifold_candidate", "branched_open_boundary")):
+                        raise
+                    boundary, measurement_indices = _surface_boundary(parent, indices)
+                    record["surface_boundary_status"] = boundary_error
                 if not context.suspicious(boundary):
+                    if boundary_error is not None:
+                        raise ValueError(boundary_error)
                     record["action"] = "screened_keep"
                     context.statistics["screened"] += 1
                 else:
-                    geometry, model = context.assess(indices, boundary)
+                    geometry, model = context.assess(
+                        measurement_indices, boundary,
+                        measure_surface_spread=boundary_error is not None)
                     record["geometry_before"] = geometry
                     if (geometry["surface_q95_nm"] <= config.sheet_protrusion_nm
                             and geometry["boundary_perimeter_normalized"] >= config.sheet_boundary_ratio):
+                        # Some sections include a lateral head in the same
+                        # contour as the shaft. A large disagreement with
+                        # the other sections makes rejection unreliable.
+                        if (boundary_error is not None and
+                                geometry["section_surface_spread_q95_nm"] >
+                                config.maximum_section_surface_spread_nm):
+                            raise ValueError("unstable_shaft_surface_estimate")
                         record["action"] = "remove_surface_patch"
                         result = None
+                    elif boundary_error is not None:
+                        # A positive protrusion is preserved. An invalid rim
+                        # still cannot establish a safe growth boundary.
+                        raise ValueError(boundary_error)
                     elif geometry["gap_q10_nm"] > config.incomplete_gap_nm:
                         if context.statistics["repairs_attempted"] >= config.maximum_repairs_per_branch:
                             raise ValueError("branch_repair_budget_exhausted")

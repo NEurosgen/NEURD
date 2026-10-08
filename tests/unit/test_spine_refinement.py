@@ -14,7 +14,7 @@ sys.modules[spec.name] = sr
 spec.loader.exec_module(sr)
 
 
-def branch_surface(curved=False, bumps=(0,)):
+def branch_surface(curved=False, bumps=(0,), bump_width=200):
     """Continuous shaft and protrusions, with known parent face membership."""
     z = np.arange(-6000, 6001, 50.0)
     angle = np.linspace(-np.pi, np.pi, 96, endpoint=False)
@@ -26,7 +26,7 @@ def branch_surface(curved=False, bumps=(0,)):
     v = np.cross(tangent, u)
     radius = np.full((len(z), len(angle)), 300.0)
     for position in bumps:
-        radius += 1400 * np.exp(-((z[:, None] - position) / 200) ** 4
+        radius += 1400 * np.exp(-((z[:, None] - position) / bump_width) ** 4
                                 - (angle[None, :] / 0.35) ** 4)
     vertices = (centers[:, None] + radius[:, :, None]
                 * (np.cos(angle)[None, :, None] * u[:, None]
@@ -168,4 +168,78 @@ def test_filter_only_mode_does_not_build_head_profiles():
         mesh, skeleton, [head], config={"maximum_repairs_per_branch": 0})
     assert np.array_equal(result[0], head)
     assert diagnostics["statistics"]["section_models"] == 0
+    assert diagnostics["statistics"]["repairs_attempted"] == 0
+
+
+def branched_rim(mesh, indices):
+    """Remove one triangle whose hole touches the cut rim at one vertex."""
+    faces = mesh.faces[indices]
+    edges = np.sort(np.concatenate((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]])), axis=1)
+    edges, counts = np.unique(edges, axis=0, return_counts=True)
+    vertices = np.unique(edges[counts == 1])
+    candidates = np.flatnonzero(np.isin(faces, vertices).sum(axis=1) == 1)
+    assert len(candidates)
+    return np.delete(indices, candidates[len(candidates) // 2])
+
+
+@pytest.mark.parametrize("ragged", ["branched", "duplicate"])
+def test_ragged_shaft_patch_is_rejected_without_repairing_input(ragged):
+    mesh, skeleton, _ = branch_surface(bumps=())
+    points = mesh.triangles_center
+    patch = np.flatnonzero((abs(points[:, 2]) < 1500) & (points[:, 0] > 290))
+    if ragged == "branched":
+        patch = branched_rim(mesh, patch)
+        expected = "branched_open_boundary"
+    else:
+        duplicate = mesh.faces[patch[len(patch) // 2]]
+        mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=np.vstack((mesh.faces, duplicate)), process=False)
+        patch = np.r_[patch, len(mesh.faces) - 1]
+        expected = "nonmanifold_candidate"
+    before = mesh.faces.copy()
+    with pytest.raises(ValueError, match=expected):
+        sr._boundary(mesh, patch)
+    result, diagnostics = sr.refine_spine_face_indices(mesh, skeleton, [patch])
+    record = diagnostics["candidates"][0]
+    assert result == []
+    assert record["action"] == "remove_surface_patch"
+    assert record["surface_boundary_status"] == expected
+    assert np.array_equal(mesh.faces, before)
+    original_mode, old = sr.refine_spine_face_indices(
+        mesh, skeleton, [patch], config={"filter_ragged_surface_patches": False})
+    assert np.array_equal(original_mode[0], patch)
+    assert old["candidates"][0]["reason"] == expected
+
+
+def test_ragged_true_protrusion_kept_and_not_grown():
+    mesh, skeleton, radius = branch_surface()
+    head = branched_rim(mesh, np.flatnonzero(radius > 1100))
+    result, diagnostics = sr.refine_spine_face_indices(mesh, skeleton, [head])
+    record = diagnostics["candidates"][0]
+    assert np.array_equal(result[0], head)
+    assert record["action"] == "unknown_keep"
+    assert record["reason"] == "branched_open_boundary"
+    assert record["geometry_before"]["surface_q95_nm"] > 100
+    assert diagnostics["statistics"]["repairs_attempted"] == 0
+
+
+def test_ragged_short_protrusion_is_not_a_sheet_by_boundary_alone():
+    mesh, skeleton, radius = branch_surface()
+    intact = branched_rim(mesh, np.flatnonzero(radius > 340))
+    result, diagnostics = sr.refine_spine_face_indices(mesh, skeleton, [intact])
+    assert np.array_equal(result[0], intact)
+    assert diagnostics["candidates"][0]["action"] == "unknown_keep"
+
+
+def test_ragged_head_kept_when_sections_also_include_the_protrusion():
+    mesh, skeleton, radius = branch_surface(bump_width=400)
+    # A perforated cap has a long cut rim despite lying on a real protrusion.
+    cap = np.flatnonzero((radius > 1100) & (abs(mesh.triangles_center[:, 2]) < 200))[::2]
+    aggressive, without_guard = sr.refine_spine_face_indices(
+        mesh, skeleton, [cap], config={"maximum_section_surface_spread_nm": 1e9})
+    assert aggressive == []
+    assert without_guard["candidates"][0]["action"] == "remove_surface_patch"
+    result, diagnostics = sr.refine_spine_face_indices(mesh, skeleton, [cap])
+    record = diagnostics["candidates"][0]
+    assert np.array_equal(result[0], cap)
+    assert record["reason"] == "unstable_shaft_surface_estimate"
     assert diagnostics["statistics"]["repairs_attempted"] == 0

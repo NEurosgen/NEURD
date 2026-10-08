@@ -94,6 +94,8 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--key", action="append")
     parser.add_argument("--raw-ids", type=int, nargs="+")
+    parser.add_argument("--previous-comparison", type=Path,
+                        help="Render only candidates whose final masks differ from a previous refinement")
     parser.add_argument("--controls", type=int, default=0)
     parser.add_argument("--controls-only", action="store_true")
     parser.add_argument("--rows", type=int, default=3)
@@ -113,8 +115,18 @@ def main():
         raw = unpack(result_path.parent / "raw_faces.npz")
         before, after = (unpack(result_path.parent / (name + "_faces.npz")) for name in ("baseline", "refined"))
         rows = [] if args.controls_only else list(result["changes"])
+        if args.previous_comparison:
+            previous = unpack(args.previous_comparison / "branches" / key / "refined_faces.npz")
+            rows = [row for row in rows if
+                    (row["raw_id"] in previous) != (row["raw_id"] in after)
+                    or (row["raw_id"] in previous and row["raw_id"] in after
+                        and not np.array_equal(np.sort(previous[row["raw_id"]]), np.sort(after[row["raw_id"]])))]
         if args.raw_ids:
             rows = [row for row in rows if row["raw_id"] in args.raw_ids]
+            selected = {row["raw_id"] for row in rows}
+            rows += [dict(raw_id=i, action="unchanged_control") for i in args.raw_ids
+                     if i not in selected and i in before and i in after
+                     and np.array_equal(before[i], after[i])]
         if args.controls:
             unchanged = sorted(i for i in before if i in after and np.array_equal(before[i], after[i]))
             # Evenly spaced original output order; fixed and independent of the proxy.

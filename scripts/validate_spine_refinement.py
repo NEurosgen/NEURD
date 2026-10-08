@@ -66,6 +66,20 @@ def code_provenance(code_root):
     return dict(files=result)
 
 
+def same_prefix_code(before, after):
+    """Only the optional refinement module may change when replaying a prefix.
+
+    Baseline extraction and the initial length filter never call this module.
+    Compare every snapshotted upstream source, not just spine_utils.py.
+    """
+    def upstream(provenance):
+        files = provenance.get("snapshot", {}).get("source_sha256")
+        if files is None:
+            files = {"neurd/" + name: digest for name, digest in provenance["files"].items()}
+        return {name: digest for name, digest in files.items() if name != "neurd/spine_refinement.py"}
+    return upstream(before) == upstream(after)
+
+
 def run_job(row, destination, args, manifest):
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/neurd-spine-refinement-mpl")
     for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
@@ -148,12 +162,15 @@ def run_job(row, destination, args, manifest):
         return result
 
     reused_result = None
-    if args.reuse_completed:
-        prior_directory = args.reuse_completed / "branches" / row["key"]
+    prior_root = args.reuse_completed or args.reuse_prefix_from
+    if prior_root:
+        prior_directory = prior_root / "branches" / row["key"]
         prior_path = prior_directory / "result.json"
         if prior_path.exists():
             prior = json.loads(prior_path.read_text())
-            if (prior.get("status") != "passed" or prior["manifest"]["code"] != manifest["code"]
+            code_matches = (same_prefix_code(prior["manifest"]["code"], manifest["code"])
+                            if args.reuse_prefix_from else prior["manifest"]["code"] == manifest["code"])
+            if (prior.get("status") != "passed" or not code_matches
                     or prior["manifest"]["rays"] != args.rays
                     or prior["parent_sha256"] != sha(source)
                     or prior["skeleton_sha256"] != sha(row["skeleton"])):
@@ -163,7 +180,9 @@ def run_job(row, destination, args, manifest):
                 indices = np.split(cache["faces"], cache["offsets"][1:-1])
             captured.update(indices=indices, meshes=[parent.submesh([ids], append=True) for ids in indices],
                             seconds=prior["shared_raw_extraction_seconds"], length_seconds=None)
-            passed_ids = [c["raw_input_index"] for c in prior["refinement"]["candidates"]]
+            saved_prefix = prior_directory / "shared_prefix.json"
+            passed_ids = (json.loads(saved_prefix.read_text())["length_raw_ids"] if saved_prefix.exists()
+                          else [c["raw_input_index"] for c in prior["refinement"]["candidates"]])
             captured["length_meshes"] = [captured["meshes"][i] for i in passed_ids]
             with np.load(prior_directory / "cgal.npz") as cache:
                 captured["labels"], captured["sdf"] = cache["labels"], cache["sdf"]
@@ -249,7 +268,10 @@ def run_job(row, destination, args, manifest):
 
     progress("export_and_audit")
     if reused_result:
-        for name, ids, groups in (("baseline", baseline_ids, baseline_groups), ("refined", new_ids, new_groups)):
+        modes = [("baseline", baseline_ids, baseline_groups)]
+        if not args.reuse_prefix_from:
+            modes.append(("refined", new_ids, new_groups))
+        for name, ids, groups in modes:
             with np.load(prior_directory / (name + "_faces.npz")) as cache:
                 previous = np.split(cache["faces"], cache["offsets"][1:-1])
                 assert np.array_equal(ids, cache["raw_ids"])
@@ -315,6 +337,8 @@ def run_job(row, destination, args, manifest):
                   shared_raw_extraction_seconds=captured["seconds"], timings=timings,
                   shared_length_filter_seconds=captured["length_seconds"],
                   reused_completed=None if reused_result is None else str(prior_directory),
+                  reused_prefix_only=bool(args.reuse_prefix_from),
+                  previous_refined_spines=None if reused_result is None else reused_result["refined_spines"],
                   median_extra_seconds=median_extra,
                   estimated_extra_fraction=median_extra / baseline_seconds,
                   cgal_shared=True, cgal_extension=str(csm.__file__),
@@ -339,10 +363,16 @@ def main():
     parser.add_argument("--rays", type=int, default=25)
     parser.add_argument("--job-key")
     parser.add_argument("--reuse-completed", type=Path)
+    parser.add_argument("--reuse-prefix-from", type=Path,
+                        help="Reuse verified CGAL/length results when only spine_refinement.py has changed")
     args = parser.parse_args()
     args.selection, args.output, args.code_snapshot = (p.resolve() for p in (args.selection, args.output, args.code_snapshot))
     if args.reuse_completed:
         args.reuse_completed = args.reuse_completed.resolve()
+    if args.reuse_prefix_from:
+        args.reuse_prefix_from = args.reuse_prefix_from.resolve()
+    if args.reuse_completed and args.reuse_prefix_from:
+        parser.error("Choose either --reuse-completed or --reuse-prefix-from")
     if args.repeat < 1 or args.workers < 1:
         parser.error("--repeat and --workers must be positive")
     rows = json.loads(args.selection.read_text())["rows"]
@@ -350,7 +380,8 @@ def main():
     manifest = dict(selection_sha256=sha(args.selection), script_sha256=sha(__file__),
                     code=code_provenance(args.code_snapshot), rays=args.rays,
                     repetitions=args.repeat, dataset="h01", shared_fresh_cgal=True,
-                    shared_length_filter=True)
+                    shared_length_filter=True, reuse_prefix_from=None if args.reuse_prefix_from is None
+                    else str(args.reuse_prefix_from))
     manifest_path = args.output / "manifest.json"
     if manifest_path.exists():
         if json.loads(manifest_path.read_text()) != manifest:
@@ -380,6 +411,8 @@ def main():
                    "--repeat", str(args.repeat), "--rays", str(args.rays), "--job-key", row["key"]]
         if args.reuse_completed:
             command.extend(["--reuse-completed", str(args.reuse_completed)])
+        if args.reuse_prefix_from:
+            command.extend(["--reuse-prefix-from", str(args.reuse_prefix_from)])
         with (directory / "run.log").open("w") as log:
             process = subprocess.run(command, cwd=directory, stdout=log, stderr=subprocess.STDOUT)
         if process.returncode:
@@ -397,7 +430,7 @@ def main():
                                   status=result["status"], old=result.get("baseline_spines"),
                                   new=result.get("refined_spines"), changes=result.get("change_counts"))), flush=True)
     fields = ["key", "archived_spines", "baseline_spines", "refined_spines", "raw_candidates",
-              "fresh_baseline_seconds", "median_extra_seconds", "estimated_extra_fraction"]
+              "previous_refined_spines", "fresh_baseline_seconds", "median_extra_seconds", "estimated_extra_fraction"]
     with (args.output / "counts.csv").open("w", newline="") as output:
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
