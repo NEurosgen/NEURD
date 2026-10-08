@@ -68,6 +68,7 @@ _BASE = dict(
     # spine_utils
     query="median_mesh_center > 115 and n_faces_branch>100",
     calculate_spine_volume=True,
+    spine_geometric_refinement=False,
     connectivity_type_for_shaft="vertices",
     clusters_threshold=5,
     smoothness_threshold=0.08,

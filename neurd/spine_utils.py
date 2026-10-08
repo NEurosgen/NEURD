@@ -1651,12 +1651,21 @@ def calculate_spines_on_branch(
     print_flag = False,
     plot_segmentation = False,
     cgal_folder = None,
+    geometric_refinement = None,
+    geometric_refinement_config = None,
+    geometric_refinement_diagnostics = None,
     **kwargs,
     ):
     """
     Purpose
     -------
     Will calculate the spines on a branch object
+
+    Experimental geometry refinement is opt-in with geometric_refinement=True
+    (or parameters.params.spine_geometric_refinement). It uses original parent
+    face indices after the initial size/length filter. Pass a dict as
+    geometric_refinement_diagnostics to collect decisions and elapsed time;
+    geometric_refinement_config accepts a RefinementConfig or a parameter dict.
     
     Pseudocode
     ----------------
@@ -1737,6 +1746,9 @@ def calculate_spines_on_branch(
     
     if clusters_threshold is None:
         clusters_threshold = parameters.params.clusters_threshold
+
+    if geometric_refinement is None:
+        geometric_refinement = parameters.params.spine_geometric_refinement
         
     if smoothness_threshold is None:
         smoothness_threshold = parameters.params.smoothness_threshold
@@ -1800,7 +1812,7 @@ def calculate_spines_on_branch(
     cgal_path = Path(cgal_folder) if cgal_folder is not None else Path("./cgal_temp")
 
     # Step 1: Initial segmentation to get unfiltered spines
-    spine_submesh_split= spu.get_spine_meshes_unfiltered_from_mesh(
+    extraction= spu.get_spine_meshes_unfiltered_from_mesh(
         branch.mesh,
         segment_name="no_name",
         clusters=clusters_threshold,
@@ -1808,10 +1820,18 @@ def calculate_spines_on_branch(
         cgal_folder = cgal_path,
         delete_temp_file=True,
         return_sdf=False,
+        return_mesh_idx=bool(geometric_refinement),
         print_flag=False,
         shaft_threshold=shaft_threshold,
         plot_segmentation=plot_segmentation
     )
+
+    if geometric_refinement:
+        original_meshes, original_indices = extraction
+        spine_submesh_split = original_meshes
+        raw_mesh_indices = {id(mesh): i for i, mesh in enumerate(original_meshes)}
+    else:
+        spine_submesh_split = extraction
     
     
     if print_flag:
@@ -1831,6 +1851,40 @@ def calculate_spines_on_branch(
     
         
         
+    # Refine only candidates that passed the expensive length/size filter.
+    # Growth preserves the seed; bbox, endpoint, soma and volume checks below
+    # still inspect the resulting mesh. All raw neighbours remain protected.
+    if geometric_refinement:
+        from .spine_refinement import refine_spine_face_indices
+
+        selected_raw_ids = [raw_mesh_indices[id(mesh)] for mesh in spine_submesh_split_filtered]
+        selected_indices = [original_indices[i] for i in selected_raw_ids]
+        refined_indices, refinement = refine_spine_face_indices(
+            branch.mesh, branch.skeleton, selected_indices,
+            config=geometric_refinement_config,
+            protected_face_groups=original_indices)
+        original_filtered = spine_submesh_split_filtered
+        spine_submesh_split_filtered = []
+        for record in refinement["candidates"]:
+            input_index = record["input_index"]
+            record["raw_input_index"] = selected_raw_ids[input_index]
+            output_index = record["output_index"]
+            if output_index is None:
+                continue
+            indices = refined_indices[output_index]
+            if np.array_equal(np.sort(selected_indices[input_index]), indices):
+                mesh = original_filtered[input_index]
+            else:
+                mesh = branch.mesh.submesh([indices], append=True)
+            spine_submesh_split_filtered.append(mesh)
+        refinement_mesh_ids = {id(mesh): i for i, mesh in enumerate(spine_submesh_split_filtered)}
+        if geometric_refinement_diagnostics is not None:
+            geometric_refinement_diagnostics.clear()
+            geometric_refinement_diagnostics.update(refinement)
+        if print_flag:
+            print(f"Geometry refinement: {refinement['counts']}, "
+                  f"{refinement['seconds']:.3f}s")
+
     # Step 3: Filter Spines by Bounding Box
     if filter_by_bounding_box_longest_side_length:
         old_length = len(spine_submesh_split_filtered)
@@ -1923,6 +1977,12 @@ def calculate_spines_on_branch(
                          
     
         
+    if geometric_refinement and geometric_refinement_diagnostics is not None:
+        final_indices = {refinement_mesh_ids[id(mesh)]: i
+                         for i, mesh in enumerate(spine_submesh_split_filtered)}
+        for record in geometric_refinement_diagnostics["candidates"]:
+            record["final_output_index"] = final_indices.get(record["output_index"])
+
     if calculate_spine_volume:
         return spine_submesh_split_filtered,spine_volumes
     else:
