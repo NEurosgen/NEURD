@@ -46,6 +46,11 @@ class RefinementConfig:
     growth_profile_step_nm: float = 400.0
     maximum_growth_profiles: int = 32
     maximum_repairs_per_branch: int = 8
+    # Complete perforated head masks on the existing parent surface. A separate
+    # bounded budget preserves repairs that ordinary cap growth already made.
+    grow_ragged_heads: bool = False
+    maximum_ragged_repairs_per_branch: int = 8
+    ragged_minimum_added_clearance_nm: float = 300.0
     # Optional subtraction/splitting of shaft pollution. This is separate from
     # seed-preserving head growth, and remains disabled pending H01 validation.
     trim_shaft_connections: bool = False
@@ -73,6 +78,8 @@ class RefinementConfig:
             raise ValueError("Invalid minimum_sections")
         if self.growth_clearance_nm < 0 or self.growth_margin_nm < 0:
             raise ValueError("Growth clearance and margin must be nonnegative")
+        if not np.isfinite(self.ragged_minimum_added_clearance_nm) or self.ragged_minimum_added_clearance_nm < 0:
+            raise ValueError("Added head clearance must be finite and nonnegative")
         trim_values = (self.trim_clearance_nm, self.trim_collar_nm,
                        self.trim_minimum_area_nm2, self.trim_minimum_protrusion_nm,
                        self.trim_maximum_surface_spread_nm, self.trim_maximum_axis_distance_nm,
@@ -588,6 +595,55 @@ class _Context:
             return unchanged
         raise ValueError(failures[0] if failures else "shaft_trim_no_reliable_surface_model")
 
+    def grow_ragged_head(self, indices, input_index, boundary, geometry, model, claimed):
+        """A long cut rim can come from holes within a real, incomplete head.
+
+        No synthetic filling is performed: competing seeds and the existing
+        shaft-clearance mask constrain additions. A local axis must cover the
+        seed; distant/global skeleton projections cannot authorize this growth.
+        For masks already touching the shaft, require a substantial reduction
+        of the physical cut perimeter relative to area, rather than mistaking
+        their low rim quantile for a complete head.
+        """
+        cfg = self.config
+        rim, weights, ratio = boundary
+        spread = geometry.get("section_surface_spread_q95_nm", 0.0)
+        if geometry["surface_q95_nm"] <= max(cfg.trim_minimum_protrusion_nm, spread+cfg.growth_clearance_nm):
+            raise ValueError("ragged_head_no_distinct_protrusion")
+        if geometry["gap_q10_nm"] <= cfg.incomplete_gap_nm and ratio < cfg.sheet_boundary_ratio:
+            raise ValueError("ragged_head_no_incomplete_boundary")
+        distance = self.axis.project(rim)[1]
+        if _quantile(distance, weights, .9) > cfg.trim_maximum_axis_distance_nm:
+            raise ValueError("ragged_head_axis_does_not_cover_seed")
+        attempts = self.statistics.get("ragged_repairs_attempted", 0)
+        if attempts >= cfg.maximum_ragged_repairs_per_branch:
+            raise ValueError("ragged_head_repair_budget_exhausted")
+        self.statistics["ragged_repairs_attempted"] = attempts+1
+        proposed = self.grow(indices, input_index, model, claimed)
+        after_boundary, measured = _surface_boundary(self.parent, proposed)
+        after, _ = self.assess(measured, after_boundary, measure_surface_spread=True, model=model)
+        gap_improved = (geometry["gap_q10_nm"] > cfg.incomplete_gap_nm
+                        and after["gap_q10_nm"] <= cfg.incomplete_gap_nm
+                        and after["gap_q10_nm"] < geometry["gap_q10_nm"])
+        rim_improved = (ratio >= cfg.sheet_boundary_ratio
+                        and after["boundary_perimeter_normalized"] <= .7*ratio
+                        and after["gap_q10_nm"] <= cfg.incomplete_gap_nm)
+        if not (gap_improved or rim_improved):
+            raise ValueError("ragged_head_boundary_did_not_improve")
+        # Reserve the examined footprint even if its additions are rejected.
+        # A neighbour must not inherit a dubious strip of shaft just because
+        # this candidate retained its original head. Ordinary caps already own
+        # their completed surface at this point.
+        claimed[self.canonical[proposed]] = input_index
+        added = np.setdiff1d(proposed, indices)
+        added_clearance = float(_quantile(self.curved_scores(added), self.areas[added], .25))
+        after["added_surface_q25_nm"] = added_clearance
+        if not np.isfinite(added_clearance):
+            raise ValueError("ragged_growth_unmeasured_additions")
+        if added_clearance <= cfg.ragged_minimum_added_clearance_nm:
+            raise ValueError("ragged_growth_mostly_near_shaft")
+        return proposed, after
+
     def _trim_proposal(self, indices, measured, boundary, model, *, allow_remove):
         cfg = self.config
         geometry, model = self.assess(measured, boundary, measure_surface_spread=True, model=model)
@@ -771,7 +827,7 @@ def _shaft_contour(item, maximum_bridge_nm):
 
 
 def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, protected_face_groups=(),
-                              pre_trim_face_groups=None):
+                              pre_trim_face_groups=None, pre_growth_face_groups=None):
     """Return ``(face_groups, diagnostics)`` without mutating input geometry.
 
     Diagnostics give an input/output mapping and explain skipped or rejected
@@ -788,6 +844,8 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
     started = perf_counter()
     if pre_trim_face_groups is not None:
         pre_trim_face_groups.clear()
+    if pre_growth_face_groups is not None:
+        pre_growth_face_groups.clear()
     config = RefinementConfig() if config is None else config
     if isinstance(config, dict):
         config = RefinementConfig(**config)
@@ -818,14 +876,37 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
             record.update(action="unknown", reason=str(exc))
         context = None
     refined, claimed = [], np.full(len(parent.faces), -1, dtype=int)
-    for i, (indices, record) in enumerate(zip(groups, records)):
+    order = list(range(len(groups)))
+    boundaries = {}
+    if context is not None and config.grow_ragged_heads:
+        ragged = set()
+        for i, indices in enumerate(groups):
+            if len(indices) < config.minimum_faces:
+                continue
+            try:
+                boundaries[i] = (_boundary(parent, indices), None)
+            except ValueError as exc:
+                boundaries[i] = (None, str(exc))
+                if str(exc) in ("nonmanifold_candidate", "branched_open_boundary"):
+                    ragged.add(i)
+        # Ordinary cap repairs keep their established priority and territory.
+        # New ragged-head growth can only use the surface left unclaimed by
+        # those repairs. Public output order is restored below.
+        order.sort(key=lambda i: i in ragged)
+    for i in order:
+        indices, record = groups[i], records[i]
         result = indices
         if context is not None and len(indices) >= config.minimum_faces:
             try:
                 boundary_error = None
                 measurement_indices = indices
                 try:
-                    boundary = _boundary(parent, indices)
+                    if i in boundaries:
+                        boundary, error = boundaries[i]
+                        if error is not None:
+                            raise ValueError(error)
+                    else:
+                        boundary = _boundary(parent, indices)
                 except ValueError as exc:
                     boundary_error = str(exc)
                     if (not config.filter_ragged_surface_patches or boundary_error not in
@@ -854,6 +935,15 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
                             raise ValueError("unstable_shaft_surface_estimate")
                         record["action"] = "remove_surface_patch"
                         result = None
+                    elif boundary_error is not None and config.grow_ragged_heads:
+                        proposed, after = context.grow_ragged_head(
+                            indices, i, boundary, geometry, model, claimed)
+                        record.update(action="grow_ragged_head", geometry_proposed=after,
+                                      head_growth=dict(action="grow", input_faces=len(indices)))
+                        if pre_growth_face_groups is not None:
+                            pre_growth_face_groups[i] = indices
+                        result = proposed
+                        claimed[context.canonical[proposed]] = i
                     elif boundary_error is not None:
                         # A positive protrusion is preserved. An invalid rim
                         # still cannot establish a safe growth boundary.
@@ -899,6 +989,14 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
             refined.extend(parts)
         else:
             record.update(output_index=None, output_indices=[], output_faces=0, added_faces=0, removed_faces=len(indices))
+    if config.grow_ragged_heads:
+        ordered = []
+        for record in records:
+            parts = [refined[j] for j in record["output_indices"]]
+            indices = list(range(len(ordered), len(ordered)+len(parts)))
+            record.update(output_index=indices[0] if indices else None, output_indices=indices)
+            ordered.extend(parts)
+        refined = ordered
     counts = {}
     for record in records:
         counts[record["action"]] = counts.get(record["action"], 0) + 1

@@ -141,3 +141,43 @@ def test_successful_split_maps_all_parts_without_fallback(monkeypatch):
     assert d['candidates'][0]['final_output_mapping']==[
         dict(output_index=0,part_index=0,final_output_index=0),
         dict(output_index=1,part_index=1,final_output_index=1)]
+
+
+def test_rejected_head_completion_restores_seed_through_final_filters(monkeypatch):
+    parent = trimesh.creation.box()
+    original = np.arange(6)
+    seed = parent.submesh([original], append=True)
+    volume_inputs = []
+
+    def extract(*args, **kwargs):
+        return [seed], [original]
+
+    def refine(*args, **kwargs):
+        kwargs['pre_growth_face_groups'][0] = original
+        return [np.arange(12)], dict(candidates=[dict(
+            input_index=0, output_index=0, output_indices=[0],
+            action='grow_ragged_head', head_growth={'action': 'grow'},
+            added_faces=6, removed_faces=0)], counts={}, seconds=0)
+
+    def volume(mesh, **kwargs):
+        volume_inputs.append(len(mesh.faces))
+        return 1 if len(mesh.faces) == 6 else 0
+
+    monkeypatch.setattr(spu, 'get_spine_meshes_unfiltered_from_mesh', extract)
+    monkeypatch.setattr(sr, 'refine_spine_face_indices', refine)
+    monkeypatch.setattr(spu.tu, 'mesh_volume', volume)
+    diagnostics = {}
+    opts = {**options(), 'calculate_spine_volume': True,
+            'filter_by_volume': True, 'filter_by_volume_threshold': .5}
+    meshes, volumes = spu.calculate_spines_on_branch(
+        SimpleNamespace(mesh=parent, skeleton=np.zeros((1, 2, 3))),
+        geometric_refinement=True, geometric_refinement_diagnostics=diagnostics, **opts)
+    assert volume_inputs == [12, 6]
+    assert len(meshes) == 1 and len(meshes[0].faces) == 6
+    assert np.array_equal(meshes[0].triangles, seed.triangles)
+    assert volumes.tolist() == [1]
+    record = diagnostics['candidates'][0]
+    assert record['head_growth']['reason'] == 'grown_head_rejected_by_final_filters'
+    assert record['added_faces'] == record['removed_faces'] == 0
+    assert record['final_output_mapping'] == [dict(output_index=1, part_index=0, final_output_index=0)]
+    assert diagnostics['statistics']['head_growth_reverted_by_final_filters'] == 1

@@ -222,6 +222,78 @@ def test_ragged_true_protrusion_kept_and_not_grown():
     assert diagnostics["statistics"]["repairs_attempted"] == 0
 
 
+def test_opt_in_ragged_head_completion_preserves_seed_and_parent():
+    mesh, skeleton, radius = branch_surface()
+    head = branched_rim(mesh, np.flatnonzero(radius > 1100))
+    original = mesh.faces.copy()
+    fallback = {}
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton, [head], config={"grow_ragged_heads": True,
+            "ragged_minimum_added_clearance_nm": 100},
+        pre_growth_face_groups=fallback)
+    record = diagnostics["candidates"][0]
+    assert record["action"] == "grow_ragged_head", record
+    assert len(result[0]) > len(head)
+    assert np.isin(head, result[0]).all()
+    assert record["geometry_proposed"]["gap_q10_nm"] <= 200
+    assert radius[result[0]].min() > 300
+    assert np.array_equal(fallback[0], head)
+    assert np.array_equal(mesh.faces, original)
+
+
+def test_ragged_completion_failure_preserves_original_seed():
+    mesh, skeleton, radius = branch_surface()
+    head = branched_rim(mesh, np.flatnonzero(radius > 1100))
+    fallback = {}
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton, [head], config={"grow_ragged_heads": True, "maximum_added_faces": 0},
+        pre_growth_face_groups=fallback)
+    assert np.array_equal(result[0], head)
+    assert diagnostics["candidates"][0]["reason"] == "growth_face_limit"
+    assert fallback == {}
+
+
+def test_ragged_completion_does_not_expand_a_complete_short_spine():
+    mesh, skeleton, radius = branch_surface()
+    intact = branched_rim(mesh, np.flatnonzero(radius > 340))
+    result, _ = sr.refine_spine_face_indices(
+        mesh, skeleton, [intact], config={"grow_ragged_heads": True})
+    assert np.array_equal(result[0], intact)
+
+
+def test_low_clearance_additions_keep_the_original_head():
+    mesh, skeleton, radius = branch_surface()
+    head = branched_rim(mesh, np.flatnonzero(radius > 1100))
+    fallback = {}
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton, [head], config={"grow_ragged_heads": True,
+            "ragged_minimum_added_clearance_nm": 5000}, pre_growth_face_groups=fallback)
+    assert np.array_equal(result[0], head)
+    assert diagnostics["candidates"][0]["reason"] == "ragged_growth_mostly_near_shaft"
+    assert fallback == {}
+
+
+def test_ragged_attempt_does_not_spend_the_existing_cap_repair_budget():
+    mesh, skeleton, radius = branch_surface(bumps=(-1600, 1600))
+    z = mesh.triangles_center[:, 2]
+    ragged = branched_rim(mesh, np.flatnonzero((radius > 1100) & (z < 0)))
+    cap = np.flatnonzero((radius > 1100) & (z > 0))
+    baseline, _ = sr.refine_spine_face_indices(
+        mesh, skeleton, [ragged, cap], config={"maximum_repairs_per_branch": 1})
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton, [ragged, cap], config={
+            "grow_ragged_heads": True, "maximum_repairs_per_branch": 1,
+            "maximum_ragged_repairs_per_branch": 1})
+    assert diagnostics["candidates"][0]["reason"] == "ragged_growth_mostly_near_shaft", diagnostics
+    assert diagnostics["candidates"][1]["action"] == "grow", diagnostics
+    assert diagnostics["statistics"]["repairs_attempted"] == 1
+    assert diagnostics["statistics"]["ragged_repairs_attempted"] == 1
+    assert not np.intersect1d(*result).size
+    assert np.array_equal(result[1], baseline[1])
+    assert diagnostics["candidates"][0]["output_index"] == 0
+    assert diagnostics["candidates"][1]["output_index"] == 1
+
+
 def test_ragged_short_protrusion_is_not_a_sheet_by_boundary_alone():
     mesh, skeleton, radius = branch_surface()
     intact = branched_rim(mesh, np.flatnonzero(radius > 340))

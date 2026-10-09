@@ -1864,11 +1864,13 @@ def calculate_spines_on_branch(
         selected_raw_ids = [raw_mesh_indices[id(mesh)] for mesh in spine_submesh_split_filtered]
         selected_indices = [original_indices[i] for i in selected_raw_ids]
         pre_trim_indices = {}
+        pre_growth_indices = {}
         refined_indices, refinement = refine_spine_face_indices(
             branch.mesh, branch.skeleton, selected_indices,
             config=geometric_refinement_config,
             protected_face_groups=original_indices,
-            pre_trim_face_groups=pre_trim_indices)
+            pre_trim_face_groups=pre_trim_indices,
+            pre_growth_face_groups=pre_growth_indices)
         original_filtered = spine_submesh_split_filtered
         spine_submesh_split_filtered = []
         for record in refinement["candidates"]:
@@ -2039,6 +2041,37 @@ def calculate_spines_on_branch(
             reverted += 1
         if reverted:
             refinement.setdefault("statistics", {})["splits_reverted_by_final_filters"] = reverted
+            refinement["counts"] = {}
+            for record in refinement["candidates"]:
+                action = record["action"]
+                refinement["counts"][action] = refinement["counts"].get(action, 0) + 1
+
+        # Completing an open head must never silently delete its original seed
+        # when the enlarged mesh fails bbox, soma, endpoint or volume checks.
+        growth_reverted = 0
+        for record in refinement["candidates"]:
+            input_index = record["input_index"]
+            if input_index not in pre_growth_indices:
+                continue
+            proposed = record["output_indices"]
+            if any(refinement_mesh_ids[id(mesh)] in proposed for mesh in spine_submesh_split_filtered):
+                continue
+            original = pre_growth_indices[input_index]
+            restored, restored_volumes = apply_final_filters([branch.mesh.submesh([original], append=True)])
+            output_index = len(refined_indices)
+            refined_indices.append(original)
+            spine_submesh_split_filtered += restored
+            spine_volumes = np.r_[np.asarray(spine_volumes), restored_volumes]
+            if restored:
+                refinement_mesh_ids[id(restored[0])] = output_index
+            record["head_growth"].update(action="unknown_keep", proposed_action="grow",
+                                          reason="grown_head_rejected_by_final_filters", applied=False)
+            record.update(action="keep_after_head_filter_rejection", proposed_output_indices=proposed,
+                          output_index=output_index, output_indices=[output_index], output_faces=len(original),
+                          added_faces=0, removed_faces=0)
+            growth_reverted += 1
+        if growth_reverted:
+            refinement.setdefault("statistics", {})["head_growth_reverted_by_final_filters"] = growth_reverted
             refinement["counts"] = {}
             for record in refinement["candidates"]:
                 action = record["action"]
