@@ -441,3 +441,109 @@ def test_split_child_cannot_be_a_patch_elevated_by_a_biased_shaft_model():
     assert geometry['surface_q95_nm'] > ctx.config.trim_minimum_protrusion_nm
     with pytest.raises(ValueError, match='part_has_no_distinct_protrusion'):
         ctx._validate_trim_part(patch, model)
+
+
+def test_auxiliary_axis_completes_a_missing_head_and_preserves_primary_repair(monkeypatch):
+    mesh, full_axis, radius = branch_surface(bumps=(-3000, 3000))
+    z = mesh.triangles_center[:, 2]
+    primary_cap = np.flatnonzero((radius > 1100) & (z < 0))
+    missing_head = branched_rim(mesh, np.flatnonzero((radius > 1100) & (z > 0)))
+    partial_axis = full_axis[full_axis.mean(axis=1)[:, 2] < -1000]
+    config = dict(grow_ragged_heads=True, ragged_minimum_added_clearance_nm=100,
+                  axis_coverage_distance_nm=1500)
+    before, baseline = sr.refine_spine_face_indices(mesh, partial_axis, [primary_cap, missing_head], config)
+    assert baseline['candidates'][0]['action'] == 'grow'
+    assert baseline['candidates'][1]['reason'] == 'ragged_head_axis_does_not_cover_seed'
+    built = []
+
+    def build(parent, excluded):
+        built.append(excluded.copy())
+        assert parent is mesh and excluded[np.r_[primary_cap, missing_head]].all()
+        return full_axis
+
+    monkeypatch.setattr(sr, '_build_mesh_axis', build)
+    fallback = {}
+    after, diag = sr.refine_spine_face_indices(
+        mesh, partial_axis, [primary_cap, missing_head], {**config, 'retry_with_mesh_axis': True},
+        pre_growth_face_groups=fallback)
+    assert len(built) == 1
+    assert np.array_equal(after[0], before[0])  # Exact successful primary mask.
+    assert len(after[1]) > len(missing_head) and np.isin(missing_head, after[1]).all()
+    assert not np.intersect1d(*after).size
+    assert np.array_equal(fallback[1], missing_head)
+    assert diag['auxiliary_axis']['changed_candidates'] == 1
+    assert diag['candidates'][1]['action'] == 'grow_ragged_head'
+    assert diag['candidates'][1]['before_mesh_axis_retry']['reason'] == 'ragged_head_axis_does_not_cover_seed'
+
+
+def test_covered_axis_and_default_mode_do_not_build_an_auxiliary_axis(monkeypatch):
+    mesh, skeleton, radius = branch_surface()
+    head = np.flatnonzero(radius > 1100)
+
+    def unexpected(*args):
+        raise AssertionError('Extra skeletonization must be lazy')
+
+    monkeypatch.setattr(sr, '_build_mesh_axis', unexpected)
+    # A forced growth failure gives the coverage guard an eligible candidate.
+    config = dict(maximum_added_faces=0, retry_with_mesh_axis=True)
+    after, diag = sr.refine_spine_face_indices(mesh, skeleton, [head], config)
+    assert np.array_equal(after[0], head)
+    assert diag['auxiliary_axis']['status'] == 'covered'
+    sr.refine_spine_face_indices(mesh, skeleton + 100_000, [head])
+
+
+@pytest.mark.parametrize('failure', ['exception', 'bad_coverage'])
+def test_failed_auxiliary_axis_preserves_primary_masks(monkeypatch, failure):
+    mesh, skeleton, radius = branch_surface()
+    head = np.flatnonzero(radius > 1100)
+    wrong_axis = skeleton + 100_000
+    before, _ = sr.refine_spine_face_indices(mesh, wrong_axis, [head])
+
+    def build(*args):
+        if failure == 'exception':
+            raise RuntimeError('Unavailable backend')
+        return wrong_axis
+
+    monkeypatch.setattr(sr, '_build_mesh_axis', build)
+    after, diag = sr.refine_spine_face_indices(mesh, wrong_axis, [head], {'retry_with_mesh_axis': True})
+    assert np.array_equal(after[0], before[0])
+    assert diag['auxiliary_axis']['status'] == ('build_failed' if failure == 'exception' else 'rejected')
+
+
+def test_auxiliary_retry_protects_upstream_rejected_neighbour(monkeypatch):
+    mesh, skeleton, radius = branch_surface()
+    head = branched_rim(mesh, np.flatnonzero(radius > 1100))
+    neighbour = np.flatnonzero((radius > 340) & (radius <= 1100))
+    monkeypatch.setattr(sr, '_build_mesh_axis', lambda *args: skeleton)
+    after, diag = sr.refine_spine_face_indices(
+        mesh, skeleton + 100_000, [head],
+        dict(retry_with_mesh_axis=True, grow_ragged_heads=True, ragged_minimum_added_clearance_nm=100),
+        protected_face_groups=[neighbour])
+    assert not np.intersect1d(after[0], neighbour).size
+    assert diag['auxiliary_axis']['status'] == 'retried'
+
+
+def test_auxiliary_axis_cannot_delete_a_head_using_conflicting_sections(monkeypatch):
+    mesh, skeleton, radius = branch_surface(bump_width=400)
+    cap = np.flatnonzero((radius > 1100) & (abs(mesh.triangles_center[:, 2]) < 200))[::2]
+    monkeypatch.setattr(sr, '_build_mesh_axis', lambda *args: skeleton)
+    result, diag = sr.refine_spine_face_indices(mesh, skeleton + 100_000, [cap],
+        dict(retry_with_mesh_axis=True, maximum_section_surface_spread_nm=1e9))
+    assert len(result) == 1 and np.array_equal(result[0], cap)
+    assert diag['candidates'][0]['mesh_axis_retry']['reason'] == 'auxiliary_axis_surface_estimate_uncertain'
+
+
+@pytest.mark.parametrize('minimum_clearance', [100, 5000])
+def test_cap_growth_requires_distal_additions_when_requested(minimum_clearance):
+    mesh, skeleton, radius = branch_surface()
+    head = np.flatnonzero(radius > 1100)
+    result, diag = sr.refine_spine_face_indices(mesh, skeleton, [head],
+        dict(require_distal_growth=True, ragged_minimum_added_clearance_nm=minimum_clearance))
+    record = diag['candidates'][0]
+    if minimum_clearance == 100:
+        assert record['action'] == 'grow'
+        assert len(result[0]) > len(head) and np.isin(head, result[0]).all()
+        assert record['geometry_proposed']['added_surface_q25_nm'] > minimum_clearance
+    else:
+        assert record['reason'] == 'cap_growth_mostly_near_shaft'
+        assert np.array_equal(result[0], head)

@@ -7,7 +7,7 @@ original seed. This module uses numpy, scipy, trimesh and matplotlib.path.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from time import perf_counter
 
 import numpy as np
@@ -74,6 +74,15 @@ class RefinementConfig:
     sheet_minimum_boundary_ratio: float = 4.5
     sheet_maximum_relative_relief_nm: float = 300.0
     sheet_mesh_radii_nm: tuple = (1000.0, 1600.0, 2200.0, 3200.0)
+    # Retry unchanged, uncertain candidates only when the stored axis misses a
+    # substantial part of the shaft. Primary repairs retain their exact masks.
+    retry_with_mesh_axis: bool = False
+    axis_coverage_distance_nm: float = 10_000.0
+    axis_coverage_maximum_missing_fraction: float = 0.2
+    axis_coverage_sample_faces: int = 4096
+    mesh_axis_maximum_area_ratio: float = 8.0
+    mesh_axis_maximum_growth_profiles: int = 64
+    require_distal_growth: bool = False
 
     def __post_init__(self):
         positive = (self.section_radius_nm, self.skeleton_step_nm,
@@ -100,6 +109,15 @@ class RefinementConfig:
                 or len(self.sheet_mesh_radii_nm) < 2
                 or any(not np.isfinite(r) or r <= 0 for r in self.sheet_mesh_radii_nm)):
             raise ValueError("Invalid low-relief sheet thresholds")
+        if (not np.isfinite(self.axis_coverage_distance_nm) or self.axis_coverage_distance_nm <= 0
+                or not 0 < self.axis_coverage_maximum_missing_fraction < 1
+                or not isinstance(self.axis_coverage_sample_faces, int)
+                or self.axis_coverage_sample_faces < 16):
+            raise ValueError("Invalid axis coverage thresholds")
+        if (not np.isfinite(self.mesh_axis_maximum_area_ratio) or self.mesh_axis_maximum_area_ratio < 1
+                or not isinstance(self.mesh_axis_maximum_growth_profiles, int)
+                or self.mesh_axis_maximum_growth_profiles < 1):
+            raise ValueError("Invalid auxiliary growth limits")
 
 
 def _quantile(values, weights, quantiles):
@@ -885,6 +903,140 @@ def _shaft_contour(item, maximum_bridge_nm):
     return contour, float(area)
 
 
+def _build_mesh_axis(parent, excluded):
+    """Auxiliary shaft axis in the original mesh coordinates; no export edits.
+
+    Import the existing NEURD backend lazily. Normal branches and default
+    configurations never load or run this extra skeletonization.
+    """
+    from mesh_tools import meshparty_skeletonize
+
+    retained = np.flatnonzero(~excluded)
+    if not len(retained):
+        raise ValueError("no_shaft_support")
+    shaft = parent.submesh([retained], append=True, repair=False)
+    obj = meshparty_skeletonize.skeletonize_mesh_largest_component(
+        shaft, filter_mesh=False, invalidation_d=12_000, smooth_neighborhood=1)
+    return np.asarray(obj.vertices)[np.asarray(obj.edges)]
+
+
+def _axis_coverage(axis, centers, weights, config):
+    distance = axis.project(centers)[1]
+    return dict(sampled_faces=len(centers),
+                missing_area_fraction=float(weights[distance > config.axis_coverage_distance_nm].sum()
+                                            / weights.sum()),
+                distance_q95_nm=float(_quantile(distance, weights, 0.95)))
+
+
+def _retry_failed_with_mesh_axis(parent, context, groups, protection,
+                                 refined, records, config, pre_trim, pre_growth):
+    """A bounded second pass that cannot replace a successful primary repair."""
+    eligible = []
+    for record, seed in zip(records, groups):
+        outputs = record["output_indices"]
+        if (record["action"] in ("unknown", "unknown_keep") and len(outputs) == 1
+                and np.array_equal(refined[outputs[0]], seed)
+                and len(seed) >= config.minimum_faces):
+            eligible.append(record["input_index"])
+    detail = dict(status="not_needed", eligible_candidates=len(eligible))
+    if not eligible:
+        return refined, detail
+
+    excluded = np.zeros(len(parent.faces), dtype=bool)
+    for group in groups + protection:
+        excluded[group] = True
+    support = np.flatnonzero(~excluded & (parent.area_faces > 0))
+    if len(support) < 16:
+        detail.update(status="skipped", reason="insufficient_shaft_support")
+        return refined, detail
+    support = support[np.linspace(0, len(support)-1,
+                                  min(len(support), config.axis_coverage_sample_faces), dtype=int)]
+    centers, weights = parent.triangles_center[support], parent.area_faces[support]
+    axis = context.axis if context is not None else None
+    before = None if axis is None else _axis_coverage(axis, centers, weights, config)
+    detail["coverage_before"] = before
+    if before is not None and before["missing_area_fraction"] <= config.axis_coverage_maximum_missing_fraction:
+        detail.update(status="covered")
+        return refined, detail
+
+    started = perf_counter()
+    try:
+        skeleton = _build_mesh_axis(parent, excluded)
+        detail["build_seconds"] = perf_counter() - started
+        auxiliary = _Axis(skeleton, config)
+        after = _axis_coverage(auxiliary, centers, weights, config)
+        detail.update(axis_segments=len(auxiliary.segments), coverage_after=after)
+    except Exception as exc:
+        # Optional backend failure must not discard the primary segmentation.
+        detail.update(status="build_failed", reason=f"{type(exc).__name__}: {str(exc)[:300]}",
+                      build_seconds=perf_counter() - started)
+        return refined, detail
+    if (after["missing_area_fraction"] > config.axis_coverage_maximum_missing_fraction
+            or (before is not None and
+                (after["missing_area_fraction"] > 0.5 * before["missing_area_fraction"]
+                 or after["distance_q95_nm"] > 0.5 * before["distance_q95_nm"]))):
+        detail.update(status="rejected", reason="auxiliary_axis_coverage_did_not_improve")
+        return refined, detail
+
+    # All raw seeds (including upstream rejects and removed fragments) and all
+    # primary additions remain reserved. Recursive protection subtracts only
+    # the retry seeds themselves. Accepted retries then compete with each other.
+    # Merge overlapping reservations: the raw mask and its primary result
+    # describe the same neighbour, not two conflicting owners. All reserved
+    # faces are equivalent competing seeds when only the retry owner matters.
+    protected = [np.unique(np.concatenate(groups + protection + refined))]
+    retry_trim, retry_growth = {}, {}
+    started = perf_counter()
+    retry_groups, retry_diagnostics = refine_spine_face_indices(
+        parent, skeleton, [groups[i] for i in eligible],
+        replace(config, retry_with_mesh_axis=False, require_distal_growth=True,
+                maximum_area_ratio=max(config.maximum_area_ratio, config.mesh_axis_maximum_area_ratio),
+                maximum_growth_profiles=max(config.maximum_growth_profiles, config.mesh_axis_maximum_growth_profiles)),
+        protected_face_groups=protected,
+        pre_trim_face_groups=retry_trim, pre_growth_face_groups=retry_growth)
+    detail.update(status="retried", retry_seconds=perf_counter()-started,
+                  statistics=retry_diagnostics["statistics"], changed_candidates=0)
+    replacements = {}
+    for j, i in enumerate(eligible):
+        retry = retry_diagnostics["candidates"][j]
+        parts = [retry_groups[k] for k in retry["output_indices"]]
+        geometry = retry.get("geometry_before", {})
+        if (not parts and retry["action"] == "remove_surface_patch"
+                and geometry.get("section_surface_spread_q95_nm", 0) >
+                config.trim_maximum_surface_spread_nm):
+            # A fresh axis does not make conflicting shaft contours reliable.
+            # Keep small protrusions when the sections may include their head.
+            records[i]["mesh_axis_retry"] = dict(action="unknown_keep",
+                reason="auxiliary_axis_surface_estimate_uncertain", geometry=geometry)
+            continue
+        if len(parts) == 1 and np.array_equal(parts[0], groups[i]):
+            records[i]["mesh_axis_retry"] = dict(action=retry["action"], reason=retry.get("reason"),
+                                                 shaft_trim=retry.get("shaft_trim"))
+            continue
+        primary = records[i].copy()
+        records[i].clear()
+        records[i].update(retry, input_index=i, before_mesh_axis_retry=primary,
+                          mesh_axis_retry=dict(applied=True))
+        replacements[i] = parts
+        if pre_trim is not None and j in retry_trim:
+            pre_trim[i] = retry_trim[j]
+        if pre_growth is not None and j in retry_growth:
+            pre_growth[i] = retry_growth[j]
+        # Ordinary growth also needs a rollback seed when enabled by this
+        # retry. The branch API replays all its final filters on that seed.
+        if retry.get("added_faces", 0) and pre_growth is not None:
+            pre_growth[i] = groups[i]
+            records[i].setdefault("head_growth", dict(action="grow", input_faces=len(groups[i])))
+        detail["changed_candidates"] += 1
+    ordered = []
+    for i, record in enumerate(records):
+        parts = replacements[i] if i in replacements else [refined[k] for k in record["output_indices"]]
+        outputs = list(range(len(ordered), len(ordered)+len(parts)))
+        record.update(output_index=outputs[0] if outputs else None, output_indices=outputs)
+        ordered.extend(parts)
+    return ordered, detail
+
+
 def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, protected_face_groups=(),
                               pre_trim_face_groups=None, pre_growth_face_groups=None):
     """Return ``(face_groups, diagnostics)`` without mutating input geometry.
@@ -901,6 +1053,9 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
     branch API can restore an entire candidate if final filters reject a part.
     protected_face_groups additionally protects candidates rejected by upstream
     filters, without spending time assessing those candidates.
+    Optional retry_with_mesh_axis creates a temporary shaft axis only for gross
+    coverage failures, and retries unchanged uncertain candidates. All primary
+    changed masks and their newly acquired surface remain protected.
     """
     started = perf_counter()
     if pre_trim_face_groups is not None:
@@ -1020,6 +1175,12 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
                             raise ValueError("repair_still_incomplete")
                         if after["gap_q10_nm"] >= geometry["gap_q10_nm"]:
                             raise ValueError("repair_did_not_improve_attachment")
+                        if config.require_distal_growth:
+                            added = np.setdiff1d(proposed, indices)
+                            clearance = float(_quantile(context.curved_scores(added), context.areas[added], .25))
+                            after["added_surface_q25_nm"] = clearance
+                            if not np.isfinite(clearance) or clearance <= config.ragged_minimum_added_clearance_nm:
+                                raise ValueError("cap_growth_mostly_near_shaft")
                         record["action"], result = "grow", proposed
                         claimed[context.canonical[proposed]] = i
             except ValueError as exc:
@@ -1070,6 +1231,13 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
             record.update(output_index=indices[0] if indices else None, output_indices=indices)
             ordered.extend(parts)
         refined = ordered
+    if config.retry_with_mesh_axis:
+        retry_started = perf_counter()
+        diagnostics["primary_seconds"] = retry_started - started
+        refined, diagnostics["auxiliary_axis"] = _retry_failed_with_mesh_axis(
+            parent, context, groups, protection, refined, records, config,
+            pre_trim_face_groups, pre_growth_face_groups)
+        diagnostics["auxiliary_axis"]["seconds"] = perf_counter() - retry_started
     counts = {}
     for record in records:
         counts[record["action"]] = counts.get(record["action"], 0) + 1
