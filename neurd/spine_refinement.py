@@ -89,6 +89,10 @@ class RefinementConfig:
     refine_remaining_heads: bool = False
     filter_incomplete_heads: bool = False
     remaining_head_minimum_boundary_ratio: float = 2.5
+    # Smooth head cuts can have a short perimeter despite a missing neck.
+    screen_smooth_incomplete_heads: bool = False
+    smooth_head_minimum_added_clearance_nm: float = 300.0
+    smooth_head_maximum_boundary_increase: float = 2.0
     remaining_head_maximum_area_ratio: float = 8.0
     remaining_head_maximum_growth_profiles: int = 64
     remaining_head_maximum_repairs_per_branch: int = 8
@@ -111,6 +115,12 @@ class RefinementConfig:
             raise ValueError("Growth clearance and margin must be nonnegative")
         if not np.isfinite(self.ragged_minimum_added_clearance_nm) or self.ragged_minimum_added_clearance_nm < 0:
             raise ValueError("Added head clearance must be finite and nonnegative")
+        if (not np.isfinite(self.smooth_head_minimum_added_clearance_nm)
+                or self.smooth_head_minimum_added_clearance_nm < 0):
+            raise ValueError("Smooth head clearance must be finite and nonnegative")
+        if (not np.isfinite(self.smooth_head_maximum_boundary_increase)
+                or self.smooth_head_maximum_boundary_increase < 1):
+            raise ValueError("Smooth head boundary increase must be finite and at least one")
         trim_values = (self.trim_clearance_nm, self.trim_collar_nm,
                        self.trim_minimum_area_nm2, self.trim_minimum_protrusion_nm,
                        self.trim_maximum_surface_spread_nm, self.trim_maximum_axis_distance_nm,
@@ -1389,8 +1399,18 @@ def refine_remaining_spine_heads(parent, skeleton, face_groups, raw_face_groups,
             record.update(action='unknown_keep',reason=str(exc))
             continue
         if boundary[2] < cfg.remaining_head_minimum_boundary_ratio:
-            record['action'] = 'screened_keep'
-            continue
+            if not cfg.screen_smooth_incomplete_heads:
+                record['action'] = 'screened_keep'
+                continue
+            try:
+                suspicious = contexts['full'].suspicious(boundary)
+            except ValueError as exc:
+                record.update(action='unknown_keep',reason=str(exc))
+                continue
+            if not suspicious:
+                record['action'] = 'screened_keep'
+                continue
+            record['screen'] = 'smooth_rim_with_shaft_gap'
         attempts, incomplete, rejected_by_filters, budget_exhausted = [],False,False,False
         complete_evidence = False
         for name,context in contexts.items():
@@ -1422,10 +1442,20 @@ def refine_remaining_spine_heads(parent, skeleton, face_groups, raw_face_groups,
                     raise ValueError('remaining_head_still_incomplete')
                 if after['distal_cut_ratio'] > .7*before['distal_cut_ratio']:
                     raise ValueError('remaining_head_cut_did_not_improve')
+                if (cfg.screen_smooth_incomplete_heads
+                        and after['boundary_perimeter_normalized'] > max(
+                            cfg.remaining_head_minimum_boundary_ratio,
+                            cfg.smooth_head_maximum_boundary_increase*before['boundary_perimeter_normalized'])):
+                    # A neck may narrow or acquire a small collar; completing
+                    # a smooth cap must not create a perforated shaft skirt.
+                    raise ValueError('remaining_head_growth_creates_ragged_root')
                 added = np.setdiff1d(proposal,seed)
                 clearance = float(_quantile(context.curved_scores(added),context.areas[added],.25))
                 after['added_surface_q25_nm'] = clearance
-                if not np.isfinite(clearance) or clearance <= cfg.ragged_minimum_added_clearance_nm:
+                minimum_clearance = (cfg.smooth_head_minimum_added_clearance_nm
+                                     if record.get('screen') == 'smooth_rim_with_shaft_gap'
+                                     else cfg.ragged_minimum_added_clearance_nm)
+                if not np.isfinite(clearance) or clearance <= minimum_clearance:
                     raise ValueError('remaining_head_additions_near_shaft')
                 if validate_proposal is not None:
                     validation_started = perf_counter()

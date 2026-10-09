@@ -3,6 +3,7 @@
 #
 # Walks a directory of spine meshes (.off/.ply/...) and for EACH mesh saves:
 #   * <stem>.npy          -- the descriptor vector (float64, np.save)
+#   * <stem>_volume_qc.json -- volume algorithm, closure method and fallback status
 #   * <stem>_centroid.npy -- the mesh centroid in ABSOLUTE coordinates (3 float, nm)
 # The descriptor .npy repeats the mesh filename (stem); the centroid adds "_centroid".
 # feature_names.json is written once alongside them, giving the column order.
@@ -52,7 +53,7 @@ FEATURE_NAMES = [
     # --- whole spine ---
     "n_faces",                    # number of faces in the spine mesh
     "n_vertices",                 # number of vertices
-    "volume",                     # volume (nm^3), holes filled (tu.mesh_volume)
+    "volume",                     # volume (nm^3), validated closure; see *_volume_qc.json
     "area",                       # surface area (nm^2)
     "skeletal_length",            # length of the spine surface skeleton (nm)
     "spine_volume_to_spine_area", # volume/area ratio
@@ -106,7 +107,7 @@ def _f(x):
     return xf
 
 
-def _compute_descriptors(path: str):
+def _compute_descriptors(path: str, *, with_quality=False):
     """Compute (descriptor_vector, centroid) for one mesh.
 
     The NEURD/mesh_tools imports are inside the function and STRICTLY in this order:
@@ -125,7 +126,7 @@ def _compute_descriptors(path: str):
     centroid = np.asarray(mesh.centroid, dtype=np.float64).reshape(3)
 
     sp = spu.Spine(mesh)
-    # Base attributes (no head/neck): volume, skeleton, bbox -- always robust.
+    # Base attributes; volume may be NaN if no valid closed estimate is available.
     spu.calculate_spine_attributes(
         sp, branch_obj=None,
         calculate_coordinates=False,
@@ -202,7 +203,18 @@ def _compute_descriptors(path: str):
 
     values = spine_vals + [1.0 if head_exist else 0.0, n_heads] + head_vals + neck_vals
     assert len(values) == len(FEATURE_NAMES), (len(values), len(FEATURE_NAMES))
-    return np.asarray(values, dtype=np.float64), centroid
+    vector = np.asarray(values, dtype=np.float64)
+    if not with_quality:
+        return vector, centroid
+    from neurd.spine_volume import estimate_mesh_volume, VOLUME_ALGORITHM
+    quality = {
+        "algorithm": VOLUME_ALGORITHM,
+        "data_type": None,  # filled by the worker from the actual CLI argument
+        "spine": sp.volume_quality,
+        "head": estimate_mesh_volume(spu.mesh_from_compartment(sp, compartment="head", index=0)) if head_exist else None,
+        "neck": estimate_mesh_volume(sp.neck_mesh),
+    }
+    return vector, centroid, quality
 
 
 def _worker(args):
@@ -218,10 +230,13 @@ def _worker(args):
     try:
         os.chdir(tmp)  # CGAL writes temp files into "./" -> isolate them
         t0 = time.time()
-        vec, centroid = _compute_descriptors(path)
+        vec, centroid, quality = _compute_descriptors(path, with_quality=True)
         os.chdir(prev_cwd)  # restore BEFORE writing the result (out paths are absolute)
         np.save(out_desc, vec)
         np.save(out_centroid, centroid)
+        quality["data_type"] = data_type
+        quality_path = Path(out_desc).with_name(Path(out_desc).stem + "_volume_qc.json")
+        quality_path.write_text(json.dumps(quality, indent=2, allow_nan=False) + "\n")
         return (True, path, f"{time.time() - t0:.1f}s")
     except Exception as e:
         import traceback
@@ -247,6 +262,13 @@ def _gather_jobs(input_dir: Path, output_dir: Path, pattern: str,
         out_desc = out_sub / f"{f.stem}.npy"
         out_centroid = out_sub / f"{f.stem}_centroid.npy"
         if (not overwrite) and out_desc.exists() and out_centroid.exists():
+            quality_path = out_sub / f"{f.stem}_volume_qc.json"
+            if not quality_path.exists():
+                raise ValueError(
+                    f"Legacy descriptors without volume QC: {out_desc}. "
+                    "Use a new output directory for the revised volume algorithm; "
+                    "--overwrite is only for deliberate replacement after backup."
+                )
             skipped += 1
             continue
         out_sub.mkdir(parents=True, exist_ok=True)

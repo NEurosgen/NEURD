@@ -598,6 +598,57 @@ def test_remaining_head_filter_failure_preserves_the_accepted_seed():
     assert diag['candidates'][0]['reason'] == 'remaining_head_rejected_by_final_filters'
 
 
+def test_smooth_head_screen_recovers_a_cap_but_preserves_a_complete_small_root():
+    mesh,skeleton,radius = branch_surface()
+    cap = np.flatnonzero(radius > 1100)
+    whole = np.flatnonzero(radius > 340)
+    config = dict(refine_remaining_heads=True,remaining_head_minimum_boundary_ratio=5,
+                  ragged_minimum_added_clearance_nm=100,smooth_head_minimum_added_clearance_nm=100)
+    previous,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],config)
+    assert np.array_equal(previous[0],cap) and diag['candidates'][0]['action']=='screened_keep'
+    config['screen_smooth_incomplete_heads'] = True
+    recovered,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],config)
+    assert diag['candidates'][0]['action']=='grow_remaining_head'
+    assert len(recovered[0])>len(cap) and np.isin(cap,recovered[0]).all()
+    preserved,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[whole],[whole],[0],config)
+    assert np.array_equal(preserved[0],whole) and diag['candidates'][0]['action']=='screened_keep'
+
+
+def test_smooth_head_screen_with_collapsed_axis_keeps_seed_instead_of_crashing():
+    mesh,_,radius = branch_surface()
+    cap = np.flatnonzero(radius>1100)
+    collapsed = np.array([[[0,0,0],[0,0,100]]],dtype=float)
+    output,diag = sr.refine_remaining_spine_heads(mesh,collapsed,[cap],[cap],[0],
+        dict(refine_remaining_heads=True,screen_smooth_incomplete_heads=True,
+             remaining_head_minimum_boundary_ratio=5,filter_incomplete_heads=True))
+    assert len(output)==1 and np.array_equal(output[0],cap)
+    assert diag['candidates'][0]['action']=='unknown_keep'
+
+
+def test_head_completion_cannot_introduce_a_perforated_proximal_surface(monkeypatch):
+    mesh,skeleton,radius = branch_surface()
+    cap = np.flatnonzero(radius>1100)
+    whole = np.flatnonzero(radius>340)
+    proximal = np.flatnonzero((radius>340)&(radius<700))
+    perforated = np.setdiff1d(whole,proximal[::2])
+    assert np.isin(cap,perforated).all()
+    original = mesh.vertices.copy(),mesh.faces.copy(),cap.copy()
+    monkeypatch.setattr(sr._Context,'grow',lambda *args:perforated)
+    config = dict(refine_remaining_heads=True,screen_smooth_incomplete_heads=True,
+                  remaining_head_minimum_boundary_ratio=6,smooth_head_minimum_added_clearance_nm=0,
+                  filter_incomplete_heads=True,smooth_head_maximum_boundary_increase=100)
+    unchecked,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],config)
+    assert np.array_equal(unchecked[0],perforated)
+    assert not diag['candidates'][0]['geometry_after']['incomplete']
+    config['smooth_head_maximum_boundary_increase'] = 2
+    guarded,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],config)
+    assert guarded==[]
+    assert all(a.get('reason')=='remaining_head_growth_creates_ragged_root'
+               for a in diag['candidates'][0]['attempts'])
+    assert np.array_equal(mesh.vertices,original[0]) and np.array_equal(mesh.faces,original[1])
+    assert np.array_equal(cap,original[2])
+
+
 def test_unrecoverable_head_removal_is_opt_in_and_does_not_use_existing_source_holes(monkeypatch):
     mesh,skeleton,radius = branch_surface()
     cap = np.flatnonzero(radius > 1100)

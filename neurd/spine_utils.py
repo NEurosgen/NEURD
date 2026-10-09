@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
 from pathlib import Path
+from .spine_volume import mesh_volume as validated_spine_volume, estimate_mesh_volume
 from scipy.spatial import KDTree
 try:
     import seaborn as sns
@@ -1654,6 +1655,8 @@ def calculate_spines_on_branch(
     geometric_refinement = None,
     geometric_refinement_config = None,
     geometric_refinement_diagnostics = None,
+    geometric_refinement_face_indices = None,
+    geometric_refinement_head_skeleton = None,
     **kwargs,
     ):
     """
@@ -1666,9 +1669,11 @@ def calculate_spines_on_branch(
     face indices after the initial size/length filter. Pass a dict as
     geometric_refinement_diagnostics to collect decisions and elapsed time;
     geometric_refinement_config accepts a RefinementConfig or a parameter dict.
-    Set trim_shaft_connections=True in that config to enable experimental shaft
-    subtraction and splitting. Diagnostics output_indices/final_output_indices
-    map every part of a split candidate; the singular keys name its first part.
+    Pass an empty list as geometric_refinement_face_indices to receive parent
+    face masks in returned mesh order, after all filters and fallbacks. This
+    output requires geometric_refinement=True.
+    geometric_refinement_head_skeleton supplies an optional repaired axis for
+    head completion only; the branch skeleton still controls endpoint filters.
     
     Pseudocode
     ----------------
@@ -1956,7 +1961,7 @@ def calculate_spines_on_branch(
             
             
         if calculate_spine_volume or filter_by_volume:
-            spine_volumes = np.array([tu.mesh_volume(k) for k in spine_submesh_split_filtered])
+            spine_volumes = np.array([validated_spine_volume(k) for k in spine_submesh_split_filtered])
 
         if filter_by_volume:
             """
@@ -2118,7 +2123,9 @@ def calculate_spines_on_branch(
                 return True
 
             repaired, head_diagnostics = refine_remaining_spine_heads(
-                branch.mesh, branch.skeleton, [refined_indices[i] for i in current_indices],
+                branch.mesh, (branch.skeleton if geometric_refinement_head_skeleton is None
+                              else geometric_refinement_head_skeleton),
+                [refined_indices[i] for i in current_indices],
                 original_indices, [owners[i]['raw_input_index'] for i in current_indices],
                 head_config, validate_proposal=validate_remaining_head)
             spine_submesh_split_filtered, new_volumes = [], []
@@ -2161,6 +2168,13 @@ def calculate_spines_on_branch(
             for record in refinement['candidates']:
                 action = record['action']
                 refinement['counts'][action] = refinement['counts'].get(action,0)+1
+
+    if geometric_refinement_face_indices is not None:
+        if not geometric_refinement:
+            raise ValueError('Parent face masks require geometric_refinement=True')
+        geometric_refinement_face_indices[:] = [
+            refined_indices[refinement_mesh_ids[id(mesh)]].copy()
+            for mesh in spine_submesh_split_filtered]
 
     if geometric_refinement and geometric_refinement_diagnostics is not None:
         geometric_refinement_diagnostics.clear()
@@ -2501,11 +2515,12 @@ def skeleton_from_spine(spine,plot=False):
 
 
 
-def volume_from_spine(spine,default_value = 0):
-    try:
-        return tu.mesh_volume(spine.mesh)
-    except Exception:
-        return default_value
+def volume_from_spine(spine, default_value=float("nan")):
+    # Keep method/fallback provenance on the object for descriptor export.
+    spine.volume_quality = estimate_mesh_volume(spine.mesh)
+    if spine.volume_quality["valid"]:
+        return spine.volume_quality["volume_nm3"]
+    return default_value
 
 
 # ---------------------- 11/3: Calculating the spines with all of the information  -----
@@ -2785,7 +2800,7 @@ def volume_from_compartment(
 
     return mesh_attribute_from_compartment(
         spine_obj,
-        attribute_func=tu.mesh_volume,
+        attribute_func=validated_spine_volume,
         compartment = compartment,
         index = index,
         )
@@ -3088,7 +3103,7 @@ def restrict_meshes_to_shaft_meshes_without_coordinates(
 
     need_vol = passes_faces & (hole_area_arr <= close_hole_area_top_2_mean_max)
     for i in np.flatnonzero(need_vol):
-        mesh_vol_arr[i] = _safe(tu.mesh_volume, meshes[i])
+        mesh_vol_arr[i] = validated_spine_volume(meshes[i])
 
     shaft_stats_df = pd.DataFrame({
         "close_hole_area_top_2_mean": hole_area_arr,
