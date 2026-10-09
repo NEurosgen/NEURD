@@ -83,6 +83,21 @@ class RefinementConfig:
     mesh_axis_maximum_area_ratio: float = 8.0
     mesh_axis_maximum_growth_profiles: int = 64
     require_distal_growth: bool = False
+    # A second, opt-in pass runs only after ordinary branch filters. It may
+    # recover triangles owned by rejected raw fragments, while retaining all
+    # accepted neighbours and the raw seeds of their owners as reservations.
+    refine_remaining_heads: bool = False
+    filter_incomplete_heads: bool = False
+    remaining_head_minimum_boundary_ratio: float = 2.5
+    remaining_head_maximum_area_ratio: float = 8.0
+    remaining_head_maximum_growth_profiles: int = 64
+    remaining_head_maximum_repairs_per_branch: int = 8
+    head_distal_rim_clearance_nm: float = 300.0
+    head_distal_rim_relative_height: float = 0.5
+    head_distal_rim_minimum_fraction: float = 0.3
+    head_distal_rim_minimum_ratio: float = 1.0
+    head_maximum_section_spread_nm: float = 700.0
+    head_maximum_source_open_fraction: float = 0.05
 
     def __post_init__(self):
         positive = (self.section_radius_nm, self.skeleton_step_nm,
@@ -118,6 +133,19 @@ class RefinementConfig:
                 or not isinstance(self.mesh_axis_maximum_growth_profiles, int)
                 or self.mesh_axis_maximum_growth_profiles < 1):
             raise ValueError("Invalid auxiliary growth limits")
+        if (any(not np.isfinite(v) or v <= 0 for v in (
+                self.remaining_head_minimum_boundary_ratio, self.head_distal_rim_clearance_nm,
+                self.head_distal_rim_minimum_ratio, self.head_maximum_section_spread_nm))
+                or not np.isfinite(self.remaining_head_maximum_area_ratio)
+                or self.remaining_head_maximum_area_ratio < 1
+                or not isinstance(self.remaining_head_maximum_growth_profiles, int)
+                or self.remaining_head_maximum_growth_profiles < 1
+                or not isinstance(self.remaining_head_maximum_repairs_per_branch, int)
+                or self.remaining_head_maximum_repairs_per_branch < 0
+                or not 0 < self.head_distal_rim_relative_height < 1
+                or not 0 < self.head_distal_rim_minimum_fraction < 1
+                or not 0 <= self.head_maximum_source_open_fraction < 1):
+            raise ValueError("Invalid remaining-head thresholds")
 
 
 def _quantile(values, weights, quantiles):
@@ -382,6 +410,7 @@ class _Context:
             self.excluded_support[group] = True
         self.profiles = {}
         self.growth_scores = self.growth_scored = None
+        self.growth_shaft_support_only = False
         self.statistics = dict(section_models=0, screened=0, assessed=0, repairs_attempted=0,
                                growth_faces_scored=0, trims_attempted=0)
         self.max_face_radius = float(np.max(np.linalg.norm(parent.triangles - self.centers[:, None], axis=2)))
@@ -481,6 +510,53 @@ class _Context:
         gap = _quantile(self.axis.project(rim)[1], weights, 0.1) - radius
         return gap > self.config.screen_gap_nm
 
+    def head_boundary_quality(self, indices, boundary, model):
+        """Measure cuts through distal head surface, separately from its root.
+
+        A low attachment quantile cannot detect a half-head already connected
+        to the shaft. Require a substantial distal cut, stable sections and
+        local axis coverage. Existing holes in the parent are not evidence of
+        missing segmentation labels. This descriptor never closes the mesh.
+        """
+        cfg = self.config
+        rim, weights, _ = boundary
+        geometry, _ = self.assess(indices, boundary, model=model, measure_surface_spread=True)
+        clearance = self.score(rim, model)
+        spread = geometry['section_surface_spread_q95_nm']
+        threshold = max(cfg.head_distal_rim_clearance_nm,
+                        cfg.head_distal_rim_relative_height*geometry['surface_q95_nm'],
+                        spread+cfg.growth_clearance_nm)
+        distal = clearance > threshold
+        geometry.update(rim_q90_nm=float(_quantile(clearance, weights, .9)),
+                        distal_cut_fraction=float(weights[distal].sum()/weights.sum()),
+                        distal_cut_ratio=float(weights[distal].sum()/np.sqrt(self.areas[indices].sum())),
+                        axis_q90_nm=float(_quantile(self.axis.project(rim)[1], weights, .9)))
+        faces = self.parent.faces[indices]
+        edges = np.sort(np.concatenate((faces[:, [0,1]],faces[:, [1,2]],faces[:, [2,0]])),axis=1)
+        edges, counts = np.unique(edges,axis=0,return_counts=True)
+        edges = edges[counts == 1]
+        if not hasattr(self, 'parent_edge_counts'):
+            source = self.parent.faces[self.unique_faces()]
+            source_edges = np.sort(np.concatenate((source[:, [0,1]],source[:, [1,2]],source[:, [2,0]])),axis=1)
+            source_keys = source_edges[:,0].astype(np.int64)*len(self.parent.vertices)+source_edges[:,1]
+            self.parent_edge_counts = np.unique(source_keys, return_counts=True)
+        keys, source_counts = self.parent_edge_counts
+        cut_keys = edges[:,0].astype(np.int64)*len(self.parent.vertices)+edges[:,1]
+        positions = np.searchsorted(keys,cut_keys)
+        lengths = np.linalg.norm(self.parent.vertices[edges[:,1]]-self.parent.vertices[edges[:,0]],axis=1)
+        source_open = float(lengths[source_counts[positions] == 1].sum()/lengths.sum())
+        geometry['source_open_rim_fraction'] = source_open
+        reliable = (spread <= cfg.head_maximum_section_spread_nm
+                    and geometry['axis_q90_nm'] <= cfg.trim_maximum_axis_distance_nm
+                    and source_open <= cfg.head_maximum_source_open_fraction)
+        distal_cut = (geometry['distal_cut_fraction'] >= cfg.head_distal_rim_minimum_fraction
+                      and geometry['distal_cut_ratio'] >= cfg.head_distal_rim_minimum_ratio)
+        incomplete = (geometry['surface_q95_nm'] > max(cfg.trim_minimum_protrusion_nm,
+                                                      spread+cfg.growth_clearance_nm)
+                      and (distal_cut or geometry['gap_q10_nm'] > cfg.incomplete_gap_nm))
+        geometry.update(reliable=bool(reliable), incomplete=bool(reliable and incomplete))
+        return geometry
+
     def curved_scores(self, face_indices):
         if self.growth_scores is None:
             self.growth_scores = np.full(len(self.parent.faces), np.nan)
@@ -498,7 +574,9 @@ class _Context:
             key = int(key)
             if key not in self.profiles:
                 try:
-                    self.profiles[key] = self.model(self.axis.profile_tree.data[key])
+                    self.profiles[key] = (self.model(self.axis.profile_tree.data[key], shaft_support_only=True)
+                                          if self.growth_shaft_support_only else
+                                          self.model(self.axis.profile_tree.data[key]))
                 except ValueError:
                     self.profiles[key] = None
             model = self.profiles[key]
@@ -1244,3 +1322,147 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
     diagnostics.update(seconds=perf_counter() - started, counts=counts,
                        statistics={} if context is None else context.statistics)
     return refined, diagnostics
+
+
+def refine_remaining_spine_heads(parent, skeleton, face_groups, raw_face_groups, raw_ids,
+                                 config=None, *, validate_proposal=None):
+    """Complete distal head cuts after the branch's ordinary filters.
+
+    Accepted masks and the original seeds of every accepted raw owner remain
+    protected. Only rejected raw owners are released. Proposals preserve their
+    seed and require head completeness, distal additions and the caller's real
+    filters before they can reserve any new territory. A rejected proposal
+    leaves its accepted seed intact. Optional geometric rejection of an
+    unrecoverable, reliably incomplete head is separate from filter failure.
+    No encoder score is used for any decision.
+    """
+    started = perf_counter()
+    cfg = RefinementConfig() if config is None else config
+    if isinstance(cfg, dict):
+        cfg = RefinementConfig(**cfg)
+    groups = [np.unique(np.asarray(g,dtype=np.int64)) for g in face_groups]
+    raw = [np.unique(np.asarray(g,dtype=np.int64)) for g in raw_face_groups]
+    raw_ids = list(raw_ids)
+    if len(raw_ids) != len(groups) or any(not 0 <= i < len(raw) for i in raw_ids):
+        raise ValueError('Invalid remaining-head raw owner mapping')
+    for g in groups+raw:
+        if len(g) and (g[0] < 0 or g[-1] >= len(parent.faces)):
+            raise ValueError('Spine face index outside parent mesh')
+    records = [dict(input_index=i,raw_id=raw_ids[i],action='keep',input_faces=len(g))
+               for i,g in enumerate(groups)]
+    diagnostics = dict(candidates=records, validation_seconds=0.0, repairs_attempted=0)
+    if not cfg.refine_remaining_heads or not groups:
+        for i,r in enumerate(records):
+            r.update(output_index=i,output_faces=len(groups[i]),added_faces=0,removed_faces=0)
+        diagnostics.update(seconds=perf_counter()-started,counts={'keep':len(groups)})
+        return groups,diagnostics
+    growth_cfg = replace(cfg, retry_with_mesh_axis=False,
+                         maximum_area_ratio=cfg.remaining_head_maximum_area_ratio,
+                         maximum_growth_profiles=cfg.remaining_head_maximum_growth_profiles)
+    selected = np.zeros(len(parent.faces),dtype=bool)
+    for g in groups:
+        selected[g] = True
+    retained = sorted(set(raw_ids))
+    reservation = np.unique(np.concatenate([raw[i] for i in retained]))
+    protection = reservation[~selected[reservation]]
+    contexts = {}
+    results = list(groups)
+    try:
+        for name in ['shaft','full']:
+            context = _Context(parent,skeleton,groups+[protection],growth_cfg)
+            context.growth_shaft_support_only = name == 'shaft'
+            for g in raw:
+                context.excluded_support[g] = True
+            context.unique_faces()
+            contexts[name] = context
+    except ValueError as exc:
+        for r in records:
+            r.update(action='unknown_keep',reason=str(exc))
+        contexts = {}
+    claimed = np.full(len(parent.faces),-1,dtype=int)
+    for i,(seed,record) in enumerate(zip(groups,records)):
+        if not contexts or len(seed) < cfg.minimum_faces:
+            continue
+        try:
+            boundary,measured = _surface_boundary(parent,seed)
+        except ValueError as exc:
+            record.update(action='unknown_keep',reason=str(exc))
+            continue
+        if boundary[2] < cfg.remaining_head_minimum_boundary_ratio:
+            record['action'] = 'screened_keep'
+            continue
+        attempts, incomplete, rejected_by_filters, budget_exhausted = [],False,False,False
+        complete_evidence = False
+        for name,context in contexts.items():
+            detail = dict(support=name)
+            attempts.append(detail)
+            try:
+                rim,weights,_ = boundary
+                anchor = context.axis.project([np.average(rim,axis=0,weights=weights)])[0][0]
+                model = context.model(anchor,shaft_support_only=name == 'shaft')
+                before = context.head_boundary_quality(measured,boundary,model)
+                detail['before'] = before
+                if not before['incomplete']:
+                    complete_evidence |= before['reliable']
+                    detail['action'] = 'keep' if before['reliable'] else 'unknown_keep'
+                    if name == 'shaft' and before['reliable']:
+                        break
+                    continue
+                incomplete = True
+                if diagnostics['repairs_attempted'] >= cfg.remaining_head_maximum_repairs_per_branch:
+                    detail.update(action='unknown_keep',reason='remaining_head_repair_budget_exhausted')
+                    budget_exhausted = True
+                    break
+                diagnostics['repairs_attempted'] += 1
+                proposal = context.grow(seed,i,model,claimed.copy())
+                after_boundary,after_measured = _surface_boundary(parent,proposal)
+                after = context.head_boundary_quality(after_measured,after_boundary,model)
+                detail['after'] = after
+                if not after['reliable'] or after['incomplete']:
+                    raise ValueError('remaining_head_still_incomplete')
+                if after['distal_cut_ratio'] > .7*before['distal_cut_ratio']:
+                    raise ValueError('remaining_head_cut_did_not_improve')
+                added = np.setdiff1d(proposal,seed)
+                clearance = float(_quantile(context.curved_scores(added),context.areas[added],.25))
+                after['added_surface_q25_nm'] = clearance
+                if not np.isfinite(clearance) or clearance <= cfg.ragged_minimum_added_clearance_nm:
+                    raise ValueError('remaining_head_additions_near_shaft')
+                if validate_proposal is not None:
+                    validation_started = perf_counter()
+                    passed = validate_proposal(i,proposal)
+                    diagnostics['validation_seconds'] += perf_counter()-validation_started
+                    if not passed:
+                        rejected_by_filters = True
+                        raise ValueError('remaining_head_rejected_by_final_filters')
+                results[i] = proposal
+                record.update(action='grow_remaining_head',support=name,geometry_before=before,
+                              geometry_after=after)
+                detail['action'] = 'grow'
+                claimed[context.canonical[proposal]] = i
+                for other in contexts.values():
+                    other.groups[i] = proposal
+                break
+            except ValueError as exc:
+                detail.update(action='unknown_keep',reason=str(exc))
+        record['attempts'] = attempts
+        if record['action'] == 'grow_remaining_head':
+            continue
+        if (incomplete and cfg.filter_incomplete_heads and not rejected_by_filters
+                and not budget_exhausted and not complete_evidence):
+            results[i] = None
+            record.update(action='remove_incomplete_head',reason='unrecoverable_distal_head_cut')
+        elif rejected_by_filters:
+            record.update(action='unknown_keep',reason='remaining_head_rejected_by_final_filters')
+        elif incomplete:
+            record.update(action='unknown_keep',reason='remaining_head_not_recovered')
+    output = []
+    for i,(result,record) in enumerate(zip(results,records)):
+        record.update(output_index=len(output) if result is not None else None,
+                      output_faces=0 if result is None else len(result),
+                      added_faces=0 if result is None else len(np.setdiff1d(result,groups[i])),
+                      removed_faces=len(groups[i]) if result is None else len(np.setdiff1d(groups[i],result)))
+        if result is not None:
+            output.append(result)
+    diagnostics.update(seconds=perf_counter()-started,counts={k:sum(r['action'] == k for r in records)
+                       for k in sorted({r['action'] for r in records})})
+    return output,diagnostics

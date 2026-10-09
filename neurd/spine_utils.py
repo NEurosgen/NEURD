@@ -2090,6 +2090,78 @@ def calculate_spines_on_branch(
                 action = record["action"]
                 refinement["counts"][action] = refinement["counts"].get(action, 0) + 1
 
+        from .spine_refinement import RefinementConfig, refine_remaining_spine_heads
+        head_config = (RefinementConfig(**geometric_refinement_config)
+                       if isinstance(geometric_refinement_config, dict) else
+                       geometric_refinement_config or RefinementConfig())
+        if head_config.refine_remaining_heads and spine_submesh_split_filtered:
+            current_meshes = list(spine_submesh_split_filtered)
+            current_volumes = np.asarray(spine_volumes)
+            current_indices = [refinement_mesh_ids[id(mesh)] for mesh in current_meshes]
+            owners = {output:record for record in refinement['candidates']
+                      for output in record['output_indices']}
+            pending = {}
+
+            def validate_remaining_head(index, indices):
+                mesh = branch.mesh.submesh([indices], append=True)
+                meshes = [mesh]
+                if spine_n_face_threshold > 0 or spine_sk_length_threshold > 0:
+                    meshes = spu.filter_spine_meshes(meshes,
+                        spine_n_face_threshold=spine_n_face_threshold,
+                        spine_sk_length_threshold=spine_sk_length_threshold)
+                if not meshes:
+                    return False
+                passed, volumes = apply_final_filters(meshes)
+                if not passed:
+                    return False
+                pending[index] = (passed[0], np.asarray(volumes)[0])
+                return True
+
+            repaired, head_diagnostics = refine_remaining_spine_heads(
+                branch.mesh, branch.skeleton, [refined_indices[i] for i in current_indices],
+                original_indices, [owners[i]['raw_input_index'] for i in current_indices],
+                head_config, validate_proposal=validate_remaining_head)
+            spine_submesh_split_filtered, new_volumes = [], []
+            changed_owners = {}
+            for decision in head_diagnostics['candidates']:
+                index = decision['input_index']
+                output = current_indices[index]
+                record = owners[output]
+                if decision['action'] in ('grow_remaining_head','remove_incomplete_head'):
+                    changed_owners[record['input_index']] = record
+                    record.setdefault('action_before_remaining_heads',record['action'])
+                    record.setdefault('remaining_heads',[]).append(decision)
+                    record['action'] = decision['action']
+                if decision['output_index'] is None:
+                    continue
+                if decision['action'] == 'grow_remaining_head':
+                    mesh, volume = pending[index]
+                    new_output = len(refined_indices)
+                    refined_indices.append(repaired[decision['output_index']])
+                    record['output_indices'] = [new_output if i == output else i
+                                                for i in record['output_indices']]
+                    record['output_index'] = record['output_indices'][0]
+                    refinement_mesh_ids[id(mesh)] = new_output
+                else:
+                    mesh, volume = current_meshes[index], current_volumes[index]
+                spine_submesh_split_filtered.append(mesh)
+                new_volumes.append(volume)
+            spine_volumes = np.asarray(new_volumes)
+            surviving_outputs = {refinement_mesh_ids[id(mesh)] for mesh in spine_submesh_split_filtered}
+            for record in changed_owners.values():
+                masks = [refined_indices[i] for i in record['output_indices'] if i in surviving_outputs]
+                union = np.unique(np.concatenate(masks)) if masks else np.empty(0,dtype=int)
+                original = selected_indices[record['input_index']]
+                record.update(output_faces=sum(len(m) for m in masks),
+                              added_faces=len(np.setdiff1d(union,original)),
+                              removed_faces=len(np.setdiff1d(original,union)))
+            refinement['remaining_heads'] = head_diagnostics
+            refinement['seconds'] += head_diagnostics['seconds']-head_diagnostics['validation_seconds']
+            refinement['counts'] = {}
+            for record in refinement['candidates']:
+                action = record['action']
+                refinement['counts'][action] = refinement['counts'].get(action,0)+1
+
     if geometric_refinement and geometric_refinement_diagnostics is not None:
         geometric_refinement_diagnostics.clear()
         geometric_refinement_diagnostics.update(refinement)

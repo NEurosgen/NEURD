@@ -547,3 +547,73 @@ def test_cap_growth_requires_distal_additions_when_requested(minimum_clearance):
     else:
         assert record['reason'] == 'cap_growth_mostly_near_shaft'
         assert np.array_equal(result[0], head)
+
+
+def test_head_completeness_detects_an_attached_half_head():
+    mesh, skeleton, radius = branch_surface()
+    full = np.flatnonzero(radius > 340)
+    # Keep its entire proximal root, but remove one distal side of the head.
+    cut = (radius[full] > 1100) & (mesh.triangles_center[full, 1] > 0)
+    partial = full[~cut]
+    context = sr._Context(mesh,skeleton,[partial],sr.RefinementConfig())
+    angle = np.linspace(-np.pi,np.pi,96,endpoint=False)
+    contour = sr._Contour(300*np.column_stack((np.cos(angle),np.sin(angle))))
+    model = (np.zeros(3),np.eye(3),[contour,contour,contour])
+    boundary, measured = sr._surface_boundary(mesh,partial)
+    quality = context.head_boundary_quality(measured,boundary,model)
+    assert quality['gap_q10_nm'] < 200
+    assert quality['incomplete'] and quality['distal_cut_ratio'] > 1
+    intact_boundary, intact = sr._surface_boundary(mesh,full)
+    assert not context.head_boundary_quality(intact,intact_boundary,model)['incomplete']
+
+
+def test_rejected_raw_fragments_can_be_recovered_but_accepted_neighbours_stay_reserved():
+    mesh, skeleton, radius = branch_surface()
+    cap = np.flatnonzero(radius > 1100)
+    neighbour = np.setdiff1d(np.flatnonzero(radius > 340),cap)
+    original = mesh.vertices.copy(),mesh.faces.copy(),cap.copy(),neighbour.copy()
+    config = dict(refine_remaining_heads=True,ragged_minimum_added_clearance_nm=100)
+    recovered, diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap,neighbour],[0],config)
+    assert diag['candidates'][0]['action'] == 'grow_remaining_head'
+    assert np.intersect1d(recovered[0],neighbour).size
+    reserved, _ = sr.refine_remaining_spine_heads(mesh,skeleton,[cap,neighbour],[cap,neighbour],[0,1],config)
+    assert np.array_equal(reserved[0],cap) and np.array_equal(reserved[1],neighbour)
+    assert not np.intersect1d(*reserved).size
+    assert np.array_equal(mesh.vertices,original[0]) and np.array_equal(mesh.faces,original[1])
+    assert np.array_equal(cap,original[2]) and np.array_equal(neighbour,original[3])
+
+
+def test_remaining_head_filter_failure_preserves_the_accepted_seed():
+    mesh,skeleton,radius = branch_surface()
+    cap = np.flatnonzero(radius > 1100)
+    calls = []
+    def reject(index,proposal):
+        calls.append((index,proposal.copy()))
+        return False
+    result,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],
+        dict(refine_remaining_heads=True,filter_incomplete_heads=True,
+             ragged_minimum_added_clearance_nm=100),validate_proposal=reject)
+    assert calls and all(len(g) > len(cap) for _,g in calls)
+    assert np.array_equal(result[0],cap)
+    assert diag['candidates'][0]['reason'] == 'remaining_head_rejected_by_final_filters'
+
+
+def test_unrecoverable_head_removal_is_opt_in_and_does_not_use_existing_source_holes(monkeypatch):
+    mesh,skeleton,radius = branch_surface()
+    cap = np.flatnonzero(radius > 1100)
+    def fail(*args):
+        raise ValueError('no_safe_growth')
+    monkeypatch.setattr(sr._Context,'grow',fail)
+    kept,_ = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],dict(refine_remaining_heads=True))
+    assert np.array_equal(kept[0],cap)
+    removed,diag = sr.refine_remaining_spine_heads(mesh,skeleton,[cap],[cap],[0],
+        dict(refine_remaining_heads=True,filter_incomplete_heads=True))
+    assert removed == [] and diag['candidates'][0]['action'] == 'remove_incomplete_head'
+    # A detached source patch has no missing neighbouring source surface to
+    # recover. Its source-open rim must not become a segmentation rejection.
+    source = mesh.submesh([cap],append=True)
+    source_ids = np.arange(len(source.faces))
+    result,diag = sr.refine_remaining_spine_heads(source,skeleton,[source_ids],[source_ids],[0],
+        dict(refine_remaining_heads=True,filter_incomplete_heads=True))
+    assert np.array_equal(result[0],source_ids)
+    assert diag['candidates'][0]['action'] != 'remove_incomplete_head'

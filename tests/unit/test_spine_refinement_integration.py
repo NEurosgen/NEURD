@@ -242,3 +242,55 @@ def test_rejected_head_completion_restores_seed_through_final_filters(monkeypatc
     assert record['added_faces'] == record['removed_faces'] == 0
     assert record['final_output_mapping'] == [dict(output_index=1, part_index=0, final_output_index=0)]
     assert diagnostics['statistics']['head_growth_reverted_by_final_filters'] == 1
+
+
+@pytest.mark.parametrize('grown_volume',[0,1])
+def test_remaining_head_completion_runs_after_filters_and_keeps_seed_on_filter_failure(monkeypatch,grown_volume):
+    parent = trimesh.creation.box()
+    seed_ids = np.arange(6)
+    rejected_ids = np.arange(6,12)
+    seed = parent.submesh([seed_ids],append=True)
+    rejected = parent.submesh([rejected_ids],append=True)
+    events = []
+    def extract(*args,**kwargs):
+        return [seed,rejected],[seed_ids,rejected_ids]
+    def length(meshes,**kwargs):
+        events.append(('length',len(meshes)))
+        return meshes[:1]
+    def primary(*args,**kwargs):
+        events.append(('primary',1))
+        return [seed_ids],dict(candidates=[dict(input_index=0,output_index=0,output_indices=[0],
+                                action='keep',output_faces=6)],counts={'keep':1},seconds=0)
+    def volume(mesh,**kwargs):
+        events.append(('volume',len(mesh.faces)))
+        return grown_volume if len(mesh.faces) == 12 else 1
+    def remaining(parent_arg,axis,groups,raw,raw_ids,config,*,validate_proposal):
+        events.append(('remaining',1))
+        assert parent_arg is parent and np.array_equal(groups[0],seed_ids)
+        assert len(raw) == 2 and raw_ids == [0]
+        assert config.refine_remaining_heads
+        proposed = np.arange(12)
+        passed = validate_proposal(0,proposed)
+        result = proposed if passed else seed_ids
+        return [result],dict(candidates=[dict(input_index=0,output_index=0,
+                            action='grow_remaining_head' if passed else 'unknown_keep')],
+                            seconds=0,validation_seconds=0)
+    monkeypatch.setattr(spu,'get_spine_meshes_unfiltered_from_mesh',extract)
+    monkeypatch.setattr(spu,'filter_spine_meshes',length)
+    monkeypatch.setattr(sr,'refine_spine_face_indices',primary)
+    monkeypatch.setattr(sr,'refine_remaining_spine_heads',remaining)
+    monkeypatch.setattr(spu.tu,'mesh_volume',volume)
+    diagnostics = {}
+    meshes,volumes = spu.calculate_spines_on_branch(
+        SimpleNamespace(mesh=parent,skeleton=np.zeros((1,2,3))),geometric_refinement=True,
+        geometric_refinement_config={'refine_remaining_heads':True,'filter_incomplete_heads':True},
+        geometric_refinement_diagnostics=diagnostics,
+        **{**options(),'spine_n_face_threshold':1,'calculate_spine_volume':True,
+           'filter_by_volume':True,'filter_by_volume_threshold':.5})
+    assert events == [('length',2),('primary',1),('volume',6),('remaining',1),('length',1),('volume',12)]
+    assert len(meshes) == 1 and volumes.tolist() == [1]
+    assert len(meshes[0].faces) == (12 if grown_volume else 6)
+    assert diagnostics['candidates'][0]['final_output_mapping'] == [dict(
+        output_index=1 if grown_volume else 0,part_index=0,final_output_index=0)]
+    if not grown_volume:
+        assert meshes[0] is seed
