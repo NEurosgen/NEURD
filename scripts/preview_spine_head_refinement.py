@@ -91,6 +91,7 @@ def main():
     parser.add_argument('--plotly', type=Path, required=True)
     parser.add_argument('--partial', action='store_true', help='Preview completed branches while the comparison is running')
     parser.add_argument('--title', default='H01: достраивание головок')
+    parser.add_argument('--description', default='', help='Explain the displayed baseline to reviewers')
     parser.add_argument('--include-cases', type=Path, help='Additional case IDs and notes, without human annotations')
     parser.add_argument('--only-listed-cases', action='store_true', help='Render review and include-cases entries only')
     args = parser.parse_args()
@@ -173,7 +174,7 @@ def main():
                 anatomy={'one_spine':'один шипик','multiple_spines':'несколько шипиков','shaft_bump':'бугорок / участок ствола','uncertain':'неопределённо'}
                 quality={'looks_ok':'выделение приемлемое','shaft_included':'захвачен ствол','head_incomplete':'неполная головка','spines_merged':'шипики склеены','uncertain':'неопределённо'}
                 annotation=human['annotation']
-                payload['description']+='\nТвоя оценка исходного выделения: '+anatomy[annotation['anatomy']]
+                payload['description']+='\nТвоя оценка первоначального выделения NEURD: '+anatomy[annotation['anatomy']]
                 if annotation['quality']:payload['description']+='; '+', '.join(quality[q] for q in annotation['quality'])
                 if annotation['comment'].strip():payload['description']+='\n'+annotation['comment'].strip()
             data_path = 'cases/'+id_+'.js'
@@ -185,6 +186,8 @@ def main():
     shutil.copyfile(args.plotly,args.output/'plotly.min.js')
     page = HTML.replace('H01: сравнение достраивания головок', html.escape(args.title))
     page = page.replace('H01: достраивание головок', html.escape(args.title))
+    if args.description:
+        page = page.replace('<select id="case"', '<p>'+html.escape(args.description)+'</p>\n<select id="case"')
     (args.output/'index.html').write_text(page)
     (args.output/'index.js').write_text('window.HEAD_COMPARE_INDEX='+json.dumps(index,ensure_ascii=False)+';\n')
     (args.output/'index.json').write_text(json.dumps(index,indent=2)+'\n')
@@ -195,6 +198,7 @@ def main():
         helper_sha256=hashlib.sha256(Path(__file__).with_name('preview_spine_refinement_changes.py').read_bytes()).hexdigest(),
         partial=args.partial,cases=len(index),changed=sum(c['changed'] for c in index),
         title=args.title,only_listed_cases=args.only_listed_cases,
+        description=args.description,
         include_cases_sha256=hashlib.sha256(args.include_cases.read_bytes()).hexdigest() if args.include_cases else None,
         original_parent_surface_present_in_both_panes=True)
     (args.output/'render_provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
