@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>H01 · оценка шипиков по EM и мешам</title>
+  <link rel="stylesheet" href="assets/viewer.css">
+  <script src="assets/plotly.min.js" defer></script>
+  <script src="assets/index.js" defer></script>
+  <script src="assets/viewer.js" defer></script>
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">H01 / РУЧНАЯ ОЦЕНКА</span><h1>Шипик, ствол или ошибка выделения?</h1></div>
+    <div class="export-bar"><button id="export-json" class="primary">Сохранить ответы · JSON</button><button id="export-csv">CSV</button><label class="button">Загрузить ответы<input id="import-json" type="file" accept=".json,application/json" hidden></label></div>
+  </header>
+  <section class="intro">
+    <p>Посмотри форму в 3D и несколько соседних EM-срезов. Если границы теряются среди соседних структур, выбери <b>«Не уверен»</b> — это полезный ответ. Можно оценить только часть примеров.</p>
+    <details><summary>Как пользоваться и что означают контуры</summary>
+      <p>В центре — одна и та же серия EM слева без наложений и справа с контурами. Листай срезы ползунком или клавишами ← →. Колесо мыши приближает, перетаскивание двигает оба изображения. В 3D перетаскивание вращает модель.</p>
+      <p><span class="dot target"></span> Оранжевый — текущий кандидат в шипики. <span class="dot parent"></span> Голубой — поверхность исходной ветви. Контуры получены из мешей и могут ошибаться относительно EM; они помогают найти объект. В 3D показана только окрестность фрагмента ветви.</p>
+      <p><span class="dot syn"></span> Розовые точки — перечисленные постсинаптические контакты этой клетки в пределах текущего среза (±16,5 нм). Это ориентиры, без автоматического присвоения шипику. Каталог охватывает часть клетки; отсутствие точки ничего не доказывает.</p>
+      <p>Набор из 24 примеров подобран для разбора ошибок, поэтому доля ошибок в нём не оценивает весь H01. Начальный срез выбран по сечению меша; для вывода об отсутствии выступа нужно просмотреть серию.</p>
+      <p>Ответы автоматически сохраняются в этом браузере, если доступно локальное хранилище. Кнопка JSON сохраняет переносимый файл: его можно загрузить сюда позднее или передать для анализа. При переносе HTML сохрани рядом папки <code>assets</code> и <code>cases</code>.</p>
+    </details>
+  </section>
+  <div class="workspace">
+    <aside class="case-panel">
+      <div class="panel-heading"><h2>Примеры</h2><span id="progress"></span></div>
+      <div class="nav"><button id="prev-case" aria-label="Предыдущий пример">←</button><button id="next-unreviewed">К неоценённому</button><button id="next-case" aria-label="Следующий пример">→</button></div>
+      <nav id="case-list" aria-label="Список примеров"></nav>
+      <div id="save-status" role="status" aria-live="polite"></div>
+    </aside>
+    <main>
+      <div class="case-title"><h2 id="case-title">Загрузка…</h2><span id="resolution">EM · 8 × 8 × 33 нм</span></div>
+      <div id="identity"></div>
+      <div class="slice-controls">
+        <button id="prev-slice" aria-label="Предыдущий срез">←</button><input id="slice" aria-label="EM-срез" type="range" min="0" value="0" step="1"><button id="next-slice" aria-label="Следующий срез">→</button><button id="reset-slice">Начальный срез</button>
+      </div>
+      <div class="slice-info"><span id="slice-label"></span><span id="visited"></span></div>
+      <div class="tools">
+        <label><input type="checkbox" id="show-target" checked><span class="dot target"></span> Кандидат</label>
+        <label><input type="checkbox" id="show-parent" checked><span class="dot parent"></span> Ветвь</label>
+        <label><input type="checkbox" id="show-syn" checked><span class="dot syn"></span> Контакты</label>
+        <button id="reset-zoom">Сбросить приближение</button>
+        <label>Контраст <input type="range" id="contrast" min="60" max="200" step="5" value="100" aria-label="Контраст EM"></label>
+      </div>
+      <div class="em-pair">
+        <figure><figcaption>EM без контуров</figcaption><canvas id="em-raw" aria-label="Исходный EM-срез"></canvas></figure>
+        <figure><figcaption>Тот же EM + границы по мешам</figcaption><canvas id="em-overlay" aria-label="EM-срез с контурами и метками"></canvas></figure>
+      </div>
+      <div id="frame-status" role="status"></div>
+      <div class="mark-bar">
+        <label>Метка на срезе <select id="mark-kind"><option value="neck_base">Основание шейки</option><option value="missing_head">Пропущенная часть головки</option><option value="other">Другое место</option></select></label>
+        <button id="mark-mode" aria-pressed="false">Поставить метку</button><button id="remove-mark">Убрать последнюю</button><span id="mark-count"></span>
+      </div>
+      <div class="lower">
+        <section class="mesh-panel">
+          <div class="panel-heading"><h2>Окрестность в 3D</h2><button id="reset-camera">Сбросить вид</button></div>
+          <div id="mesh-plot" aria-label="Вращаемая модель шипика и ветви"></div>
+          <p class="help">Оранжевый — тот же кандидат. Светлый прямоугольник — плоскость текущего EM-среза. Оси в мкм относительно фрагмента.</p>
+        </section>
+        <section class="assessment">
+          <h2>Твоя оценка</h2>
+          <label class="field">Что здесь анатомически?<select id="anatomy"><option value="">Не оценено</option><option value="one_spine">Один шипик, в том числе разветвлённый</option><option value="multiple_spines">Несколько отдельных шипиков</option><option value="shaft_bump">Бугорок или поверхность ствола</option><option value="uncertain">Не уверен</option></select></label>
+          <fieldset><legend>Как выделен оранжевый участок?</legend>
+            <label><input class="quality" type="checkbox" value="looks_ok">Выглядит правильно</label>
+            <label><input class="quality" type="checkbox" value="false_spine">Шипик выделен там, где его нет</label>
+            <label><input class="quality" type="checkbox" value="shaft_included">К шипику присоединён ствол</label>
+            <label><input class="quality" type="checkbox" value="spines_merged">Склеены отдельные шипики</label>
+            <label><input class="quality" type="checkbox" value="head_incomplete">Головка выделена частично или рвано</label>
+            <label><input class="quality" type="checkbox" value="neck_incomplete">Не хватает части шейки</label>
+            <label><input class="quality" type="checkbox" value="uncertain">Не могу оценить выделение</label>
+          </fieldset>
+          <div class="form-pair"><label class="field">Уверенность<select id="confidence"><option value="">Не указана</option><option value="high">Высокая</option><option value="medium">Средняя</option><option value="low">Низкая</option></select></label>
+          <label class="field">Помогли ли EM-срезы?<select id="em-readability"><option value="">Не указано</option><option value="helpful">Да, структуру видно</option><option value="difficult">Отчасти, тесно / неясно</option><option value="unreadable">Не смог разобрать</option></select></label></div>
+          <label class="field">Комментарий <textarea id="comment" rows="3" placeholder="Что удалось увидеть; где сомнения…"></textarea></label>
+          <button id="save-next" class="primary">Сохранить и следующий</button>
+        </section>
+      </div>
+      <details class="sources"><summary>Источники этого примера</summary><div id="source-details"></div></details>
+    </main>
+  </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body></html>
