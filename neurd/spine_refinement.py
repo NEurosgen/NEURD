@@ -67,6 +67,13 @@ class RefinementConfig:
     # A leaning neck can also run close to the estimated shaft surface. Keep
     # single protrusions intact unless this exploratory mode is requested.
     trim_single_protrusions: bool = False
+    # A large ragged cut with little body above its own rim is a surface
+    # fragment, even when holes prevent closed shaft sections. Run after head
+    # completion, so a recovered protrusion is measured in its completed form.
+    filter_low_relief_sheets: bool = False
+    sheet_minimum_boundary_ratio: float = 4.5
+    sheet_maximum_relative_relief_nm: float = 300.0
+    sheet_mesh_radii_nm: tuple = (1000.0, 1600.0, 2200.0, 3200.0)
 
     def __post_init__(self):
         positive = (self.section_radius_nm, self.skeleton_step_nm,
@@ -88,6 +95,11 @@ class RefinementConfig:
             raise ValueError("Shaft trimming thresholds must be finite and nonnegative")
         if not 0 <= self.trim_minimum_area_fraction <= 1:
             raise ValueError("Invalid shaft trimming area fraction")
+        if (not np.isfinite(self.sheet_minimum_boundary_ratio) or self.sheet_minimum_boundary_ratio <= 0
+                or not np.isfinite(self.sheet_maximum_relative_relief_nm) or self.sheet_maximum_relative_relief_nm < 0
+                or len(self.sheet_mesh_radii_nm) < 2
+                or any(not np.isfinite(r) or r <= 0 for r in self.sheet_mesh_radii_nm)):
+            raise ValueError("Invalid low-relief sheet thresholds")
 
 
 def _quantile(values, weights, quantiles):
@@ -753,13 +765,13 @@ class _Context:
             raise ValueError("shaft_trim_part_has_no_distinct_protrusion")
         return geometry
 
-    def mesh_frame(self, origin):
+    def _mesh_frame_at(self, origin, radius):
         """Local shaft support supplies orientation when stored axes fail.
 
         Two independent direction estimates must agree. This is a local frame
         for sectioning the existing mesh, not a reconstructed skeleton.
         """
-        ids = np.asarray(self.face_tree.query_ball_point(origin, 2200.0), dtype=int)
+        ids = np.asarray(self.face_tree.query_ball_point(origin, radius), dtype=int)
         self.unique_faces()
         ids = ids[(self.canonical[ids] == ids) & ~self.excluded_support[ids] & (self.areas[ids] > 1e-8)]
         if len(ids) < 80:
@@ -773,6 +785,53 @@ class _Context:
         if ne[0] > .28 or ne[1] < .1 or pe[-2] / pe[-1] > .7 or abs(nv[:,0] @ pv[:,-1]) < .85:
             raise ValueError("shaft_trim_ambiguous_mesh_direction")
         return anchor, _frame(nv[:,0])
+
+    def mesh_frame(self, origin):
+        # Preserve the previous estimator when the new filter is disabled.
+        return self._mesh_frame_at(origin, 2200.0)
+
+    def low_relief_sheet(self, indices):
+        """Measure body height relative to a large cut rim at two local scales.
+
+        This does not fit/cap an open shaft section. Shaft-supported normals and
+        position covariance independently establish a direction at each scale;
+        two scales must agree. A complete spine has a compact neck rim or a
+        body clearly above it. Partial caps/ribbons can be removed after an
+        unsuccessful completion, without assuming they are complete spines.
+        """
+        cfg = self.config
+        boundary, measured = _surface_boundary(self.parent, indices)
+        rim, weights, ratio = boundary
+        if ratio < cfg.sheet_minimum_boundary_ratio:
+            return dict(action="screened_keep", boundary_perimeter_normalized=ratio)
+        self.statistics["sheet_checks"] = self.statistics.get("sheet_checks", 0)+1
+        origin = np.average(rim, axis=0, weights=weights)
+        frames = []
+        for radius in sorted(set(cfg.sheet_mesh_radii_nm)):
+            try:
+                anchor, basis = self._mesh_frame_at(origin, radius)
+            except ValueError:
+                continue
+            frames.append((radius, anchor, basis))
+        pair = next(((a, b) for i, a in enumerate(frames) for b in frames[i+1:]
+                     if abs(a[2][:, 2] @ b[2][:, 2]) >= .9), None)
+        if pair is None:
+            raise ValueError("sheet_no_consistent_local_shaft_directions")
+        estimates = []
+        for radius, anchor, basis in pair:
+            surface = np.linalg.norm((self.centers[measured]-anchor) @ basis[:, :2], axis=1)
+            cut = np.linalg.norm((rim-anchor) @ basis[:, :2], axis=1)
+            body = float(_quantile(surface, self.areas[measured], .95))
+            edge = float(_quantile(cut, weights, .75))
+            estimates.append(dict(support_radius_nm=radius, surface_radius_q95_nm=body,
+                                  rim_radius_q75_nm=edge, relative_relief_nm=body-edge))
+        relief = max(item["relative_relief_nm"] for item in estimates)
+        if not np.isfinite(relief):
+            raise ValueError("sheet_nonfinite_relative_relief")
+        return dict(action="remove" if relief <= cfg.sheet_maximum_relative_relief_nm else "keep",
+                    boundary_perimeter_normalized=ratio, maximum_relative_relief_nm=relief,
+                    direction_agreement=float(abs(pair[0][2][:, 2] @ pair[1][2][:, 2])),
+                    local_estimates=estimates)
 
 
 def _edge_pairs(faces):
@@ -831,8 +890,10 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
     """Return ``(face_groups, diagnostics)`` without mutating input geometry.
 
     Diagnostics give an input/output mapping and explain skipped or rejected
-    changes. Surface scraps are removed only when BOTH protrusion is weak and
-    the cut rim is extensive. Short necks and open bases alone are allowed.
+    changes. Surface scraps are removed only when protrusion is weak and the
+    cut rim is extensive. Optional low-relief filtering measures body height
+    relative to that rim using shaft directions at two scales, without closed
+    sections. Short necks and open bases alone are allowed.
     Growth preserves every seed and competes with all neighbouring seeds.
     Optional trim_shaft_connections can subtract shaft surface or split a
     candidate. output_indices maps all its parts; output_index names the first.
@@ -965,6 +1026,18 @@ def refine_spine_face_indices(parent, skeleton, face_groups, config=None, *, pro
                 record.update(action="unknown_keep", reason=str(exc))
         elif context is not None:
             record["action"] = "small_keep"
+        if context is not None and result is not None and config.filter_low_relief_sheets:
+            try:
+                detail = context.low_relief_sheet(result)
+                record["surface_shape"] = detail
+                if detail["action"] == "remove":
+                    record["action_before_surface_shape"] = record["action"]
+                    if "reason" in record:
+                        record["reason_before_surface_shape"] = record.pop("reason")
+                    record["action"] = "remove_low_relief_sheet"
+                    result = None
+            except ValueError as exc:
+                record["surface_shape"] = dict(action="unknown_keep", reason=str(exc))
         if result is not None:
             parts = [result]
             if context is not None and config.trim_shaft_connections:

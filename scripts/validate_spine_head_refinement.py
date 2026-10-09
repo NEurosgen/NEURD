@@ -96,11 +96,13 @@ def job(args,path):
         reference = json.loads((reference_folder/'result.json').read_text())
         assert reference['status']=='passed' and reference['source_sha256']==previous['parent_sha256']
         assert reference['skeleton_sha256']==previous['skeleton_sha256']
-        with np.load(reference_folder/'previous_faces.npz') as z:
+        with np.load(reference_folder/(args.validated_baseline_mask+'_faces.npz')) as z:
             masks=np.split(z['faces'],z['offsets'][1:-1].astype(int)) if len(z['faces']) else []
             verified={(int(raw),int(part)):mask for raw,part,mask in zip(z['raw_ids'],z['part_ids'],masks)}
         assert verified.keys()==old_refined.keys()
         assert all(np.array_equal(verified[key],mask) for key,mask in old_refined.items())
+        if args.validated_baseline_mask == 'candidate':
+            assert all(reference['refinement']['config'].get(k)==v for k,v in args.previous_config.items())
         baseline_result=json.loads((args.baseline/'branches'/key/'result.json').read_text())
         frozen_previous=[{**r,'faces':old_refined[(r['raw_id'],r['part_id'])]}
                          for r in baseline_result['candidate_outputs']]
@@ -130,13 +132,13 @@ def job(args,path):
     sr.refine_spine_face_indices=refine
     exports={};timings={};stages={}
     try:
-        for mode,config in (('previous',{'trim_shaft_connections':True}),
-                            ('candidate',{'trim_shaft_connections':True,'grow_ragged_heads':True})):
+        for mode,config in (('previous',args.previous_config), ('candidate',args.candidate_config)):
             if mode=='previous' and frozen_previous is not None:
                 exports[mode]=frozen_previous
+                baseline_timing=reference['timings'][args.validated_baseline_mask]
                 timings[mode]=dict(cached=True,reference=str(args.validated_baseline/'branches'/key),
-                                   recorded_post_seconds=reference['timings']['previous']['post_seconds'],
-                                   recorded_geometry_seconds=reference['timings']['previous']['geometry_seconds'])
+                                   recorded_post_seconds=baseline_timing.get('post_seconds',baseline_timing.get('recorded_post_seconds')),
+                                   recorded_geometry_seconds=baseline_timing.get('geometry_seconds',baseline_timing.get('recorded_geometry_seconds')))
                 pack(dest/(mode+'_faces.npz'),frozen_previous)
                 continue
             started=perf_counter();stage={};np.random.seed(0)
@@ -205,6 +207,9 @@ def main():
     parser.add_argument('--previous-code',type=Path,required=True)
     parser.add_argument('--baseline',type=Path,required=True)
     parser.add_argument('--validated-baseline',type=Path,help='Reuse a previously reproduced baseline, checking every parent mask')
+    parser.add_argument('--validated-baseline-mask', choices=['previous','candidate'], default='previous')
+    parser.add_argument('--previous-config',type=json.loads,default={'trim_shaft_connections':True})
+    parser.add_argument('--candidate-config',type=json.loads,default={'trim_shaft_connections':True,'grow_ragged_heads':True})
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--workers',type=int,default=2)
     parser.add_argument('--key',action='append')
@@ -227,14 +232,18 @@ def main():
     if args.key: paths=[p for p in paths if p.parent.name in args.key]
     manifest=dict(comparison=str(args.comparison),code_snapshot=str(args.code_snapshot),previous_code=str(args.previous_code),
                   script_sha256=sha(__file__),changed_functions=changed,parameters_unchanged=True,
-                  frozen_prefix=True,baseline=str(args.baseline),config={'trim_shaft_connections':True,'grow_ragged_heads':True},branches=[p.parent.name for p in paths])
+                  frozen_prefix=True,baseline=str(args.baseline),config=args.candidate_config,
+                  previous_config=args.previous_config,branches=[p.parent.name for p in paths])
     manifest['validated_baseline']=str(args.validated_baseline) if args.validated_baseline else None
+    manifest['validated_baseline_mask']=args.validated_baseline_mask
     write_json(args.output/'manifest.json',manifest)
 
     def execute(path):
         folder=args.output/'branches'/path.parent.name;folder.mkdir(parents=True,exist_ok=True)
         command=[sys.executable,__file__,'--comparison',str(args.comparison),'--code-snapshot',str(args.code_snapshot),
                  '--previous-code',str(args.previous_code),'--baseline',str(args.baseline),'--output',str(args.output),'--job',str(path)]
+        command+=['--previous-config',json.dumps(args.previous_config),'--candidate-config',json.dumps(args.candidate_config),
+                  '--validated-baseline-mask',args.validated_baseline_mask]
         if args.validated_baseline: command+=['--validated-baseline',str(args.validated_baseline)]
         with (folder/'run.log').open('w') as log:
             process=subprocess.run(command,cwd=folder,stdout=log,stderr=subprocess.STDOUT)

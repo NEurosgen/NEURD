@@ -43,6 +43,43 @@ def branch_surface(curved=False, bumps=(0,), bump_width=200):
     return mesh, skeleton, face_radius
 
 
+def test_low_relief_filter_handles_missing_closed_sections(monkeypatch):
+    mesh, skeleton, _ = branch_surface(bumps=())
+    points = mesh.triangles_center
+    patch = np.flatnonzero((abs(points[:, 2]) < 1500) & (points[:, 0] > 290))
+    before = mesh.vertices.copy(), mesh.faces.copy(), patch.copy()
+
+    def missing_sections(*args, **kwargs):
+        raise ValueError('insufficient_closed_shaft_sections')
+
+    monkeypatch.setattr(sr._Context, 'model', missing_sections)
+    baseline, _ = sr.refine_spine_face_indices(mesh, skeleton, [patch])
+    assert len(baseline) == 1 and np.array_equal(baseline[0], patch)
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton, [patch], {'filter_low_relief_sheets': True})
+    assert result == []
+    decision = diagnostics['candidates'][0]
+    assert decision['action'] == 'remove_low_relief_sheet'
+    assert decision['surface_shape']['direction_agreement'] >= .9
+    assert len(decision['surface_shape']['local_estimates']) == 2
+    assert np.array_equal(mesh.vertices, before[0])
+    assert np.array_equal(mesh.faces, before[1]) and np.array_equal(patch, before[2])
+
+
+@pytest.mark.parametrize('axis_shift', [0, 100_000])
+def test_low_relief_filter_preserves_complete_spine_without_sections(monkeypatch, axis_shift):
+    mesh, skeleton, radius = branch_surface()
+    intact = np.flatnonzero(radius > 340)
+
+    def missing_sections(*args, **kwargs):
+        raise ValueError('insufficient_closed_shaft_sections')
+
+    monkeypatch.setattr(sr._Context, 'model', missing_sections)
+    result, diagnostics = sr.refine_spine_face_indices(
+        mesh, skeleton+axis_shift, [intact], {'filter_low_relief_sheets': True})
+    assert len(result) == 1 and np.array_equal(result[0], intact), diagnostics
+
+
 def test_surface_scrap_removed_but_input_unchanged():
     mesh, skeleton, _ = branch_surface(bumps=())
     points = mesh.triangles_center

@@ -2007,8 +2007,10 @@ def calculate_spines_on_branch(
 
     if geometric_refinement:
         reverted = 0
+        trims_reverted = 0
         for record in refinement["candidates"]:
-            if record.get("shaft_trim", {}).get("action") != "split":
+            proposed_action = record.get("shaft_trim", {}).get("action")
+            if proposed_action not in ("split", "trim"):
                 continue
             proposed = record["output_indices"]
             proposed_set = set(proposed)
@@ -2031,16 +2033,23 @@ def calculate_spines_on_branch(
                 refinement_mesh_ids[id(restored[0])] = restored_output
             record["proposed_output_indices"] = proposed
             record["proposed_output_faces"] = record["output_faces"]
-            record["shaft_trim"].update(proposed_action="split", action="unknown_keep",
-                                         reason="split_part_rejected_by_final_filters",
+            record["shaft_trim"].update(proposed_action=proposed_action, action="unknown_keep",
+                                         reason=f"{proposed_action}_part_rejected_by_final_filters",
                                          final_parts_before_fallback=len(surviving), applied=False)
-            record.update(action="keep_after_split_filter_rejection", output_index=restored_output,
+            record.update(action=f"keep_after_{proposed_action}_filter_rejection", output_index=restored_output,
                           output_indices=[restored_output], output_faces=len(intact_indices),
                           added_faces=len(np.setdiff1d(intact_indices, selected_indices[record["input_index"]])),
                           removed_faces=len(np.setdiff1d(selected_indices[record["input_index"]], intact_indices)))
-            reverted += 1
-        if reverted:
-            refinement.setdefault("statistics", {})["splits_reverted_by_final_filters"] = reverted
+            if proposed_action == "split":
+                reverted += 1
+            else:
+                trims_reverted += 1
+        if reverted or trims_reverted:
+            statistics = refinement.setdefault("statistics", {})
+            if reverted:
+                statistics["splits_reverted_by_final_filters"] = reverted
+            if trims_reverted:
+                statistics["trims_reverted_by_final_filters"] = trims_reverted
             refinement["counts"] = {}
             for record in refinement["candidates"]:
                 action = record["action"]
@@ -2054,6 +2063,10 @@ def calculate_spines_on_branch(
             if input_index not in pre_growth_indices:
                 continue
             proposed = record["output_indices"]
+            # A geometric quality rejection deliberately produces no outputs;
+            # it must not be undone by the fallback for failed final filters.
+            if not proposed:
+                continue
             if any(refinement_mesh_ids[id(mesh)] in proposed for mesh in spine_submesh_split_filtered):
                 continue
             original = pre_growth_indices[input_index]

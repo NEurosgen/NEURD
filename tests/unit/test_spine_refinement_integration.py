@@ -122,6 +122,67 @@ def test_split_parts_repeat_length_filter_and_restore_a_rejected_part(monkeypatc
     assert d['statistics']['splits_reverted_by_final_filters']==1
 
 
+def test_rejected_single_trim_restores_original_through_final_filters(monkeypatch):
+    parent = trimesh.creation.box()
+    original = np.arange(len(parent.faces))
+    volumes = []
+
+    def extract(*args, **kwargs):
+        return [parent], [original]
+
+    def refine(*args, **kwargs):
+        kwargs['pre_trim_face_groups'][0] = original
+        return [original[:6]], dict(candidates=[dict(
+            input_index=0, output_index=0, output_indices=[0], output_faces=6,
+            action='trim_shaft_surface', shaft_trim={'action': 'trim'})],
+            counts={'trim_shaft_surface': 1}, seconds=0)
+
+    def volume(mesh, **kwargs):
+        volumes.append(len(mesh.faces))
+        return 1 if len(mesh.faces) == 12 else 0
+
+    monkeypatch.setattr(spu, 'get_spine_meshes_unfiltered_from_mesh', extract)
+    monkeypatch.setattr(sr, 'refine_spine_face_indices', refine)
+    monkeypatch.setattr(spu.tu, 'mesh_volume', volume)
+    diagnostics = {}
+    result, _ = spu.calculate_spines_on_branch(
+        SimpleNamespace(mesh=parent, skeleton=np.zeros((1, 2, 3))),
+        geometric_refinement=True, geometric_refinement_diagnostics=diagnostics,
+        **{**options(), 'calculate_spine_volume': True,
+           'filter_by_volume': True, 'filter_by_volume_threshold': .5})
+    assert len(result) == 1 and len(result[0].faces) == 12
+    assert volumes == [6, 12]
+    record = diagnostics['candidates'][0]
+    assert record['action'] == 'keep_after_trim_filter_rejection'
+    assert record['final_output_indices'] == [0]
+    assert record['shaft_trim']['proposed_action'] == 'trim'
+    assert diagnostics['statistics']['trims_reverted_by_final_filters'] == 1
+
+
+def test_sheet_rejection_after_growth_is_not_restored(monkeypatch):
+    parent = trimesh.creation.box()
+    original = np.arange(len(parent.faces))
+
+    def extract(*args, **kwargs):
+        return [parent], [original]
+
+    def refine(*args, **kwargs):
+        kwargs['pre_growth_face_groups'][0] = original
+        return [], dict(candidates=[dict(
+            input_index=0, output_index=None, output_indices=[], output_faces=0,
+            action='remove_low_relief_sheet')], counts={'remove_low_relief_sheet': 1}, seconds=0)
+
+    monkeypatch.setattr(spu, 'get_spine_meshes_unfiltered_from_mesh', extract)
+    monkeypatch.setattr(sr, 'refine_spine_face_indices', refine)
+    diagnostics = {}
+    result = spu.calculate_spines_on_branch(
+        SimpleNamespace(mesh=parent, skeleton=np.zeros((1, 2, 3))),
+        geometric_refinement=True, geometric_refinement_diagnostics=diagnostics, **options())
+    assert result == []
+    assert diagnostics['candidates'][0]['final_output_indices'] == []
+    assert diagnostics['counts'] == {'remove_low_relief_sheet': 1}
+
+
 def test_successful_split_maps_all_parts_without_fallback(monkeypatch):
     parent=trimesh.creation.box();ids=np.arange(len(parent.faces))
 

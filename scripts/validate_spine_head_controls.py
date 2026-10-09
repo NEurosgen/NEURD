@@ -74,7 +74,9 @@ def job(args, row):
         reference = json.loads((ref/'result.json').read_text())
         assert reference['status']=='passed' and reference['source_sha256']==row['source_sha256']
         assert reference['skeleton_sha256']==row['skeleton_sha256']
-        with np.load(ref/'previous_faces.npz') as z:
+        if args.validated_baseline_mask == 'candidate':
+            assert all(reference['refinement']['config'].get(k)==v for k,v in args.previous_config.items())
+        with np.load(ref/(args.validated_baseline_mask+'_faces.npz')) as z:
             masks=np.split(z['faces'],z['offsets'][1:-1].astype(int)) if len(z['faces']) else []
             cached_previous={(int(raw),int(part)):mask for raw,part,mask in zip(z['raw_ids'],z['part_ids'],masks)}
 
@@ -84,8 +86,7 @@ def job(args, row):
     output = args.output/row['key']
     output.mkdir(parents=True, exist_ok=True)
     timings, diagnostics, exports = {}, {}, {}
-    for mode, config in [('previous', {'trim_shaft_connections': True}),
-                         ('candidate', {'trim_shaft_connections': True, 'grow_ragged_heads': True})]:
+    for mode, config in [('previous', args.previous_config), ('candidate', args.candidate_config)]:
         start = perf_counter()
         if mode=='previous' and cached_previous is not None:
             rows, d = cached_previous, {'cached': True, 'source': str(args.validated_baseline/row['key'])}
@@ -135,6 +136,9 @@ def main():
     parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--code-snapshot', type=Path, required=True)
     parser.add_argument('--validated-baseline', type=Path, help='Reuse verified baseline masks without repeating geometry work')
+    parser.add_argument('--validated-baseline-mask', choices=['previous','candidate'], default='previous')
+    parser.add_argument('--previous-config',type=json.loads,default={'trim_shaft_connections':True})
+    parser.add_argument('--candidate-config',type=json.loads,default={'trim_shaft_connections':True,'grow_ragged_heads':True})
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--workers', type=int, default=2)
     parser.add_argument('--job-key')
@@ -151,6 +155,8 @@ def main():
     save(args.output/'manifest.json', dict(baseline=str(source), baseline_sha256=sha(source),
          code_snapshot=str(args.code_snapshot), script_sha256=sha(__file__), stage='geometry_only',
          validated_baseline=str(args.validated_baseline) if args.validated_baseline else None,
+         validated_baseline_mask=args.validated_baseline_mask,previous_config=args.previous_config,
+         candidate_config=args.candidate_config,
          branches=[r['key'] for r in rows], named_examples=sum(len(r['examples']) for r in rows)))
 
     def execute(row):
@@ -159,6 +165,8 @@ def main():
         command = [sys.executable, __file__, '--baseline', str(args.baseline),
                    '--code-snapshot', str(args.code_snapshot), '--output', str(args.output),
                    '--job-key', row['key']]
+        command+=['--previous-config',json.dumps(args.previous_config),'--candidate-config',json.dumps(args.candidate_config),
+                  '--validated-baseline-mask',args.validated_baseline_mask]
         if args.validated_baseline: command+=['--validated-baseline',str(args.validated_baseline)]
         with (folder/'run.log').open('w') as log:
             process = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)

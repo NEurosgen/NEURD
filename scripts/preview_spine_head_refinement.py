@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 from pathlib import Path
 import shutil
@@ -89,20 +90,25 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--plotly', type=Path, required=True)
     parser.add_argument('--partial', action='store_true', help='Preview completed branches while the comparison is running')
+    parser.add_argument('--title', default='H01: достраивание головок')
+    parser.add_argument('--include-cases', type=Path, help='Additional case IDs and notes, without human annotations')
+    parser.add_argument('--only-listed-cases', action='store_true', help='Render review and include-cases entries only')
     args = parser.parse_args()
     rows = json.loads((args.comparison/'results.json').read_text())
     manifest = json.loads((args.comparison/'manifest.json').read_text())
     assert (args.partial or len(rows) == len(manifest['branches'])) and all(r['status']=='passed' for r in rows)
     review = json.loads(args.review.read_text())
     labels = {(r['key'], r['raw_id']): r for r in review['cases']}
+    extras = json.loads(args.include_cases.read_text()) if args.include_cases else []
+    extra_labels = {(r['key'], r['raw_id']): r for r in extras}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output/'cases').mkdir(exist_ok=True)
     index = []
     for row in rows:
         path = args.comparison/'branches'/row['key']
         before, after = unpack(path/'previous_faces.npz'), unpack(path/'candidate_faces.npz')
-        raw_ids = sorted({r['raw_id'] for r in row['changes']} | {
-            r['raw_id'] for r in review['cases'] if r['key']==row['key']})
+        raw_ids = sorted((set() if args.only_listed_cases else {r['raw_id'] for r in row['changes']}) | {
+            r['raw_id'] for r in review['cases']+extras if r['key']==row['key']})
         if not raw_ids:
             continue
         parent = trimesh.load(row['selection']['source'], process=False, force='mesh')
@@ -129,10 +135,12 @@ def main():
             nearby = np.union1d(nearby, union)
             removed = np.setdiff1d(original, proposal)
             human = labels.get((row['key'], raw))
+            extra = extra_labels.get((row['key'], raw))
             changed = raw in {r['raw_id'] for r in row['changes']}
             control = bool(human and human['expectations']['accepted_geometry_control'])
             id_ = row['key']+f'_raw_{raw:03d}'
-            label = (human['case_id']+' · ' if human else '')+row['key']+f' · {raw}'
+            case_label = human['case_id'] if human else extra['case_id'] if extra else None
+            label = (case_label+' · ' if case_label else '')+row['key']+f' · {raw}'
             if control:
                 label += ' · контроль'
             elif not changed:
@@ -159,6 +167,8 @@ def main():
                            after_context=mesh(np.setdiff1d(nearby,proposal)),
                            parent_roi_faces=len(nearby),middle=middle.tolist(),span=float(span),
                            description=f'{len(original)} → {len(proposal)} треугольников. Добавлено: {len(added)}; удалено: {len(removed)}.')
+            if extra and extra.get('note'):
+                payload['description']+='\n'+extra['note']
             if human:
                 anatomy={'one_spine':'один шипик','multiple_spines':'несколько шипиков','shaft_bump':'бугорок / участок ствола','uncertain':'неопределённо'}
                 quality={'looks_ok':'выделение приемлемое','shaft_included':'захвачен ствол','head_incomplete':'неполная головка','spines_merged':'шипики склеены','uncertain':'неопределённо'}
@@ -173,7 +183,9 @@ def main():
             print(json.dumps(dict(key=row['key'],raw_id=raw,control=control)),flush=True)
     assert index
     shutil.copyfile(args.plotly,args.output/'plotly.min.js')
-    (args.output/'index.html').write_text(HTML)
+    page = HTML.replace('H01: сравнение достраивания головок', html.escape(args.title))
+    page = page.replace('H01: достраивание головок', html.escape(args.title))
+    (args.output/'index.html').write_text(page)
     (args.output/'index.js').write_text('window.HEAD_COMPARE_INDEX='+json.dumps(index,ensure_ascii=False)+';\n')
     (args.output/'index.json').write_text(json.dumps(index,indent=2)+'\n')
     provenance=dict(comparison=str(args.comparison.resolve()),
@@ -182,6 +194,8 @@ def main():
         builder_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         helper_sha256=hashlib.sha256(Path(__file__).with_name('preview_spine_refinement_changes.py').read_bytes()).hexdigest(),
         partial=args.partial,cases=len(index),changed=sum(c['changed'] for c in index),
+        title=args.title,only_listed_cases=args.only_listed_cases,
+        include_cases_sha256=hashlib.sha256(args.include_cases.read_bytes()).hexdigest() if args.include_cases else None,
         original_parent_surface_present_in_both_panes=True)
     (args.output/'render_provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
 
