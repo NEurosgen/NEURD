@@ -20,7 +20,7 @@ cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GN
 dataset adapters — **is removed**. The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,669 physical Python lines across 25 core files**; the earlier count describes the
+**18,768 physical Python lines across 26 core files**; the earlier count describes the
 pre-refinement baseline.
 
 ## Why a fork
@@ -128,6 +128,24 @@ be discarded, then groups those faces once while retaining parent indices and
 face order. `NEURD_LEGACY_CGAL_ASSEMBLY=1` restores the prior two-pass assembly
 for comparison. Failed H01 width eligibility now preserves the actual axes and
 measurement evidence; see [H01_FAILURE_DIAGNOSTICS.md](docs/H01_FAILURE_DIAGNOSTICS.md).
+Raw export records validated supplied branch-to-limb face maps and graph labels
+by Branch object identity. Missing maps remain unavailable; direct raw ownership
+and the causes of the historical axis mismatches are still unproved. The
+[final production gate](artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+passed with all 28 maps available and exact prior H01 metrics: 18 spines /
+8,145 spine faces, identical masks and zero geometry/volume error counters.
+
+| Export | Verified scope |
+|---|---|
+| `parent_face_indices.npy` + `face_provenance.json` | Supplied ordered branch-to-limb IDs; exact in-memory triangles before OFF rounding, exported-file hashes; absent maps explicitly unavailable |
+| `branch_index_map.json` | Export position to graph node by Branch object identity; missing/ambiguous identity recorded, contradictory IDs rejected |
+| Original raw OFF face ownership | Unavailable; never inferred from geometric matches or branch numbers |
+
+A separate [patched timeout retry](artifacts/h01_timeout_retry_20261011/v1/receipt.json)
+completed with 300 spines and strict computational QC. It retained the original
+graph and used the inherited `previously_spine_positive` exception, without a
+recovered positive width or applying the 115 nm width gate. The historical archive
+is unchanged; 46 width failures remain.
 
 For optional H01 geometric refinement, exported-branch resegmentation, skeleton policies
 and spine-quality checks, see [SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md).

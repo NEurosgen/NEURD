@@ -4,7 +4,8 @@ The frozen `artifacts/h01_full_resegmentation_20261009/v1` run remains partial:
 21,703 of 21,750 branches completed, with 37,925 exported spines and 47
 unresolved branches. The October 11 diagnosis preserves that run, its runtime,
 its input meshes and skeletons, and the original width threshold of **115 nm**.
-It creates no accepted segmentation results.
+The diagnostic audits create no accepted segmentation results. A separate current-code
+timeout retry, described below, produced one strictly validated completion.
 
 The local evidence is in
 [`report.json`](../artifacts/h01_failure_diagnostics_20261011/v1/report.json) and
@@ -25,7 +26,7 @@ cases; it cannot justify classifying the branch as thinner than 115 nm.
 | 38 | No face-centroid slice meets the historical axial and 3,000 nm radial limits; sampled vertex distances, computed exactly to original axis segments, exceed 3,000 nm | Axis and branch surface do not provide usable correspondence |
 | 5 | All axial slices are empty despite nearby surface samples | The exported axis does not span any usable face-centroid slice |
 | 3 | One supported slice is present, but the actual selected component is exactly one triangle | Distance around that triangle's own area-weighted face centroid is zero by construction |
-| 1 | The worker exceeded 2,700 seconds after reporting 22,167 CGAL segments | Subsequent processing remains unresolved; the log does not identify the exact slow operation |
+| 1 | The historical worker exceeded 2,700 seconds after reporting 22,167 CGAL segments | That archived attempt remains unresolved; a separate patched retry completed, without establishing the original slow operation |
 
 The three single-triangle cases are
 `neuron_4039221194_limb_001_branch_006`,
@@ -39,9 +40,8 @@ The timeout key is `neuron_7052969349_limb_000_branch_000`. Its OFF header
 contains 779,393 vertices and 1,564,481 faces, the original skeleton is a single
 segment about 99.97 nm long, and the old export contains 356 spines. CGAL
 completed far enough to print its segment count. No segmentation CSV, accepted
-axis, or completed result survives in this attempt. Only its header, skeleton,
-logs and file hashes were inspected; a large mesh load or segmentation was
-not repeated. Trimesh zero-volume warnings in its log do not identify the
+axis, or completed result survives in this attempt. The initial diagnosis inspected only its header, skeleton,
+logs and file hashes; it did not repeat the large mesh load or segmentation. Trimesh zero-volume warnings in its log do not identify the
 timeout's root cause.
 
 ## Metadata and provenance limits
@@ -136,6 +136,55 @@ observations support investigating partition/export correspondence rather than
 automatically swapping axes. Axis-to-nearest-vertex values in the report are
 upper bounds to surface distance, with explicit sampling limits.
 
+The bounded [export-source audit](../artifacts/h01_export_lineage_20261011/v1/findings.json)
+confirms a pairing defect in `_recorrespond_stitch`: its exception fallback
+previously indexed the full MP axis list after selecting a subset. Nonprefix or
+reordered selections could retain a branch mesh with another modified axis.
+The one-line fix uses `curr_MP_sk_for_correspondence[mp_idx]`, preserving retained
+meshes, face indices, widths and fallback aliases. Five whole-helper regressions
+cover nonprefix/reordered selection, successful correspondence and prefix
+fallback; the [isolated witness](../artifacts/h01_export_lineage_20261011/v1/candidate_validation.json)
+records two failures on the previous source and five passes on the correction.
+
+The graph exporter also previously guessed node IDs from enumeration when counts
+matched, which is unsafe for sparse labels. It now resolves the actual Branch
+object's graph identity, records unavailable identity and rejects contradictions.
+The [17 isolated graph cases](../artifacts/h01_export_lineage_20261011/v1/api_audit/candidate/validation.json)
+cover that contract. The three inspected old limb maps have consecutive identity
+labels; this sparse-ID defect was not observed in their saved metadata.
+
+Neither defect proves the origin of the detached
+`1304599410/limb_002/branch_002` surface or short junction axes at
+`4039221194/limb_001/branch_006` and `2047644309/limb_001/branch_000`.
+The original exporter runtime, selected MP IDs and intermediate maps are missing.
+Retained exporters save mesh and skeleton from the same Branch object without an
+export-stage coordinate transform; they do not prove how that object was built.
+The source search was bounded to known local roots.
+
+Raw export now validates supplied `Branch.mesh_face_idx` maps in ordered,
+8,192-face chunks and records `parent_face_indices.npy` plus
+`face_provenance.json`. It rejects malformed parent IDs, referenced vertex IDs
+and nonfinite or mismatching triangle geometry. Exact in-memory rows are checked
+before OFF rounding; exported parent/child meshes and index arrays are bound by
+hashes. Missing maps remain explicitly unavailable. This proves consistency of
+the declared branch-to-limb map, not upstream provider history or raw ownership.
+All journals explicitly say `raw_input_map_available=false`; no geometric
+candidate set is promoted to an ordered source map.
+
+The earlier [candidate probe](../artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json)
+validated all **28 supplied branch-to-limb maps** for neuron `2530864375` and
+preserved prior exact metrics: **18 spines / 8,145 spine faces**, with the same
+actual-mask digest. Independent review then added parent/child vertex-bounds
+checks and four regressions; the isolated validator/export suite passed 29 cases.
+That earlier probe remains evidence for its recorded source and phase profile.
+The [final production gate](../artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+now passes on the promoted source, including the bounds checks: all 28 supplied
+maps are available, graph identity is verified, every prior metric and the mask
+digest match exactly, and geometry/volume error and overlap counters are zero.
+It also captured the real non-soma stage; its later RSS/HWM includes capture
+writes and is not a clean benchmark. The separate timeout retry has completed
+as described below. The frozen historical run retains all 47 unresolved keys.
+
 The worker now persists evidence before raising an eligibility error:
 `branch_skeleton_original.npy`, the actual width axis `branch_skeleton.npy`, any
 returned auxiliary `segmentation_axis.npy`, `skeleton_repair.json`, exact
@@ -172,11 +221,11 @@ Keep the strict `width > 115 nm` threshold. A derived cache caliber,
 old zero spine count, or missing measurement cannot manufacture eligibility
 or a completed empty result.
 
-Start the bounded follow-up with the three single-triangle keys above and
+The five-case follow-up covers the three single-triangle keys,
 `neuron_2047644309_limb_001_branch_000` (a 14.24 nm original segment without
-any axial slice). Add `neuron_1304599410_limb_002_branch_002` as a clearly
-detached-axis case. These five small cases cover the failure mechanisms
-before proposing a policy for all 46.
+an axial slice), and the detached `neuron_1304599410_limb_002_branch_002`.
+All five remain unresolved; geometry and source findings alone cannot supply a
+new eligibility policy for the 46 width failures.
 
 The timeout review found a concrete redundant operation: installed
 `mesh_segmentation(return_meshes=False)` assembled every label mesh before
@@ -189,12 +238,43 @@ they do not establish that the historical timeout is solved. Its first `0/22167`
 progress display may have belonged to the discarded assembly, so it cannot
 identify which later filters were reached.
 
-Retry the timeout separately after reviewing the new phase traces. Use one
-worker, `NEURD_CGAL_TIMINGS=1`, the retained 2,700-second budget,
-and the same source hashes and declared segmentation parameters. Loader
-improvements alone do not establish that its later bottleneck is solved.
-Every patched retry requires a new output directory and provenance signature;
-do not resume into the frozen historical directory.
+The separate [timeout retry receipt](../artifacts/h01_timeout_retry_20261011/v1/receipt.json)
+now records **1 complete / 0 failed** within the retained 2,700-second budget:
+**300 spines / 286,839 faces**, with strict completion validation and zero
+invalid, ambiguous or overlapping masks/surfaces or invalid volumes. Segmentation
+took **2,273.321 s**; the observer recorded **2,336.936 s** overall. Volume QC used
+**209 convex-hull estimates and 91 fan-closed estimates**; computational validity
+does not establish anatomical accuracy of those closures.
+
+The original graph and endpoint-filter axis were retained; head completion used
+an auxiliary axis. Eligibility used the inherited `previously_spine_positive`
+exception: **no positive width was recovered and the 115 nm width gate was not
+applied**. This does not resolve any of the 46 width failures. The frozen October
+9 archive remains unchanged with 47 failed keys; the new retry leaves 46 current
+width problems. Its 300 spines versus 356 in the old export is not an anatomical
+quality improvement or an exact historical-output comparison.
+
+This was patched source recorded at `91d511b`, not a historical replay or a
+controlled performance comparison; inputs, runtime, providers and selected old
+controls were checked unchanged across the retry. Native SDF took **1,233.340 s**,
+clustering **18.092 s**, explicit label-mesh assembly **9.295 s** and shaft filtering
+**84.211 s**. Processing after shaft filtering completed but was not individually
+tagged, so the remaining time cannot be assigned to one function. No speedup
+claim follows from this successful attempt.
+
+Next, add flushed post-CGAL phase traces before testing local immutable geometry,
+KDTree or volume-QC reuse; the [source proposal](../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json)
+preserves filter order, threshold ties, RNG state and independent ownership
+state. The [non-soma prototype](../artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
+has 43 artifact-only cases and a completed
+[real component A/B](../artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json):
+three fresh-process pairs preserved all 424 components, ordered face IDs and soma
+connectivity. Sampled component-end HWM fell 54.07 MiB, with 0.320 s additional
+median extraction time, under common geometry-cache warmup. This bounded tradeoff
+does not measure full-stage/pipeline peak and is not integrated. Require a
+controlled full gate before changing the pipeline. All future
+retries require separate outputs and signatures; do not resume into the frozen
+historical directory.
 
 The full unresolved sets are recorded in
 [`eligibility_unresolved_keys.json`](../artifacts/h01_failure_diagnostics_20261011/v1/eligibility_unresolved_keys.json)

@@ -112,12 +112,13 @@ meshparty C, meshlab, scipy, CGAL) release the GIL, so their wall shows up as `t
 inflated caller cumtime. It reported skeletal-distance as the hot spot at "0.5%" reality. Use py-spy
 or `tests/tools/wall_profile.py`, never cProfile cumtime.
 
-**Not bottlenecks** (measure-first ruled these out): SDF ray tracing in Python (0.46 s), `deepcopy`
-(~2 s), swapping the skeleton algorithm (teasar is 0.31 s — Kimimaro/Skeletor cannot help), GPU for a
-single neuron, and `max_somas` short-circuiting (on a genuine single-soma mesh there is nothing extra
-to skip — it is a correctness guardrail, not a speed lever). Spine parallelization via `fork` is
-shelved: fork-after-threads deadlocks on the native BLAS/CGAL pools, and `forkserver`/`spawn` triples
-RAM.
+**Earlier anchor observations:** Python SDF ray tracing measured 0.46 s, `deepcopy`
+about 2 s and teasar 0.31 s in the earlier profiled setup. These do not bound native
+CGAL SDF on larger branches: the October 11 retry measured 1,233.340 s there.
+`max_somas` is a correctness guardrail on a true single-soma mesh. Earlier local
+spine-parallel experiments encountered native-pool deadlocks after `fork` and
+roughly tripled RAM with `forkserver`/`spawn`; those results are scoped to that
+setup, and raw batch uses isolated spawn workers.
 
 **Historical RAM ranking after reclaim**, before the owned OFF loader:
 
@@ -327,11 +328,62 @@ Local receipts and reproducible bounded probes are in
 `artifacts/h01_correspondence_followup_20261011/v1/timeout_review/`; the full-neuron
 comparison is in `artifacts/h01_correspondence_followup_20261011/v1/full_gate/`.
 
+The earlier [lineage candidate probe](artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json)
+also matched prior metrics (28 branches, 18 spines / 8,145 spine faces) and checked
+28 supplied branch-to-limb maps. RSS rose **375.18 MiB** across the broad
+`segment_limbs_from_soma` boundary; the same process's kernel HWM was **1,255.8 MiB**.
+These are one recorded source/run's stage delta and self high-water mark, not a
+process-group peak, allocation attribution or demonstrated memory/speed gain.
+Independent review subsequently added referenced vertex-bounds checks. The
+[final production gate](artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+then passed on the actual promoted source: all 28 supplied maps available,
+graph identity verified and every prior metric exactly equal (18 spines /
+8,145 faces, identical mask digest, zero error/overlap counters). This run also
+captured the real stage; capture writes affect subsequent RSS/HWM, which must
+not be treated as a clean memory benchmark.
+
+The separate [patched timeout retry](artifacts/h01_timeout_retry_20261011/v1/receipt.json)
+completed within the 2,700-second limit: **300 spines / 286,839 faces**, strict
+completion/QC passed. Segmentation took **2,273.321 s**, observer total **2,336.936 s**;
+native SDF **1,233.340 s**, clustering **18.092 s**, explicit assembly **9.295 s** and
+shaft filtering **84.211 s**. The post-shaft remainder was not individually tagged.
+This one current-code attempt is not an isolated speed trial or a historical replay;
+300 outputs versus 356 old spines is not an anatomical improvement. The original
+graph was retained, auxiliary geometry served heads, and the inherited
+`previously_spine_positive` exception applied without a recovered width or the
+115 nm width gate. All computational error/overlap counters are zero, but 209
+convex-hull and 91 fan-closed volume estimates still require quality review.
+
+First instrument the remainder, then measure local immutable KDTree/geometry and
+volume-QC reuse from the [post-CGAL proposal](artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json).
+Preserve masks, filter/RNG order, threshold ties and independent ownership state.
+The [non-soma prototype](artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
+has 43 artifact-only cases and no implemented production RSS saving. Its
+[captured real-input A/B](artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json)
+passed three interleaved pairs of fresh children: all 424 ordered components,
+source-face IDs, normals, stored colors/metadata, soma routing/touching and RNG
+state matched exactly on 301,315 selected faces.
+
+| Component extraction, median of three trials | Current stage | Direct prototype |
+|---|---:|---:|
+| Wall time | 0.238 s | 0.558 s |
+| Kernel HWM sampled immediately after components | 661.99 MiB | 607.92 MiB |
+
+This saves **54.07 MiB** of sampled HWM and **75.55 MiB** of retained
+post-component RSS, adding **0.320 s** median extraction time. Both routes warm
+the same parent triangles/centers before timing. Selection/matching, soma-edge
+connectivity and validation are excluded; HWM includes common imports/loading/
+warmup and is sampled before validation. The original matching allocator/KDTree
+history and full-stage/pipeline peak were not reproduced. This is a measured
+component-level memory/time tradeoff, not a production speedup or whole-pipeline
+peak reduction. Require a controlled full gate before integration. Ordered raw
+ownership remains unavailable.
+
 ## GPU — honest assessment
 
-For a **single neuron** GPU offers little: the bottleneck is skeleton graphs and topology, not number
-crunching, and SDF ray tracing is already 0.46 s. The real potential is **throughput** —
-`process_all_neurons` runs many meshes, and now that per-neuron RAM is down, more can run in parallel.
-GPU-able in parts: ray casting/SDF (open3d RaycastingScene, warp, OptiX) and KMeans (cuML).
-Skeletonization and stitching are not. The CUDA-Python stack is not installed; this is worth revisiting
-only once it is clear whether latency or throughput is the binding constraint.
+No GPU implementation or speed gain has been validated for this pipeline.
+The current large-branch retry measured native CPU SDF at 1,233.340 s and clustering
+at 18.092 s; earlier Python SDF timings describe a different workload. These
+measurements identify stages to investigate, not expected GPU gains. Any GPU
+experiment needs its own measured latency/throughput and exact per-face scientific
+gates; post-CGAL CPU work and geometry/provenance checks still require profiling.

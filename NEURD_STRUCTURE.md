@@ -10,7 +10,7 @@ investigations + open plans).
 mesh + skeleton + raw spines). Everything downstream — autoproofreading, cell typing, synapses, axon,
 connectome/motif/proximity, GNN, visualization, cloud/dataset adapters — is deleted.
 
-**Size:** the current integration candidate has **25 Python files / 18,669 physical lines**
+**Size:** the current integration candidate has **26 Python files / 18,768 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Counts include comments and blank lines.
@@ -46,7 +46,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (25 files)
+## Module map (26 files)
 
 | module | LOC | purpose |
 |---|---|---|
@@ -73,6 +73,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 | [_correspondence_backend.py](neurd/_correspondence_backend.py) | 113 | **seam** for the fragile `cu`/`m_sk` calls + the pipeline's only nondeterminism |
 | [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 66 | pure-Python CGAL-segmentation fallback |
 | [spine_volume.py](neurd/spine_volume.py) | 97 | strict centered volume closure, fallback and quality records |
+| [face_provenance.py](neurd/face_provenance.py) | 99 | exact chunked validation and export journal for supplied ordered branch-to-limb maps; raw ownership stays unavailable |
 | [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 60 | the slim orchestrator |
 | version.py | 3 | — |
 
@@ -105,6 +106,12 @@ workarounds — hoisting them is open work, see [docs/notes/REFACTOR_PLAN.md](do
 - **Compare spine counts with controlled sampling and explicit tolerances.** Use the same seed,
   configuration and thread limits for paired whole-neuron gates. Count alone cannot establish
   equivalence; also check branch-local face masks, surface/volume invariants and pure functions.
+- **Face-map scopes and origin are explicit.** Validation of supplied branch-to-limb IDs
+  establishes exact row correspondence, not direct raw ownership or provider history.
+  Preserve missing/generated maps as unavailable and graph labels by Branch object identity.
+  The [final production gate](artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+  passed all 28 supplied maps and graph identity with exact prior H01 metrics;
+  its stage-capture RSS/HWM is not a controlled performance measurement.
 - **Self-import (`from . import X as X`) is an antipattern** — replace with direct calls, or
   `sys.modules[__name__]` if the module object itself is needed.
 - **Logic changes and cosmetics go in separate commits.** Commit messages say *why*.

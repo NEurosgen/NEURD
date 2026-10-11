@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **25 Python files / 18,669 physical lines**, compared with 21 / 17,859
+The candidate core has **26 Python files / 18,768 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -30,8 +30,9 @@ still requires the production reachability work in Stage 7.
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
 | OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
-| Spine label assembly | Narrow owned labels/SDF seam removes discarded assembly; stable parent-face grouping; legacy comparison switch; flushed opt-in phase traces | One instrumented historical timeout retry, with no resolution or total-speed claim yet |
-| Historical H01 failures | Separate read-only diagnosis of all 47 keys; five-case limb/raw inclusion and axis audits; failed-width axes/measurements/support journal; frozen-source and provider checks | Recover reliable mesh/skeleton branch identity and eligibility support; independent review before changing any measurement policy |
+| Spine label assembly | Narrow labels/SDF seam and stable grouping; phase traces; separate timeout retry strictly complete with 300 spines / 286,839 faces | Instrument post-CGAL remainder, then measure local reuse; no total-speed claim or anatomical validation |
+| Historical H01 failures | Read-only diagnosis of 47 archived keys; five-case surface/axis audits; failed-width journal; one timeout completed in a separate patched run | 46 current width problems remain; recover branch identity/support before changing measurement policy; historical archive unchanged |
+| Export lineage | Selected-MP fallback pairing corrected; graph labels by Branch object identity; ordered maps journaled with vertex bounds; final raw gate passed all 28 supplied maps and exact prior metrics | Log provider origin and MP selections; ordered raw ownership and historical attribution remain unavailable |
 
 First-package validation on the local Python 3.12 environment:
 
@@ -88,8 +89,8 @@ The controlled full-neuron pair does not establish a whole-pipeline speed improv
 the recorded post-load gate times were about 191 and 200 s in these single runs. The
 load-stage improvement remains the three-trial measurement above.
 
-The independent [H01 diagnosis](../H01_FAILURE_DIAGNOSTICS.md) leaves all 47 historical
-failures unresolved. Current exported-original-axis probes produce zero width in 46 cases:
+The independent [H01 diagnosis](../H01_FAILURE_DIAGNOSTICS.md) preserves the 47-key
+historical failure record. Current exported-original-axis probes produce zero width in 46 cases:
 38 have no supported slices and separated axis/surface samples, 5 have empty axial slices,
 and 3 select a single triangle whose centroid width is zero. The remaining attempt timed out
 after reporting 22,167 CGAL segments. Missing historical input hashes and failed-attempt
@@ -98,8 +99,9 @@ decision; the strict **width > 115 nm** criterion and original graph remain inta
 
 The user confirmed that original H01 Neuron pickles are unavailable; complete raw OFF
 meshes remain available. The five diagnostic pilot parents contain about **6.9–12.1 million
-faces each**. Begin with a bounded audit of old branch/limb correspondence before a full
-parent rerun. Any reconstructed branches require validated surface matching to old exports;
+faces each**. Bounded branch/limb/raw inclusion audits are now complete; require evidence
+of branch identity before a full parent reconstruction. Reconstructed branches require
+validated surface matching to old exports;
 their numeric branch labels are not a provenance map. Future exports should persist
 validated, ordered branch-to-limb and limb/soma-to-pipeline-input face maps with parent
 hashes, index scopes and unavailable/generated-face status. Compose maps to raw OFF
@@ -139,29 +141,72 @@ only environment difference was the assembly flag (Numba 4; recorded BLAS/OpenMP
 NumExpr limits 1). This is a correctness gate, not a repeated performance trial.
 The initial sandboxed MeshLab failure is retained; both successful runs used the
 same elevated execution profile, with unchanged acceptance tolerances.
-The final frozen unit suite passed **547 tests, with 1 expected skip** in 200.70 s
+The third-package frozen unit suite passed **547 tests, with 1 expected skip** in 200.70 s
 during concurrent local validation. Phase begin/end logs are available through
 `NEURD_CGAL_TIMINGS=1`; the prior assembly path remains available through
 `NEURD_LEGACY_CGAL_ASSEMBLY=1`. Local evidence is retained in
 `artifacts/h01_correspondence_followup_20261011/v1/`.
 
+The subsequent [source audit](../../artifacts/h01_export_lineage_20261011/v1/findings.json)
+proved the selected-MP exception fallback could pair the wrong axis with a retained
+mesh. The correction preserves the successful path and passes five whole-helper
+cases. The graph exporter now uses Branch object identity rather than enumeration
+for sparse IDs. Neither defect is established as the cause of the three historical
+detached/junction cases; their original runtime and intermediate choices are absent.
+The new 99-line `face_provenance` module validates supplied maps before publication,
+including referenced vertex bounds. Four new bounds regressions bring its isolated
+validator/export checks to 29 passing cases.
+The earlier [candidate probe](../../artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json)
+validated all 28 supplied branch-to-limb maps and matched prior metrics (18 spines /
+8,145 spine faces), before the final bounds correction. It is retained with its
+measured source. The [final production gate](../../artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+now passes on the actual promoted source, including bounds checks: all 28 maps
+are available, graph identity is verified and every prior metric/mask digest
+matches exactly, with zero geometry/volume error or overlap counters. The real
+non-soma stage was captured for the separate A/B below; capture affects later RSS/HWM, so
+that run supplies no clean memory or speed comparison. Maps validate declared
+consistency before OFF rounding; they do not recover provider origin or raw ownership. The [final package unit suite](../../artifacts/h01_export_lineage_20261011/v1/validation/final_unit_result.json)
+passed **601 tests, with 1 expected skip**, in **52.27 s** (10 warnings); all 60
+recorded source/test hashes matched before and after.
+
+The separate [timeout retry](../../artifacts/h01_timeout_retry_20261011/v1/receipt.json)
+passed strict completion validation: **1 complete / 0 failed**, **300 spines /
+286,839 faces** in 2,273.321 s segmentation (2,336.936 s observer total).
+All mask/geometry/volume error and overlap counters are zero; volume closure used
+209 convex-hull and 91 fan-closed estimates. The original graph and endpoint axis
+were retained, with auxiliary head completion. Eligibility retained the existing
+`previously_spine_positive` exception: no positive width was recovered and the
+115 nm width gate was not applied. The patched `91d511b` run is not a historical
+replay, anatomical validation or a speed comparison. The original 47-key archive
+is unchanged; **46 current width failures remain**.
+
 Next work should be bounded as follows:
 
-1. Investigate the original partition/export path using the detached-axis case and
-   junction stubs; own-limb/raw inclusion and axis membership are now verified. Require
-   evidence of branch identity before a remap or a new eligibility policy. Keep old labels,
-   graph and ambiguity intact. Retry the one timeout in a separate run with one worker,
-   the original 2,700-second limit, current labels-only assembly and phase traces; compare
-   the same source hashes and parameters. A completed or rejected retry must preserve
-   enough evidence to identify its active post-CGAL phase.
-2. Profile whole-neuron RSS after bounded loading, then evaluate connected-component transients
-   and the full non-soma copy. Preserve source-face maps and use matching seeded configurations
-   for loader comparisons; do not relax gates to accommodate an unexplained spine-count change.
-3. Freeze independent anatomical review cases before further refinement tuning. Keep both H01
-   policies opt-in while removals, head repairs and auxiliary-axis cases remain unaudited.
-4. Add a portable fixture recipe and native CI, then test a clean supported installation.
-5. Resolve inherited source licensing and prepare a bounded demonstration/benchmark report before
-   public publication or contact with upstream authors.
+1. Instrument the untagged post-CGAL stages, including raw-group assembly, surface
+   skeleton length, refinement/rechecks, final filters and H01 publication. Then measure
+   one local immutable KDTree/geometry/volume-QC reuse change on fresh-process interleaved
+   real calls. Preserve filter order, masks, threshold ties, RNG state, volume policy and
+   independent growth/ownership decisions; see the [post-CGAL proposal](../../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json).
+2. Journal selected MP IDs, original positions, axis hashes and fallback cause. Record
+   direct map origin where IDs and geometry are produced, independently of supplied-map
+   validation. Compose ordered maps only with exact geometry, parent identity/hashes and
+   explicit index domains; generated/missing maps stay unavailable, and decimated input
+   remains separate from raw OFF. Preserve old labels and the width policy until identity
+   and usable support are established; require anatomical review of axis-assisted repairs
+   and the retry's volume fallbacks.
+3. Evaluate integration of the [non-soma prototype](../../artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
+   if whole-run memory measurements justify it. Beyond its 43 synthetic cases,
+   [three real-input fresh-process pairs](../../artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json)
+   now preserve all 424 ordered components, source masks, normals, routing/touching
+   and RNG state. Component-end sampled HWM falls 661.99 to 607.92 MiB, while
+   median extraction takes 0.238 versus 0.558 s. Common parent geometry warmup
+   excludes matching/selection, connectivity and validation; original matching
+   allocator history and whole-stage/pipeline peak are not reproduced. Keep this
+   memory/time tradeoff candidate separate until a controlled full seeded gate
+   demonstrates a useful whole-run memory reduction; it is not integrated.
+4. Add portable fixtures and required native CI, test a clean supported installation,
+   resolve inherited licensing, and prepare a bounded public demonstration before
+   publication or upstream contact. Keep experimental H01 policies opt-in.
 
 Stages below retain the detailed acceptance criteria and the initial audit evidence.
 
