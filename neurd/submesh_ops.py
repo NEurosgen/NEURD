@@ -20,10 +20,11 @@ to the original mesh with pure index algebra -- no geometric re-matching.
 
 Scope
 -----
-Phase 0: this module + its equivalence tests (``tests/unit/test_submesh_ops.py``) prove
-behavioural equivalence to the ``tu.*`` originals on synthetic + real meshes. NO production code
-is migrated yet, and this module imports **no** ``mesh_tools`` -- it is built directly on
-trimesh / scipy primitives (``face_adjacency``, ``edges_unique``, ``vertex_faces``).
+This module and its equivalence tests (``tests/unit/test_submesh_ops.py``) establish
+behavioural equivalence to the ``tu.*`` originals on synthetic + real meshes. Spine segmentation
+reuses its pure label grouping; other seams remain available for gradual migration. This module
+imports **no** ``mesh_tools`` -- it is built directly on trimesh / scipy primitives
+(``face_adjacency``, ``edges_unique``, ``vertex_faces``).
 
 Companion module ``neurd/_mesh_ops.py`` holds the separate L6 "repair/reconstruct" ops
 (decimate / poisson / fill_holes); this file is the L2 "partition" concern.
@@ -286,11 +287,22 @@ def face_groups_by_label(labels):
 
     Mirrors the grouping half of ``tu.split_mesh_into_face_groups``: labels come back in
     ``np.sort(np.unique(labels))`` order and each group is ``np.where(labels == lab)[0]``.
+    A stable sort groups normal one-dimensional labels in one pass rather than scanning
+    every face again for every label. Face indices within each group retain input order.
     """
     if isinstance(labels, dict):
         labels = list(dict(sorted(labels.items())).values())
     labels = np.asarray(labels)
-    return {lab: np.where(labels == lab)[0] for lab in np.sort(np.unique(labels))}
+    unique = np.sort(np.unique(labels))
+    if labels.ndim != 1 or labels.dtype.kind not in "biufcSU":
+        return {lab: np.where(labels == lab)[0] for lab in unique}
+    order = np.argsort(labels, kind="stable")
+    ordered = labels[order]
+    starts = np.searchsorted(ordered, unique, side="left")
+    stops = np.searchsorted(ordered, unique, side="right")
+    # NaN compares unequal even to itself: retain np.where's empty NaN group.
+    return {lab: order[start:stop] if lab == lab else order[:0]
+            for lab, start, stop in zip(unique, starts, stops)}
 
 
 # --------------------------------------------------------------------------- #

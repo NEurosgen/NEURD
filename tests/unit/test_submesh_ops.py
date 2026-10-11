@@ -289,6 +289,40 @@ def test_face_groups_by_label_is_pure_index_algebra():
         assert so.face_groups_by_label({4: 0, 0: 2, 3: 1, 1: 0, 2: 2})[k].tolist() == groups[k].tolist()
 
 
+@pytest.mark.parametrize("labels", [
+    np.array([], dtype=np.int64),
+    np.array([True, False, True, False]),
+    np.array([2**63-1, -2**63, 17, 2**63-1], dtype=np.int64),
+    np.array([2**64-1, 0, 7, 2**64-1], dtype=np.uint64),
+    np.array([3.5, np.inf, -np.inf, 3.5, -0.0, 0.0]),
+    np.array([2., np.nan, 1., np.nan, 2.]),
+    np.array([2+3j, 1+2j, 2+3j, complex(np.nan, 0)]),
+    np.array(['z', 'a', 'z', 'b']),
+    np.array([b'z', b'a', b'z', b'b']),
+    np.array([3, 1, 3, 2], dtype=object),
+    np.array([[2, 0], [0, 2]]),
+])
+def test_face_groups_preserve_legacy_order_and_equality(labels):
+    """Retain np.where membership, including empty NaN and unusual-label paths."""
+    expected = [(lab, np.where(labels == lab)[0]) for lab in np.sort(np.unique(labels))]
+    actual = list(so.face_groups_by_label(labels).items())
+    assert len(actual) == len(expected)
+    for (observed_label, observed), (label, indices) in zip(actual, expected):
+        assert observed_label == label or (observed_label != observed_label and label != label)
+        np.testing.assert_array_equal(observed, indices)
+
+
+def test_face_groups_many_interleaved_labels_tile_original_faces():
+    labels = np.random.default_rng(103).permutation(np.repeat(np.arange(4096), 7))
+    before = labels.copy()
+    groups = so.face_groups_by_label(labels)
+    assert list(groups) == list(range(4096))
+    np.testing.assert_array_equal(labels, before)
+    np.testing.assert_array_equal(np.sort(np.concatenate(list(groups.values()))), np.arange(len(labels)))
+    for label, indices in groups.items():
+        np.testing.assert_array_equal(indices, np.flatnonzero(labels == label))
+
+
 def test_split_into_face_groups_matches_tu(synth, real):
     """split_into_face_groups == tu.split_mesh_into_face_groups: same labels, same face_idx, same geometry."""
     for mesh in (synth, real):
