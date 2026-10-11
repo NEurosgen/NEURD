@@ -137,8 +137,9 @@ workarounds — hoisting them is open work, see [docs/notes/REFACTOR_PLAN.md](do
 
 ## Conventions
 
-- **Don't change behaviour without a gate.** The fast gate only catches syntax/import; the backstop
-  for core changes is `tests/tools/neuron_gate.py --tolerance` (~3.5 min).
+- **Don't change behaviour without a gate.** The fast gate checks imports and portable behavior
+  contracts; core geometry changes also need `tests/tools/neuron_gate.py --tolerance` and the
+  applicable native data gates.
 - **Compare spine counts with controlled sampling and explicit tolerances.** Use the same seed,
   configuration and thread limits for paired whole-neuron gates. Count alone cannot establish
   equivalence; also check branch-local face masks, surface/volume invariants and pure functions.
