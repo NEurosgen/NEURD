@@ -2345,7 +2345,7 @@ def _recorrespond_stitch(ctx):
         # setting the MP parts (the new skeletons have not been adjusted yet so adjusting them here)
         for mp_idx, k in enumerate(MP_branches_for_correspondence):
             local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
-            local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk[mp_idx]
+            local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk_for_correspondence[mp_idx]
             local_counter += 1
 
     ctx.MAP_pieces_for_correspondence = MAP_pieces_for_correspondence
