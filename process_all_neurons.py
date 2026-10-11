@@ -557,6 +557,33 @@ def _save_spine_masks(branch, spines, path, *, export_ext=EXPORT_EXT):
              spine_files=np.asarray([f"spines/spine_{i:03d}{export_ext}" for i in range(len(spines))], dtype=str))
 
 
+def _save_branch_origin(branch, branch_dir):
+    """Export local observations separately from face-map consistency checks."""
+    from neurd.face_provenance import file_sha256
+
+    origin = getattr(branch, "mesh_axis_origin", None)
+    reason = "metadata_missing"
+    if (isinstance(origin, dict) and type(origin.get("schema_version")) is int
+            and origin["schema_version"] == 1
+            and origin.get("scope") == "local_map_mp_selection_and_axis_pairing"
+            and origin.get("raw_input_map_available") is False):
+        try:
+            origin = json.loads(json.dumps(origin, allow_nan=False))
+            reason = None
+        except (TypeError, ValueError):
+            reason = "metadata_not_json_safe"
+    elif origin is not None:
+        reason = "metadata_schema_unavailable"
+    payload = dict(schema_version=1, scope="local_map_mp_selection_and_axis_pairing",
+                   status="unavailable" if reason else "available", reason=reason,
+                   raw_input_map_available=False,
+                   axis_fingerprint_scope="observed_before_Branch_normalization_or_later_mutation",
+                   observation=origin if reason is None else None)
+    skeleton_file = branch_dir / "branch_skeleton.npy"
+    payload["exported_skeleton_file_sha256"] = file_sha256(skeleton_file) if skeleton_file.is_file() else None
+    save(branch_dir / "branch_origin.json", payload)
+
+
 def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> None:
     """
     Layout:
@@ -575,6 +602,7 @@ def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> N
             branch_skeleton.npy
             parent_face_indices.npy -- supplied ordered limb-local indices, when available
             face_provenance.json    -- map availability, validation scope and file hashes
+            branch_origin.json      -- local selection/axis observations; raw origin unavailable
             spine_faces.npz       -- supplied branch-local masks, when available
           ...
     """
@@ -621,6 +649,7 @@ def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> N
             skeleton_branch = getattr(branch, "skeleton", None)
             if skeleton_branch is not None:
                 _safe_save_array(np.asarray(skeleton_branch), br_dir / "branch_skeleton.npy")
+            _save_branch_origin(branch, br_dir)
 
             if getattr(branch, "mesh_face_idx", None) is not None and mesh_limb is not None and limb_file_sha256 is None:
                 limb_file_sha256 = file_sha256(limb_dir / f"limb_mesh{export_ext}")

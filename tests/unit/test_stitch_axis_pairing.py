@@ -17,10 +17,10 @@ REPO = Path(__file__).resolve().parents[2]
 
 def load_helper(path):
     tree = ast.parse(Path(path).read_text())
-    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                and n.name == '_recorrespond_stitch')
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+             and n.name in ('_axis_origin_fingerprint', '_new_axis_origin', '_origin_local_id', '_recorrespond_stitch')]
     namespace = {'np': np, 'nu': SimpleNamespace(intersect1d=np.intersect1d)}
-    exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), namespace)
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
     return namespace['_recorrespond_stitch'], namespace
 
 

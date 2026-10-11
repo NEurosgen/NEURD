@@ -49,6 +49,63 @@ distance_to_move_point_threshold = 500
 prevent_MP_starter_branch_stitches = False
 check_correspondence_branches = True
 
+
+def _axis_origin_fingerprint(skeleton):
+    """Hash the observed axis order; this is not anatomical or raw-mesh identity."""
+    import hashlib
+
+    try:
+        axis = np.asarray(skeleton, dtype="<f8")
+        if axis.ndim != 3 or axis.shape[1:] != (2, 3) or not np.isfinite(axis).all():
+            return dict(status="unavailable", reason="nonfinite_or_nonsegment_axis")
+        digest = hashlib.sha256(str(tuple(axis.shape)).encode("ascii"))
+        digest.update(axis.tobytes(order="C"))
+        return dict(status="available", sha256=digest.hexdigest(), shape=list(axis.shape),
+                    encoding="float64_le_shape_then_c_order_bytes")
+    except Exception as error:
+        return dict(status="unavailable", reason=type(error).__name__)
+
+
+def _new_axis_origin(stage, skeleton, **details):
+    """A flat observation journal, independent of supplied face-map validation."""
+    return dict(schema_version=1, scope="local_map_mp_selection_and_axis_pairing",
+                raw_input_map_available=False, completeness="local_decisions_only",
+                axis_fingerprint_scope="observed_at_stage_before_Branch_normalization",
+                stage=stage, axis=_axis_origin_fingerprint(skeleton), **details)
+
+
+def _origin_local_id(value):
+    if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)):
+        return int(value)
+    return dict(status="unavailable", reason="noninteger_local_id",
+                label=value if isinstance(value, str) else None)
+
+
+def _cleaned_axis_origin(correspondence, source_positions, skeleton):
+    """Carry bounded stitch receipts across cleaning without recursive parent histories."""
+    entries = list(correspondence.items())
+    sources = []
+    for position in source_positions[:16]:
+        key, entry = entries[int(position)]
+        origin = entry.get("mesh_axis_origin") or {}
+        if not isinstance(origin, dict):
+            origin = {}
+        sources.append(dict(source_branch_id=_origin_local_id(key), source_position=int(position),
+                            source_stage=origin.get("stage", "unavailable"),
+                            source_axis=_axis_origin_fingerprint(entry["branch_skeleton"]),
+                            producer_sublimb_id=origin.get("sublimb_id"),
+                            producer_branch_id=origin.get("branch_id"),
+                            axis_provider=deepcopy(origin.get("axis_provider")),
+                            face_map_origin=deepcopy(origin.get("face_map_origin")),
+                            stitch=deepcopy(origin.get("stitch"))))
+    return _new_axis_origin(
+        "end_node_cleaning", skeleton, axis_identity="unavailable_recomputed_axis",
+        face_map_origin=dict(status="operation_recorded_geometry_unverified",
+                             operation="resolved_face_labels_after_end_node_cleaning",
+                             index_scope="preprocess_limb.input_mesh.face_index"),
+        sources=sources, source_count=len(source_positions),
+        omitted_source_count=max(0, len(source_positions) - len(sources)))
+
 #--------------- default arguments to use ----------#
 
         
@@ -1069,6 +1126,8 @@ def filter_limb_correspondence_for_end_nodes(limb_correspondence,
                           width_from_skeleton=new_width_from_skeletons[j],
                          branch_mesh=branch_subs[j].mesh,
                          branch_face_idx=branch_subs[j].root_face_idx())
+        local_dict["mesh_axis_origin"] = _cleaned_axis_origin(
+            limb_correspondence_individual, np.where(original_br_mapping == j)[0], curr_sk)
         limb_correspondence_individual_filtered[j] = local_dict
 
 
@@ -1981,6 +2040,13 @@ def _decompose_mp_sublimbs(
                 branch_mesh = divided_submeshes[zz],
                 branch_face_idx = divided_submeshes_idx[zz]
                 )
+            limb_correspondence_MP[sublimb_idx][zz]["mesh_axis_origin"] = _new_axis_origin(
+                "mp_decomposition", b_sk, sublimb_id=int(sublimb_idx), branch_id=int(zz),
+                axis_provider=dict(declared_callsite="meshparty_result_or_soma_extension",
+                                   actual_provider="unavailable_after_internal_extension"),
+                face_map_origin=dict(status="supplied_provider_indices_geometry_unverified",
+                                     operation="MP_partition_after_optional_soma_extension",
+                                     index_scope="preprocess_limb.input_mesh.face_index"))
 
     return limb_correspondence_MP, endpoints_additions, soma_touching_additions
 
@@ -2038,6 +2104,15 @@ def _decompose_map_sublimbs(
             soma_touching_additions.append(curr_soma_to_piece_touching_vertices)
 
         limb_correspondence_MAP[sublimb_idx] = local_correspondence_revised
+        for branch_id, entry in local_correspondence_revised.items():
+            entry["mesh_axis_origin"] = _new_axis_origin(
+                "map_decomposition", entry["branch_skeleton"],
+                sublimb_id=int(sublimb_idx), branch_id=_origin_local_id(branch_id),
+                axis_provider=dict(declared_callsite="skeletonize_and_clean_connected_branch_CGAL",
+                                   actual_provider="unavailable_internal_provider_fallback"),
+                face_map_origin=dict(status="operation_recorded_geometry_unverified",
+                                     operation="SubMesh.root_face_idx_after_correspondence",
+                                     index_scope="preprocess_limb.input_mesh.face_index"))
 
     print(f"Total time for MAP sublimb processing {time.time() - global_start_time}")
     return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
@@ -2243,7 +2318,7 @@ def _recorrespond_stitch(ctx):
     join (cutting the MAP mesh first when the stitch split a branch), and stash the results
     (`MAP_pieces_for_correspondence`, `local_correspondence_stitch_revised`,
     `MP_branches_for_correspondence`, possibly-revised `curr_MAP_sk`) back onto `ctx` for
-    `_overwrite_stitched_entries`. Body identical to the inline Part 15 block it replaces.
+    `_overwrite_stitched_entries`. The observation journal never selects geometry or width.
     """
     MAP_branches_with_stitch_point = ctx.MAP_branches_with_stitch_point
     MAP_pieces_idx_touching_border = ctx.MAP_pieces_idx_touching_border
@@ -2310,6 +2385,14 @@ def _recorrespond_stitch(ctx):
 
     curr_MP_meshes_idx = [limb_correspondence_MP[MP_idx][k]["branch_face_idx"] for k in MP_branches_for_correspondence]
     curr_MP_sk_for_correspondence = [curr_MP_sk[zz] for zz in MP_branches_with_stitch_point_idx]
+    mp_positions = {key: position for position, key in enumerate(limb_correspondence_MP[MP_idx])}
+    selected_mp = [dict(
+        branch_id=_origin_local_id(branch_id), candidate_position=int(position), conn_position=int(conn_position),
+        correspondence_position=mp_positions[branch_id],
+        original_axis=_axis_origin_fingerprint(limb_correspondence_MP[MP_idx][branch_id]["branch_skeleton"]),
+        used_axis=_axis_origin_fingerprint(curr_MP_sk_for_correspondence[index]))
+        for index, (branch_id, position, conn_position) in enumerate(zip(
+            MP_branches_for_correspondence[:64], MP_branches_with_stitch_point_idx[:64], conn_idx[:64]))]
 
     stitching_mesh_idx = np.concatenate(curr_MAP_meshes_idx + curr_MP_meshes_idx)
     stitching_mesh = limb_mesh_mparty.submesh([stitching_mesh_idx],append=True,repair=False)
@@ -2319,6 +2402,7 @@ def _recorrespond_stitch(ctx):
 
     # -------- 12/22: Trying to do the re-correspondence but if doesn't work then just resort to old one --------- #
 
+    fallback = None
     try:
 
         #3) Run mesh correspondence to get new meshes and mesh_idx and widths
@@ -2331,7 +2415,8 @@ def _recorrespond_stitch(ctx):
         #Need to readjust the mesh correspondence idx
         for k,v in local_correspondence_stitch_revised.items():
             local_correspondence_stitch_revised[k]["branch_face_idx"] = stitching_mesh_idx[local_correspondence_stitch_revised[k]["branch_face_idx"]]
-    except Exception:
+    except Exception as error:
+        fallback = dict(exception_type=type(error).__name__, message=str(error)[:1000])
         print("Errored in 1 to 1 correspondence in stitching so just reverting to the original mesh assignments")
         # Setting the correspondence manually because the adaptive way did not work
         local_counter = 0
@@ -2347,6 +2432,29 @@ def _recorrespond_stitch(ctx):
             local_correspondence_stitch_revised[local_counter] = limb_correspondence_MP[MP_idx][k] 
             local_correspondence_stitch_revised[local_counter]["branch_skeleton"] = curr_MP_sk_for_correspondence[mp_idx]
             local_counter += 1
+
+    for output_position, entry in enumerate(local_correspondence_stitch_revised.values()):
+        previous = entry.get("mesh_axis_origin") or {}
+        if not isinstance(previous, dict):
+            previous = {}
+        entry["mesh_axis_origin"] = _new_axis_origin(
+            "stitch_correspondence", entry["branch_skeleton"],
+            face_map_origin=dict(status="operation_recorded_geometry_unverified",
+                                 operation="retained_partition" if fallback else "stitch_index_composition",
+                                 index_scope="preprocess_limb.input_mesh.face_index"),
+            retained_previous_stitch_count=int(previous.get("retained_previous_stitch_count", 0))
+                + int(previous.get("stitch") is not None),
+            stitch=dict(outcome="retained_partition" if fallback else "resolved",
+                        fallback=fallback, mp_sublimb_id=_origin_local_id(MP_idx), map_sublimb_id=_origin_local_id(MAP_idx),
+                        selected_mp=selected_mp,
+                        selected_mp_count=len(MP_branches_for_correspondence),
+                        omitted_selected_mp_count=max(0, len(MP_branches_for_correspondence) - len(selected_mp)),
+                        original_axis_scope="entry_before_current_correspondence_attempt",
+                        history_coverage="last_stitch_only",
+                        map_branch_ids=[_origin_local_id(k) for k in MAP_pieces_for_correspondence],
+                        map_axis_recomputed=bool(cut_flag),
+                        output_role="MAP" if output_position < len(curr_MAP_sk) else "MP",
+                        output_position=output_position))
 
     ctx.MAP_pieces_for_correspondence = MAP_pieces_for_correspondence
     ctx.local_correspondence_stitch_revised = local_correspondence_stitch_revised
@@ -3046,6 +3154,11 @@ def _rebuild_limb_frames(limb_correspondence, limb_meshes):
             [corr[k]["branch_mesh"] for k in ordered_keys], return_pieces=True)
         for k, piece in zip(ordered_keys, pieces):
             corr[k]["branch_face_idx"] = piece.face_idx
+            if isinstance(corr[k].get("mesh_axis_origin"), dict):
+                corr[k]["mesh_axis_origin"]["face_map_origin"] = dict(
+                    status="operation_recorded_geometry_unverified",
+                    operation="combined_branch_mesh_contiguous_indices",
+                    index_scope="rebuilt_limb_mesh.face_index", raw_ownership="unavailable")
         limb_meshes[li] = combined
         rebuilt += 1
         print(f"[rebuild-limb-frame] limb {li}: stitch-induced desync (stored {n_faces} faces, "

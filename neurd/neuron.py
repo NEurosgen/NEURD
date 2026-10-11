@@ -1,5 +1,6 @@
 
 import networkx as nx
+from copy import deepcopy
 from typing import NamedTuple
 from scipy.spatial import KDTree
 import sys
@@ -43,7 +44,8 @@ class Branch:
                 width=None,
                 mesh=None,
                 mesh_face_idx=None,
-                 labels=[] #for any labels of that branch
+                 labels=[], #for any labels of that branch
+                 mesh_axis_origin=None,
         ):
 
         self.skeleton=skeleton.reshape(-1,2,3)
@@ -53,6 +55,7 @@ class Branch:
         self.mesh=mesh
         self.width=width
         self.mesh_face_idx = mesh_face_idx
+        self.mesh_axis_origin = deepcopy(mesh_axis_origin)
         self._mesh_volume = None
         self.endpoints_upstream_downstream_idx = None
 
@@ -467,6 +470,7 @@ def _attach_branches(concept_network, curr_limb_correspondence):
                             mesh=branch_data["branch_mesh"],
                            mesh_face_idx=branch_data["branch_face_idx"],
                             labels=[],
+                            mesh_axis_origin=branch_data.get("mesh_axis_origin"),
         )
         if j not in concept_network:
             concept_network.add_node(j)
@@ -707,6 +711,8 @@ class Limb:
                                  branch_mesh = b.mesh,
                                  branch_face_idx = b.mesh_face_idx,
                                  )
+            if getattr(b, "mesh_axis_origin", None) is not None:
+                limb_corr[idx]["mesh_axis_origin"] = deepcopy(b.mesh_axis_origin)
 
         return limb_corr
 
