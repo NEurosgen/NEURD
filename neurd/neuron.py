@@ -1356,10 +1356,11 @@ class Neuron:
     def __getattr__(self,k):
         if k[:2] == "__":
             raise AttributeError(k)
-        if hasattr(self,"pipeline_products"):
-            return getattr(self.pipeline_products,k)
-        else:
-            return self.__getattribute__(k)
+        try:
+            products = object.__getattribute__(self, "pipeline_products")
+        except AttributeError:
+            raise AttributeError(k) from None
+        return getattr(products, k)
 
     def calculate_decomposition_products(
         self,
