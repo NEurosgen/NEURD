@@ -7,10 +7,12 @@ compat patches), [PERF.md](PERF.md) (measured time/RAM state and levers),
 investigations + open plans).
 
 **Goal of the fork:** keep only the segmentation path `mesh → Neuron` (somas + limbs/branches with
-mesh + skeleton + raw spines). Everything downstream — autoproofreading, cell typing, synapses, axon,
-connectome/motif/proximity, GNN, visualization, cloud/dataset adapters — is deleted.
+mesh + skeleton + raw spines). Downstream processing subsystems — autoproofreading, cell typing, synapse assignment,
+connectome/motif/proximity, GNN and cloud/dataset adapters — are removed. Some legacy
+object properties and string-dispatched query helpers remain for compatibility; their
+reachability and supported API still need auditing.
 
-**Size:** the current integration candidate has **27 Python files / 19,275 physical lines**
+**Size:** the current integration candidate has **28 Python files / 18,903 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Counts include comments and blank lines.
@@ -46,19 +48,20 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (27 files)
+## Module map (28 files)
 
 | module | LOC | purpose |
 |---|---|---|
-| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3287 | mesh → limbs/branches with local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
-| [spine_utils.py](neurd/spine_utils.py) | 3550 | ordinary spine detection, scoped shaft-path backend and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
-| [neuron_utils.py](neurd/neuron_utils.py) | 2599 | neuron queries/utilities. Most-imported module; an intra-package **sink** |
-| [neuron.py](neurd/neuron.py) | 1835 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; optional Branch origin metadata |
+| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3278 | mesh → limbs/branches with local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
+| [spine_utils.py](neurd/spine_utils.py) | 3367 | ordinary spine detection with named primary-refinement/final-filter stages, aligned result selection and scoped shaft paths; enabled by `RunConfig(calculate_spines=True)` |
+| [neuron_utils.py](neurd/neuron_utils.py) | 2633 | neuron queries/utilities and historical soma-stitched whole skeleton API; an intra-package **sink** |
+| [neuron.py](neurd/neuron.py) | 1828 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; optional Branch origin metadata |
 | [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
-| [neuron_searching.py](neurd/neuron_searching.py) | 1081 | branch query system (strings → `ns.<fn>` via `@run_options`). Reached by exactly one call, from `spine_utils` |
-| [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 903 | soma identification |
+| [neuron_searching.py](neurd/neuron_searching.py) | 810 | branch query system (strings → `ns.<fn>` via `@run_options`). Reached by exactly one call, from `spine_utils` |
+| [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 899 | soma identification |
 | [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
-| [h01_batch.py](neurd/h01_batch.py) | 819 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
+| [h01_batch.py](neurd/h01_batch.py) | 752 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
+| [batch_utils.py](neurd/batch_utils.py) | 135 | shared completion hashes/inventory, runtime/source fingerprints and exact geometry keys; stdlib-only module body, pinned standalone workers load their own sibling |
 | [submesh_ops.py](neurd/submesh_ops.py) | 458 | **owned** partition/provenance layer (`SubMesh`); stable label grouping without per-label full scans — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
 | [neuron_statistics.py](neurd/neuron_statistics.py) | 347 | skeleton statistics/distances. Reachable only via `Neuron.neuron_stats` → `calculate_decomposition_products`, which the slim path does not call |
@@ -87,6 +90,8 @@ look in.
 **Entry points:** `segmentation_pipeline.py` is the public raw-neuron API.
 `process_all_neurons.py` supervises isolated spawn workers using that API;
 `process_all_neurons_parallel.py` is a small adapter to the same executor.
+Shared hashing, completion and runtime fingerprints live in `batch_utils.py`;
+the gate and raw runner import them directly, and legacy H01 imports remain compatible.
 `scripts/resegment_h01.py` launches the separate exported-branch batch, and
 `scripts/extract_spine_descriptors.py` extracts descriptors from pre-cut spine meshes.
 

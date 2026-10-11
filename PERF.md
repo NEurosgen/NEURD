@@ -443,7 +443,7 @@ H01's default border filter is disabled; three actual survivor-filter calls tota
 0.782 s versus 0.725 s in one noisy pair. This does not justify promotion. The
 non-soma prototype above also remains separate pending whole-run memory evidence.
 
-Final production validation passed **771 unit tests / 1 expected skip** in
+Fifth-package production validation passed **771 unit tests / 1 expected skip** in
 48.39 s, with 69 source/test hashes unchanged. A real cached-label refinement
 pair preserved all 54 mesh geometries, volumes, RNG states, decisions and parent-ID
 sets, while correcting the original retained-mesh row order for 40 masks. All
@@ -459,6 +459,21 @@ The final native Minnie65 branch reproduces all nine spines / 2,854 faces, metri
 and scalar volumes exactly; all nine ordered maps pass. Its 8,372-query batch
 uses the optimized shaft backend, establishing cross-dataset correctness for
 that recorded fixture.
+
+The subsequent readability cleanup passes **802 unit tests / 1 expected skip**
+in 59.76 s. Conditional plain/refined replays preserve 460 ordered arrays,
+refinement decisions and RNG state. Native checks preserve the full raw H01
+result (18 spines / 8,145 faces), the 52-spine H01 branch with independent OFF-reload
+QC, and all nine Minnie65 spines. Receipts are retained separately in
+`artifacts/readability_cleanup_20261011/v1/`.
+
+One cleanup raw-H01 observation records loading **0.604 s**, decomposition
+**174.176 s** and export **0.690 s**; observed total **175.510 s** includes
+metrics/export and excludes imports and subsequent audits. Process lifetime
+peak RSS is **1,309,884,416 bytes**. This is a single correctness run with the
+recorded fast/12-ray, refinement-off policy, not a controlled before/after
+performance comparison. The cleanup removes unused whole-mesh allocations,
+but no additional overall speed or memory reduction has been measured.
 
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work

@@ -25,7 +25,7 @@ preprocess_neuron
 ├─ _rebuild_limb_frames                (CLASS-A fix: contiguous mesh frame after stitching)
 └─ _build_concept_networks → calculate_limb_concept_networks
 ```
-`preprocess_limb` hub → `_cycle_for_something` (skeletonization ≤2 passes) · `_group_into_map_mp_sublimbs` ·
+`preprocess_limb` hub → `_skeletonize_with_adaptive_invalidation` (skeletonization ≤2 passes) · `_group_into_map_mp_sublimbs` ·
 `_decompose_map_sublimbs` (CGAL) · `_decompose_mp_sublimbs` (meshparty) · `_merge_map_mp_correspondence` ·
 `_stitch_map_and_mp` · `filter_limb_correspondence_for_end_nodes` · `calculate_limb_concept_networks`.
 
@@ -46,7 +46,7 @@ preprocess_neuron
   geometry** (a corresponded skeleton is always ⊂ its mesh, so `get_skeletal_distance` never empties).
   Safe to simplify, but keep the net: prefer `base_kwargs` dedup over deletion (guards a future
   foreign-mesh caller). *Not yet done — golden-gated logic decision for later.*
-- **Skeletonization "cycle" (Area B):** NOT a loop — `_cycle_for_something` is a fixed **≤2-pass**
+- **Skeletonization "cycle" (Area B):** NOT a loop — `_skeletonize_with_adaptive_invalidation` is a fixed **≤2-pass**
   adaptive, always terminates. No re-call problem.
 - **Concept network (Area D):** `calculate_limb_concept_networks`'s branch-density is a single build
   (`nru.branches_to_concept_network`) + a switchable **4-check validation battery** (the 4 `raise`s), not

@@ -15,12 +15,14 @@ mesh (.off)  ->  Neuron
                         └── concept_network            (branch graph, rooted at the soma contact)
 ```
 
-Everything downstream of that — automated proofreading, multi-soma splitting, synapse assignment,
+The downstream subsystems — automated proofreading, multi-soma splitting, synapse assignment,
 cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GNN, the cloud and
-dataset adapters — **is removed**. The stable geometry refactor reduced the package from
+dataset adapters — **are removed**. Some legacy object properties and query helpers,
+including string-dispatched axon queries, remain pending a reachability audit.
+The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,768 physical Python lines across 26 core files**; the earlier count describes the
+**18,903 physical Python lines across 28 core files**; the earlier count describes the
 pre-refinement baseline.
 
 ## Why a fork
@@ -139,11 +141,18 @@ measurement evidence; see [H01_FAILURE_DIAGNOSTICS.md](docs/H01_FAILURE_DIAGNOST
 Raw export records validated supplied branch-to-limb face maps and graph labels
 by Branch object identity. Missing maps remain unavailable; direct raw ownership
 and the causes of the historical axis mismatches are still unproved. The
-[final production gate](artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
+[fifth-package production gate](artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
 passed with all 28 maps available and exact prior H01 metrics: 18 spines /
 8,145 spine faces, identical masks and zero geometry/volume error counters.
 All 28 local origin journals were also checked; they do not recover historical
-or raw-input ownership. The final unit suite passes 771 tests with 1 expected skip.
+or raw-input ownership. That package's unit suite passed 771 tests with 1 expected skip.
+
+The subsequent readability cleanup passes **802 tests with 1 expected skip**.
+It preserves the full raw H01 result, a separately reloaded 52-spine H01 branch
+and all nine Minnie65 spines; conditional plain/refined replays preserve all
+460 ordered arrays. Its checks are recorded in
+`artifacts/readability_cleanup_20261011/v1/`. See the
+[current refactoring plan](docs/notes/REFACTOR_PLAN.md) for remaining work.
 
 | Export | Verified scope |
 |---|---|

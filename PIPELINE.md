@@ -123,13 +123,13 @@ thin orchestrator over named phases (each a separate function in
 `preprocess_limb(mesh, neuron_params, limb_params, soma_touching_vertices_dict=None, ...)`:
 
 - `neuron_params` — neuron-level, shared across limbs (width/size_threshold_MAP, axon_width_*,
-  adaptive-invalidation, mp_only_*). Read by the helpers `_decide_next_limb_cfg` / `_cycle_for_something`.
+  adaptive-invalidation, mp_only_*). Read by the helpers `_decide_next_limb_cfg` / `_skeletonize_with_adaptive_invalidation`.
 - `limb_params` — parameters of one skeletonization pass (invalidation_d, smooth_neighborhood,
   combine/filter meshparty, use_meshafterparty).
 - Other scalars come from `parameters.params` (config-driven) or are literals (former hardcoded
   defaults).
 
-Its body is decomposed by phase: `_cycle_for_something` (MP skeletonization + adaptive invalidation_d),
+Its body is decomposed by phase: `_skeletonize_with_adaptive_invalidation` (MP skeletonization + adaptive invalidation_d),
 `_decompose_map_piece` (the MAP piece, CGAL), `_fix_mp_soma_extension` (building the soma-extending
 branches), and Parts 17–18 (`_merge_map_mp_correspondence`,
 `_rearrange`/`_clean_network_starting_info`).

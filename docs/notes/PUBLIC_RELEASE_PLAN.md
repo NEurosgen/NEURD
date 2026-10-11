@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **27 Python files / 19,275 physical lines**, compared with 21 / 17,859
+The candidate core has **28 Python files / 18,903 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -25,7 +25,8 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and packaging cleanup |
+| Readability cleanup | Named primary-refinement/final-filter stages and aligned result selection; shared completion/provenance module with compatible imports; restored historical whole-skeleton API; removed unused arrays, duplicate definitions and cell-typing assets; Markdown packaging excludes tests | Audit legacy string-dispatched/query/object APIs and transitive dependencies; separate raw export/bootstrap if justified |
+| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
@@ -33,6 +34,28 @@ still requires the production reachability work in Stage 7.
 | Spine label assembly and post-CGAL work | Narrow labels/SDF seam and stable grouping; nested post-CGAL traces; guarded exact shaft paths; accepted-mesh volume-quality handoff; separate timeout retry strictly complete with 300 spines / 286,839 faces | Measure remaining length/refinement/native costs on a bounded workload; no total-speed claim or anatomical validation |
 | Historical H01 failures | Read-only diagnosis of 47 archived keys; five-case surface/axis audits; failed-width journal; one timeout completed in a separate patched run | 46 current width problems remain; recover branch identity/support before changing measurement policy; historical archive unchanged |
 | Export lineage | Selected-MP fallback pairing corrected; graph labels by Branch object identity; ordered maps journaled with vertex bounds; bounded local MAP/MP decisions, axis fingerprints and fallback cause exported separately | Ordered raw ownership and historical attribution remain unavailable |
+
+The subsequent readability package reduces the core from **19,275 to 18,903
+physical lines** while adding a shared batch module and restoring supported skeleton
+behavior. The branch-spine orchestrator falls from **688 to 454 lines**, keeping
+its public parameters and legacy volume container types. Seven moved batch helper
+bodies are AST-identical; 404 untouched core functions were checked mechanically.
+Current-source validation and baseline copies are retained separately in
+`artifacts/readability_cleanup_20261011/v1/`; earlier archives remain unchanged.
+See [the current readability plan](REFACTOR_PLAN.md) for remaining legacy API,
+query-dispatch and dependency work. The release notebook with a checksummed raw
+neuron and recorded metrics is scheduled for the publication preparation stage.
+
+The cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
+Conditional real-label replays preserve all **460 arrays** across 61 plain and
+54 refined spines. Native checks preserve the full raw H01 result (1 soma,
+5 limbs, 28 branches, 18 spines / 8,145 faces), the independently reloaded
+52-spine H01 branch and the nine-spine Minnie65 branch. H01 resume leaves all
+59 branch-file hashes and mtimes unchanged. The wheel contains the 28 checked
+core modules, excludes tests and unused model assets, and imports from an isolated
+unpacked directory without root runner files. It uses the existing native/dependency
+environment; a clean dependency installation remains pending. These checks support
+the cleanup's correctness, without a comparative whole-pipeline performance claim.
 
 The fifth package instruments post-CGAL work and integrates two measured local
 changes. On a captured real 1,724-node shaft graph, three fresh interleaved pairs
@@ -46,7 +69,7 @@ The refined-mask audit exposed sorted IDs paired with retained original meshes.
 The fix retains their original row order. A frozen-baseline real comparison of
 **54 meshes / 42,546 faces** preserves ordered geometry, volumes, RNG, refinement
 decisions and occurrence-ID sets exactly; it corrects 40 previously row-invalid
-masks. All 54 final ordered maps pass. The final unit suite passes **771 tests,
+masks. All 54 final ordered maps pass. The fifth-package unit suite passes **771 tests,
 with 1 expected skip**, in **48.39 s** (10 warnings), with all 69 recorded
 source/test hashes unchanged. Independent review additionally verified optional
 Numba absence and the unchanged scientific estimator.
