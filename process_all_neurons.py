@@ -254,10 +254,56 @@ def _build_parent_map(cn, root: Optional[int]) -> Tuple[List[Tuple[int, int]], D
     return directed_edges, parent_map
 
 
+def _branch_graph_mapping(branches, cn):
+    """Resolve exported branch positions from graph object identity, never counts."""
+    graph_records = [(_to_int_safe(node), attrs.get("data"))
+                     for node, attrs in cn.nodes(data=True)]
+    graph_ids = [node for node, _ in graph_records]
+    branch_to_node, resolution = [], []
+    used_ids = set()
+    for index, branch in enumerate(branches):
+        identities = [node for node, data in graph_records if data is branch]
+        declared = []
+        for name in ("node_id", "branch_id"):
+            value = getattr(branch, name, None)
+            if value is None:
+                continue
+            value = _to_int_safe(value)
+            if value not in graph_ids:
+                raise ValueError(f"Export branch {index}: {name}={value!r} is absent from the graph")
+            declared.append(value)
+        if declared and any(value != declared[0] for value in declared):
+            raise ValueError(f"Export branch {index}: node_id and branch_id disagree")
+        if declared and identities and declared[0] not in identities:
+            raise ValueError(f"Export branch {index}: declared node ID disagrees with graph object identity")
+        if len(identities) == 1:
+            node_id = identities[0]
+            evidence = dict(status="available", source="graph_object_identity")
+        elif len(identities) > 1:
+            node_id = None
+            evidence = dict(status="unavailable", reason="ambiguous_graph_object_identity")
+        elif declared:
+            node_id = declared[0]
+            graph_data = [data for node, data in graph_records if node == node_id]
+            if len(graph_data) != 1 or (graph_data[0] is not None and graph_data[0] is not branch):
+                raise ValueError(f"Export branch {index}: declared node ID belongs to different graph data")
+            evidence = dict(status="available", source="validated_explicit_node_id")
+        else:
+            node_id = None
+            evidence = dict(status="unavailable", reason="graph_object_identity_missing")
+        if node_id is not None:
+            if node_id in used_ids:
+                raise ValueError(f"Export branch {index}: graph node {node_id!r} is assigned more than once")
+            used_ids.add(node_id)
+        branch_to_node.append(node_id)
+        resolution.append(evidence)
+    return branch_to_node, resolution
+
+
 def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
     """
     Save a limb's connectivity in several formats:
-      branch_nodes.npy            -- every branch index in the graph
+      branch_nodes.npy            -- every node ID in the graph
       branch_edges.npy            -- undirected edges (u, v)
       connectivity.json           -- the directed hierarchy from the soma:
             {
@@ -267,13 +313,15 @@ def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
               "children_of": { "<parent>": [<child>, ...], ... }
             }
       branch_index_map.json       -- branch_index <-> graph node_id correspondence
-                                    (written only when the two differ)
+                                    with explicit availability when a graph exists
     Returns the number of undirected edges (for the summary).
     """
     cn = _get_limb_concept_network(limb)
     if cn is None:
         return None
 
+    branches = list(getattr(limb, "branches", []))
+    branch_to_node, resolution = _branch_graph_mapping(branches, cn)
     nodes = [_to_int_safe(n) for n in cn.nodes()]
     edges = [(_to_int_safe(u), _to_int_safe(v)) for (u, v) in cn.edges()]
 
@@ -315,28 +363,16 @@ def _save_limb_connectivity(limb, limb_dir: Path) -> Optional[int]:
     with open(limb_dir / "connectivity.json", "w", encoding="utf-8") as f:
         json.dump(connectivity_payload, f, ensure_ascii=False, indent=2)
 
-    # ---- map limb.branches indices to graph node ids ----
-    branches = getattr(limb, "branches", [])
-    branch_to_node: List[Optional[int]] = []
-    for bi, br in enumerate(branches):
-        node_id = getattr(br, "node_id", None)
-        if node_id is None:
-            node_id = getattr(br, "branch_id", None)
-        if node_id is None and len(nodes) == len(branches) and all(isinstance(n, int) for n in nodes):
-            node_id = bi
-        branch_to_node.append(node_id)
-
-    if any(x is not None for x in branch_to_node):
-        node_to_branch = {}
-        for bi, nid in enumerate(branch_to_node):
-            if nid is not None:
-                node_to_branch[str(nid)] = bi
-        mapping = {
-            "branch_index_to_node_id": branch_to_node,
-            "node_id_to_branch_index": node_to_branch,
-        }
-        with open(limb_dir / "branch_index_map.json", "w", encoding="utf-8") as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=2)
+    # Export positions and graph labels have separate scopes. Missing identity
+    # remains explicit; graph IDs are never reconstructed from equal counts.
+    mapping = {
+        "branch_index_to_node_id": branch_to_node,
+        "node_id_to_branch_index": {str(node): index for index, node in enumerate(branch_to_node)
+                                     if node is not None},
+        "branch_index_resolution": resolution,
+    }
+    with open(limb_dir / "branch_index_map.json", "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False, indent=2)
 
     return len(edges)
 
@@ -533,12 +569,17 @@ def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> N
           branch_nodes.npy
           branch_edges.npy
           connectivity.json
+          branch_index_map.json
           branch_000/
             branch_mesh.off
             branch_skeleton.npy
+            parent_face_indices.npy -- supplied ordered limb-local indices, when available
+            face_provenance.json    -- map availability, validation scope and file hashes
             spine_faces.npz       -- supplied branch-local masks, when available
           ...
     """
+    from neurd.face_provenance import file_sha256, write_branch_face_provenance
+
     base_dir.mkdir(parents=True, exist_ok=True)
 
     # Soma
@@ -568,6 +609,7 @@ def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> N
 
         _save_limb_connectivity(limb, limb_dir)
 
+        limb_file_sha256 = None
         for branch_ind, branch in enumerate(getattr(limb, "branches", [])):
             br_dir = limb_dir / f"branch_{branch_ind:03d}"
             br_dir.mkdir(parents=True, exist_ok=True)
@@ -579,6 +621,11 @@ def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> N
             skeleton_branch = getattr(branch, "skeleton", None)
             if skeleton_branch is not None:
                 _safe_save_array(np.asarray(skeleton_branch), br_dir / "branch_skeleton.npy")
+
+            if getattr(branch, "mesh_face_idx", None) is not None and mesh_limb is not None and limb_file_sha256 is None:
+                limb_file_sha256 = file_sha256(limb_dir / f"limb_mesh{export_ext}")
+            write_branch_face_provenance(branch, mesh_limb, br_dir, export_ext=export_ext,
+                                         parent_file_sha256=limb_file_sha256)
 
             # branch.spines is the list of the branch's trimesh submeshes. Each is saved as
             # spines/spine_<i>.off; branches without spines get no spines/ directory.
