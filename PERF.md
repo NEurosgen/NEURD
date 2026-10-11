@@ -9,15 +9,17 @@ below assumes that. Validation meshes:
 | anchor | size | role |
 |---|---|---|
 | small h01 `neuron_2530864375.off` | 507k faces | the fast gate anchor, ~3.5 min end to end |
-| big h01 `1830470325.off` | 166 MB, 3.27 M faces | the perf anchor; all RAM/wall numbers here are from it |
+| big h01 `1830470325.off` | 166 MB, 3.27 M faces | historical pipeline wall/RAM anchor |
 
 ⚠️ The committed fixture `864691…` contains **two** neurons and is not representative.
 
-**Measurement tools:** [tests/tools/benchmark_neuron.py](tests/tools/benchmark_neuron.py) (mirrors
-`process_all_neurons`, gives per-stage wall + RSS peak, writes its report even on a crash),
+**Legacy measurement tools:** [tests/tools/benchmark_neuron.py](tests/tools/benchmark_neuron.py) (calls
+the lower-level Neuron constructor, gives per-stage wall + sampled RSS, writes its report even on a crash),
 [tests/tools/wall_profile.py](tests/tools/wall_profile.py) (exclusive wall attribution over a curated
-set of pipeline ops), [tests/tools/batch_bench.py](tests/tools/batch_bench.py). Fidelity gate:
-`tests/tools/neuron_gate.py --tolerance`.
+set of pipeline ops), [tests/tools/batch_bench.py](tests/tools/batch_bench.py). They do not yet use
+the public `RunConfig`; explicitly match their dataset, spine switch, `NEURD_SDF_RAYS` and
+thread settings when comparing historical measurements. The production fidelity gate
+`tests/tools/neuron_gate.py --tolerance` uses the shared configuration and records its fingerprint.
 
 ---
 
@@ -25,9 +27,10 @@ set of pipeline ops), [tests/tools/batch_bench.py](tests/tools/batch_bench.py). 
 
 | node | default | switch |
 |---|---|---|
-| **Spines** | **ON** — real CGAL SDF segmenter (`cgal_Segmentation_Module`) | `calculate_spines=False` |
-| CGAL SDF rays | **12** (CGAL's own default is 25) | `NEURD_SDF_RAYS` |
-| CGAL teasar skeleton (MAP, thick branches) | real C++ ext (`calcification_param_Module`) | silently falls back to meshparty on a non-watertight mesh |
+| **Spines** | API **off**; raw batch CLI **on**, using compiled `cgal_Segmentation_Module` | `RunConfig(calculate_spines=True)`; CLI `--no-spines` |
+| CGAL SDF rays | Public API/CLI **25**, reference profile; low-level compatibility **12** | `sdf_profile="fast"` / `--sdf-profile fast` selects 12; explicit `sdf_rays` / `--sdf-rays` |
+| Geometric spine refinement | off; named H01 policies are experimental | `refinement="h01_current"` or `"h01_smooth_heads"`; CLI `--refinement` |
+| CGAL mean-curvature-flow skeleton (MAP, thick branches) | real C++ ext (`calcification_param_Module`) | falls back to the meshparty path on a non-watertight mesh |
 | Poisson (soma) | **no-op** — the meshlab filter was already broken | `NEURD_REAL_POISSON=1` |
 | Decimator (soma) | **open3d**, in-process, cascaded halving | `NEURD_MESHLAB_DECIMATE=1`, `NEURD_DECIMATE_SINGLE_STAGE=1` |
 | FillHoles (soma) | no-op | — |
@@ -37,20 +40,22 @@ set of pipeline ops), [tests/tools/batch_bench.py](tests/tools/batch_bench.py). 
 | trimesh `_cache` | dropped after segmentation and on branches | — |
 | memory reclaim at the soma→segment boundary | on (`_reclaim_memory`) | — |
 
-All of these are installed as import-time patches in `neurd/__init__.py` and registered in
-`neurd.PATCH_STATUS`; a patch that fails to install now warns loudly instead of passing silently.
+The public spine/refinement/ray settings are applied by `RunConfig`. Compatibility patches
+are installed by `neurd/__init__.py` and registered in `neurd.PATCH_STATUS`; failed patches
+warn. The runner fingerprints effective settings, behavior flags and native binaries for resume.
 
 ---
 
 ## Shipped levers
 
-**Wall time**
+**Historical wall time** — measured before the experimental integration. These effects
+are observations from their respective configurations, not additive release speed claims.
 
 | lever | effect | commit |
 |---|---|---|
 | Poisson → in-process no-op (the meshlab filter was a byte-identical no-op that still spawned xvfb) | small mesh 688 → 151 s (−4.5×) | `469f492` |
 | Decimator → open3d in-process | big −184 s (−14%) | `fcc72ce` |
-| CGAL SDF ray count 25 → 12 | big **−17.8%** | `c4197ab`, `a06ef87` |
+| CGAL SDF ray count 25 → 12 | big **−17.8%**; now the explicit fast profile, with a different sampling budget | `c4197ab`, `a06ef87` |
 | `tu.vertex_components` → owned scipy union-find | −205..219 s (−10%) | `a83d7c3` |
 | spine segment connectivity O(N²) → `submesh_ops.pieces_adjacency` | **−23%** on the 187 MB h01 | `cc81169` |
 | `get_matching_vertices` O(N²) distance matrix → `cKDTree.query_pairs` | −~250 s, ~25 GB less churn | patch in `__init__.py` |
@@ -118,8 +123,9 @@ RAM.
 1. **⭐ The `load_mesh` ASCII-OFF transient, 2571 MB.** `tu.load_mesh_no_processing` is
    `trimesh.load_mesh(off, process=False)` (in `mesh_tools`, locked); the ASCII OFF parser balloons to
    ~2.57 GB on the 166 MB file, then releases. Everything in construction is now squeezed to within
-   +655 MB of it, so this is the dominant remaining floor. Lever: stream/chunk the OFF parse, or
-   pre-convert to binary PLY. Isolated from the neuron algorithm, low risk. It matters most in the
+   +655 MB of it, so this is the dominant remaining floor. Next: stream/chunk the OFF parse, or
+   cache float64 vertices and ordered integer faces under a source checksum. Ordinary float32
+   PLY is unsuitable for an exact geometry cache. It matters most in the
    parallel runner, where N workers all load at once.
 2. **`connected_face_components` residual, +636 MB** — `edges_unique` plus coo/union-find transients
    on 3 M faces.
@@ -129,7 +135,7 @@ RAM.
    (`root_face_idx` / `branch_meshes_orig_idx`).
 
 Note the decomposition in 2/3 was measured *before* the reclaim landed — re-profile on the trimmed
-base before sizing them; they may now largely fit under the load transient.
+   base before sizing them; they may now largely fit under the load transient.
 
 ⚠️ Wall time correlates with the **number of limbs**, and stitching is nondeterministic run to run
 (±100–150 s). Don't mistake that for a regression from an optimization.
@@ -142,8 +148,47 @@ At ~34% of wall (490 s spines + 250 s soma), CGAL `mesh_segmentation` is the lar
 the only one big enough to change the overall picture. The ray-count lever (`NEURD_SDF_RAYS`, −17.8%)
 took the cheap part of it. Going further means touching the segmentation itself, which is **high risk
 and hard to gate**: spine *count* is nondeterministic (22/16/20 observed on unchanged code), so a
-spine-count gate is worthless. It needs a segmentation-level equivalence gate first (SDF correlation
-against a recorded oracle, as `test_cgal_segmentation_oracle.py` does for the stub).
+count alone cannot establish equivalence. Use the compiled-provider SDF oracle in
+`tests/integration/test_cgal_segmentation_oracle.py`, branch-local face masks and mesh/volume
+invariants. Whole-neuron comparisons still need explicit tolerances for decomposition variance.
+
+## Buffered native output, 2026-10-11
+
+The integration candidate replaces the two per-face `std::endl` flushes with newline writes.
+`NEURD_CGAL_TIMINGS=1` reports OFF read, SDF, clustering and both CSV writes separately.
+The algorithm, sampling budget and CSV formatting stay the same. Candidate and baseline
+modules were built into separate temporary directories; the installed environment was preserved.
+
+Five interleaved trials per build used 25 rays and one numerical thread:
+
+| Mesh | Baseline median provider time | Candidate median provider time | Output |
+|---|---:|---:|---|
+| `tests/990_mesh.off`, 7,240 faces, 3 clusters / 0.20 | 0.431 s | 0.417 s | Both CSVs byte-identical |
+| H01 `1304599410/limb_000/branch_003`, 5 clusters / 0.08 | 2.877 s | 3.590 s | Both CSVs byte-identical |
+
+These timings do **not** demonstrate a consistent wall-time improvement. The H01 trial
+times varied substantially; median candidate SDF time alone was 3.508 s, while its two
+CSV writes totalled about 0.0033 s. Treat the change as a measured reduction in I/O work,
+and use the timers before changing any numerical algorithm.
+
+A separate `strace` check on the 7,240-face mesh counted **14,483 → 39** write/writev
+calls, including diagnostic output. CSV hashes still matched. Traced times are excluded
+from the wall-time comparison. Peak RSS was unchanged at 20,180 KiB on that small mesh;
+the H01 build peaks were 26,844 and 26,744 KiB.
+
+Reproduce the A/B check with separately built provider directories:
+
+```bash
+python tests/tools/benchmark_cgal_io.py \
+    --baseline /path/to/old-build --candidate /path/to/new-build \
+    --mesh /path/to/fixture.off --repeat 5 --rays 25 --out /tmp/cgal-ab.json
+```
+
+The report records input and native-binary hashes, configuration, CSV hashes, timings
+and peak RSS. Local receipts are retained under
+`artifacts/release_candidate_validation_20261011/`; these private data paths are not
+a portable public fixture recipe. The measured `tests/990_mesh.off` is an existing
+local fixture and is not tracked in Git; supply your own checksummed OFF input.
 
 ---
 

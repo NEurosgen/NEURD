@@ -200,3 +200,6 @@ tests/integration/_seg_output_spines/
 # local profiling batch outputs (generated, GBs)
 batch_*/
 batch_*.log
+
+# Local research runs, snapshots and mesh exports (often multiple GB).
+/artifacts/

@@ -22,8 +22,11 @@ Default is exact: prefer to find out that a step WAS exact rather than assume it
 import argparse
 import json
 import os
+import platform
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -35,8 +38,8 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests" / "tools"))
 
 import neurd  # noqa: F401,E402  activates the numpy-2 / cgal / meshlab shims
-from neurd import parameters  # noqa: E402
 from neurd.segmentation_pipeline import segmentation_pipeline  # noqa: E402
+from neurd.run_config import add_run_arguments, config_from_args  # noqa: E402
 from mesh_tools import trimesh_utils as tu  # noqa: E402
 
 from neuron_metrics import extract_metrics  # noqa: E402
@@ -78,13 +81,66 @@ def _compare_tolerant(baseline, current):
             ok = abs(c - b) <= tol * abs(b) if b else c == b
         if not ok:
             problems.append(f"  {key}: baseline={b} current={c} (tolerance {kind} {tol})")
+    if ("n_spines_total" in baseline) != ("n_spines_total" in current):
+        problems.append("  baseline and current spine modes differ; compare matching spine-enabled or disabled runs")
+    elif "n_spines_total" in current:
+        b, c = baseline["n_spines_total"], current["n_spines_total"]
+        if abs(c - b) > max(1, .1 * b):
+            problems.append(f"  n_spines_total: baseline={b} current={c} (10% or 1 spine)")
     return problems
+
+
+def _spine_problems(metrics, require_spines=False):
+    problems = []
+    for key in ("invalid_parent_faces_total", "ambiguous_parent_faces_total",
+                "overlapping_parent_faces_total", "overlapping_spine_surface_faces_total",
+                "invalid_spine_face_indices_total", "invalid_spine_volumes_total"):
+        if metrics.get(key, 0):
+            problems.append(f"  {key}={metrics[key]}")
+    if require_spines and metrics.get("n_spines_total", 0) == 0:
+        problems.append("  this spine-positive fixture produced no spines")
+    if metrics.get("spines_with_face_indices", 0) != metrics.get("n_spines_total", 0):
+        problems.append("  detected spines lack explicit parent face indices")
+    return problems
+
+
+def _provenance(mesh_path, config, elapsed):
+    import cgal_Segmentation_Module as provider
+    from neurd.h01_batch import digest_json, sha
+    from process_all_neurons import _run_signature
+
+    signature = _run_signature(config, 0.0, None)
+    for path in (Path(__file__).resolve(), REPO / "tests/tools/neuron_metrics.py"):
+        signature["code_sha256"][str(path.relative_to(REPO))] = sha(path)
+    result = dict(input=dict(path=str(mesh_path), sha256=sha(mesh_path)),
+                  configuration=config.as_dict(), elapsed_seconds=elapsed,
+                  platform=platform.platform(), cpu=platform.processor(),
+                  dependencies=signature["dependencies"],
+                  provider=getattr(provider, "__file__", None),
+                  source_sha256=signature["code_sha256"],
+                  runtime_environment=signature["runtime_environment"],
+                  provenance=signature, run_hash=digest_json(signature),
+                  thread_environment={k: os.environ.get(k) for k in
+                                      ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS")})
+    try:
+        result["git_sha"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+        result["tracked_dirty"] = bool(subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=REPO, text=True))
+    except (OSError, subprocess.CalledProcessError):
+        result["git_sha"] = None
+    return result
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--neuron", default=str(_ANCHOR), help="anchor mesh (.off)")
-    ap.add_argument("--data-type", default="h01", choices=["h01", "microns"])
+    add_run_arguments(ap, default_spines=False)
+    ap.set_defaults(dataset="h01")
+    ap.add_argument("--data-type", dest="dataset", choices=["h01", "microns"],
+                    default=argparse.SUPPRESS, help="alias for --dataset")
+    ap.add_argument("--calculate-spines", dest="spines", action="store_true",
+                    default=argparse.SUPPRESS, help="alias for --spines")
+    ap.add_argument("--require-spines", action="store_true", help="fail if a spine-positive fixture produces none")
     ap.add_argument("--segment-id", type=int, default=2530864375)
     ap.add_argument("--out", help="write the metrics JSON here")
     ap.add_argument("--baseline", help="compare against this JSON; exit 1 on any diff")
@@ -92,6 +148,12 @@ def main():
                     help="compare within per-metric tolerances instead of exactly")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
+    try:
+        config = config_from_args(args)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if args.require_spines and not config.calculate_spines:
+        ap.error("--require-spines requires --spines")
 
     mesh_path = Path(args.neuron).expanduser().resolve()
     if not mesh_path.exists():
@@ -99,15 +161,14 @@ def main():
 
     # the pipeline shells out to meshlab, which litters ./<segment_id>/ and ./temp/
     os.chdir(tempfile.mkdtemp(prefix="neuron_gate_"))
-    parameters.params.use(args.data_type)
-
-    print(f"[gate] mesh={mesh_path.name} data_type={args.data_type}")
+    print(f"[gate] mesh={mesh_path.name} config={config.as_dict()}")
     mesh = tu.load_mesh_no_processing(str(mesh_path))
     print(f"[gate] faces={len(mesh.faces)} verts={len(mesh.vertices)}; decomposing ...")
 
+    started = time.perf_counter()
     neuron_obj = segmentation_pipeline(mesh, segment_id=args.segment_id,
-                                       verbose=args.verbose)
-    metrics = extract_metrics(neuron_obj)
+                                       verbose=args.verbose, config=config)
+    metrics = extract_metrics(neuron_obj, include_spines=config.calculate_spines)
     print("\n" + json.dumps(metrics, indent=2))
 
     if args.out:
@@ -116,7 +177,15 @@ def main():
             out = REPO / out
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(metrics, indent=2))
+        out.with_suffix(out.suffix + ".run.json").write_text(
+            json.dumps(_provenance(mesh_path, config, time.perf_counter() - started), indent=2) + "\n")
         print(f"\n[gate] written -> {out}")
+
+    problems = _spine_problems(metrics, args.require_spines) if config.calculate_spines else []
+    if problems:
+        print("\n[gate] FAIL — spine surface/volume consistency:")
+        print("\n".join(problems))
+        sys.exit(1)
 
     if args.baseline:
         base = Path(args.baseline)

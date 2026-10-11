@@ -17,7 +17,10 @@ mesh (.off)  ->  Neuron
 
 Everything downstream of that — automated proofreading, multi-soma splitting, synapse assignment,
 cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GNN, the cloud and
-dataset adapters — **is removed**. The package went from ~55k to **15.4k LOC across 18 files**.
+dataset adapters — **is removed**. The stable geometry refactor reduced the package from
+~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
+validated run configuration and branch-batch tools. The candidate contains **18.1k physical
+Python lines across 22 core files**; the earlier count describes the pre-refinement baseline.
 
 ## Why a fork
 
@@ -34,7 +37,8 @@ Upstream publication: https://www.nature.com/articles/s41586-025-08660-5
 
 ## Install
 
-Requires **Python 3.10–3.12** (3.13+ has no open3d wheel), plus `meshlabserver` and `xvfb` for the
+The installer supports **Python 3.10–3.12**; the current validation uses Python 3.12.
+It also needs `meshlabserver` and `xvfb` for the
 mesh operations that still shell out (`apt install meshlab xvfb`). On a bare OS you may also need
 `apt install libgl1 libglib2.0-0 libgomp1` for open3d.
 
@@ -42,44 +46,61 @@ mesh operations that still shell out (`apt install meshlab xvfb`). On a bare OS 
 bash scripts/install_local.sh          # creates ./.venv
 PYTHON=python3.12 bash scripts/install_local.sh
 source .venv/bin/activate
-pytest                                 # fast gate, ~25 s
+pytest                                 # unit gate; about one minute in the tested environment
 ```
 
 The script handles the one fiddly bit: `mesh_processing_tools` pins `open3d==0.11.2` in its metadata,
 so it is installed with `--no-deps` before the rest of [requirements.txt](requirements.txt). It then
-builds two optional CGAL C++ extensions (see [cgal/README.md](cgal/README.md)):
+builds and verifies both required CGAL C++ extensions (see [cgal/README.md](cgal/README.md)):
 
 | extension | what it unblocks | without it |
 |---|---|---|
 | `calcification_param_Module` | the MAP skeletonization path (thick branches) | neurons with thick limbs raise `NameError: calcification_param` |
-| `cgal_Segmentation_Module` | real SDF mesh segmentation | falls back to a KMeans stand-in that detects **0 spines**, and `NEURD_SDF_RAYS` becomes inert |
+| `cgal_Segmentation_Module` | real SDF mesh segmentation | the public spine-enabled API fails before processing; the lower-level compatibility fallback cannot provide equivalent spines |
 
-Both need CGAL 6 headers (`apt install libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev`, or a conda
-env). The build is best-effort — the install succeeds without them.
+Both builds were validated with CGAL 6 headers (`apt install libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev`, or a conda
+env). Headers are searched in the active/base interpreter prefixes and system include
+directories, including Eigen's `eigen3` layout. Missing headers, failed builds or failed
+native imports make installation fail. `NEURD_ALLOW_MISSING_CGAL=1` explicitly permits
+an incomplete development installation.
 
 ## Run
 
 ```bash
 # a directory of meshes -> one output directory per mesh, resumable via a manifest
-python process_all_neurons.py path/to/meshes path/to/output
+python process_all_neurons.py path/to/meshes path/to/output \
+    --dataset microns --spines --sdf-profile reference
 
-# the same, several meshes at a time under a memory budget
+# several meshes at a time, limiting concurrent input-file bytes
 python process_all_neurons_parallel.py path/to/meshes path/to/output \
-    --max-workers 8 --mem-budget-mb 1024
+    --dataset h01 --spines --sdf-profile fast \
+    --max-workers 8 --input-size-budget-mb 1024
 ```
 
-The dataset parameter set is chosen by `DATA_TYPE` at the top of `process_all_neurons.py`
-(`"microns"` or `"h01"`). Programmatically:
+Both runners share worker supervision and verified resume. Raw CLI defaults are
+`microns`, spines enabled, refinement off and the 25-ray reference profile. `fast`
+selects 12 rays; an explicit `--sdf-rays` overrides the profile. The input-size budget
+is an admission heuristic; `SEG_RSS_LIMIT_MB` enforces observed per-worker RSS, including
+external children, and requires `psutil`. `--mem-budget-mb` remains a compatibility alias.
+
+`--no-save` computes without exports or manifests. Input decimation is disabled unless
+`--decimation-ratio` is positive. Failures return a nonzero exit code; `--retry-failed`
+requeues failures. Existing successful exports are reused only when input, runtime,
+configuration and output hashes match. Use a new output directory for old unverified
+exports or results from another runtime. Input/output directories must be separate
+and non-nested.
+
+Programmatically, use the same configuration:
 
 ```python
 import neurd                                     # activates the compat + perf patches
-from neurd import parameters
+from neurd.run_config import RunConfig
 from neurd.segmentation_pipeline import segmentation_pipeline
 from mesh_tools import trimesh_utils as tu
 
-parameters.params.use("h01")                     # or "microns"
 mesh = tu.load_mesh_no_processing("neuron.off")
-neuron = segmentation_pipeline(mesh, segment_id=123, max_somas=1)
+config = RunConfig(dataset="h01", calculate_spines=True, sdf_profile="reference")
+neuron = segmentation_pipeline(mesh, segment_id=123, max_somas=1, config=config)
 
 for limb in neuron.limbs:
     for branch in limb:
@@ -88,6 +109,18 @@ for limb in neuron.limbs:
 
 `import neurd` must come first: it installs the numpy-2 / meshlab / CGAL shims that `datasci_tools`
 and `mesh_tools` need, plus the perf patches.
+
+The API defaults to `calculate_spines=False`; request spines explicitly as above.
+Without an explicit dataset it retains the selected parameter dataset. Dataset parameters
+and SDF rays are process globals, so concurrent runs use separate processes.
+
+For optional H01 geometric refinement, exported-branch resegmentation, skeleton policies
+and spine-quality checks, see [SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md).
+
+The whole-neuron gate's default H01 input and the small CGAL oracle mesh are local
+fixtures outside tracked source. Supply `--neuron /path/to/neuron.off` for a different
+whole-neuron input, and configure the checksummed branch manifest described in the
+refinement guide. A portable dataset-download recipe remains part of release preparation.
 
 ## Environment flags
 
@@ -101,7 +134,8 @@ slow original. Nothing needs to be set for normal use.
 | `NEURD_MESHLAB_DECIMATE` | open3d, in-process | restore the meshlab subprocess (+~184 s) |
 | `NEURD_DECIMATE_SINGLE_STAGE` | cascaded halving | decimate in one step |
 | `NEURD_ENABLE_COMPRESSED_PICKLE` | no-op'd | restore the debug pickle dumps (+~98 s) |
-| `NEURD_SDF_RAYS` | 12 (25 = CGAL's own) | CGAL SDF ray count; **only the compiled ext reads it** |
+| `NEURD_SDF_RAYS` | low-level compatibility 12 | CGAL SDF ray count; the public API/CLI sets it from the explicit reference25/fast12 configuration |
+| `NEURD_CGAL_TIMINGS` | off | `1` writes OFF-read, SDF, clustering and CSV-write stage timings to stderr |
 | `NEURD_SKIP_SOMA_END_SPLIT` | off | skip `_split_soma_at_end`'s CGAL trim (−~225 s) |
 | `NEURD_OWNED_SKELETAL_DISTANCE` | off | route the correspondence/width kernel through `neurd/skeletal_distance_ops.py` |
 | `NEURD_REAL_POISSON` | off (no-op) | run a real Poisson reconstruction — see PERF.md |
@@ -109,7 +143,8 @@ slow original. Nothing needs to be set for normal use.
 | `NEURD_SOMA_OUTER_DECIM` / `_INNER_DECIM` | from `parameters.py` | override the soma decimation ratios |
 
 The batch runners also read `SEG_RSS_LIMIT_MB` and `SEG_TIMEOUT_SEC` (per-mesh kill switches), plus
-`SEG_MAX_WORKERS` and `SEG_MEM_BUDGET_MB` (defaults for the parallel runner's flags).
+`SEG_MAX_WORKERS` and `SEG_INPUT_SIZE_BUDGET_MB` (defaults for the parallel runner's flags;
+`SEG_MEM_BUDGET_MB` remains a legacy alias for input-file bytes).
 
 Every perf patch registers itself in `neurd.PATCH_STATUS` and warns loudly if it fails to install.
 These patches rewrite functions inside `mesh_tools`/`datasci_tools`, so an upstream rename would
@@ -119,10 +154,16 @@ otherwise silently revert the perf work — the build would still succeed, just 
 ## Tests
 
 ```bash
-pytest                                                   # tests/unit only (pytest.ini), 180 tests, ~25 s
+pytest                                                   # tests/unit only (pytest.ini)
 pytest tests/integration/test_segmentation_pipeline.py   # end-to-end, ~11 min, needs xvfb + meshlabserver
 python tests/tools/neuron_gate.py \
-    --baseline tests/fixtures/neuron_baseline_2530864375.json --tolerance
+    --sdf-profile fast --baseline tests/fixtures/neuron_baseline_2530864375.json --tolerance
+# exercise spine detection and record surface/volume checks and runtime provenance
+python tests/tools/neuron_gate.py --dataset h01 --spines --sdf-profile fast \
+    --out /tmp/h01_spine_metrics.json
+# a checksummed small branch containing spines (manifest schema in the refinement guide)
+NEURD_SPINE_BRANCH_MANIFEST=/path/to/fixture.json \
+    pytest tests/integration/test_spine_branch_gate.py
 ```
 
 The last one is the real backstop for any change to the decomposition: a full build of the h01 anchor
@@ -139,10 +180,12 @@ unchanged code. `tests/tools/` also holds the profiling harnesses (`benchmark_ne
 | [PIPELINE.md](PIPELINE.md) | the geometry of `mesh → Neuron`, the compat patches, known failure modes |
 | [PERF.md](PERF.md) | measured time + RAM state, shipped levers, what's next, measurement methodology |
 | [MESH_OPS.md](MESH_OPS.md) | the NEURD-owned mesh-operations layer (`submesh_ops`) and its seams |
+| [docs/SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md) | opt-in policies, branch batch, skeleton safeguards and spine gates |
 | [docs/notes/](docs/notes/) | finished investigations and open refactor plans |
 
 ## Credits
 
 Upstream NEURD is by Brendan Celii and the Reimer lab
 ([reimerlab/NEURD](https://github.com/reimerlab/NEURD)) — the science, the algorithms and the original
-implementation are theirs. This fork only strips and optimizes.
+implementation are theirs. This fork narrows the pipeline, improves runtime and adds
+experimental spine-geometry postprocessing.
