@@ -6,6 +6,7 @@ import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import NamedTuple
 
 import networkx as nx
 import numpy as np
@@ -20,10 +21,12 @@ def helpers():
     path = REPO / 'neurd/preprocess_neuron.py'
     names = {'_axis_origin_fingerprint', '_new_axis_origin', '_origin_local_id', '_cleaned_axis_origin',
              '_recorrespond_stitch', '_merge_map_mp_correspondence', '_decompose_mp_sublimbs',
-             '_decompose_map_sublimbs', 'filter_limb_correspondence_for_end_nodes'}
+             '_decompose_map_sublimbs', 'filter_limb_correspondence_for_end_nodes',
+             '_SkeletonizationResult', '_SublimbDecompositionResult'}
     nodes = [node for node in ast.parse(path.read_text()).body
-             if isinstance(node, ast.FunctionDef) and node.name in names]
-    namespace = dict(np=np, deepcopy=deepcopy, time=time, nu=SimpleNamespace(intersect1d=np.intersect1d))
+             if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names]
+    namespace = dict(np=np, deepcopy=deepcopy, time=time, NamedTuple=NamedTuple,
+                     nu=SimpleNamespace(intersect1d=np.intersect1d))
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
     return namespace
 

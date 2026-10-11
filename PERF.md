@@ -511,6 +511,21 @@ geometry/mask files. The raw observation includes three exports and additional
 audits; its timings and RSS establish no controlled speed or memory improvement.
 Evidence is in `artifacts/raw_export_cleanup_20261011/v1/`.
 
+The MAP/MP boundary cleanup passes **1,031 tests / one expected skip** and a
+33-case frozen-source comparison under controlled geometry providers. It names
+private stage results and removes aliases; the orchestrator shrinks 206 → 197
+lines and the core by two. Full raw H01 processing retains all prior metrics and
+218 byte-identical exports; native coverage is MP, with MAP/mixed checked by the
+controlled-provider oracle. Minnie retains nine spines, nine volumes and 27 saved
+geometry/mask files. Evidence is in `artifacts/map_mp_boundary_cleanup_20261011/v1/`.
+The raw correctness observation records loading **0.612 s**, decomposition
+**737.974 s**, one public export **8.916 s** and observed total **752.022 s**;
+process lifetime peak RSS is **1,391,616,000 bytes**. It includes private stage
+observation, metrics/export audits and overlaps other validation work. Unchanged
+native SDF stages also take longer than prior observations; the cause has not
+been established. These runs provide no controlled before/after speed or memory
+comparison, and this cleanup establishes no measured performance improvement.
+
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work
 must preserve sampling/RNG behavior, and native changes need per-face gates.

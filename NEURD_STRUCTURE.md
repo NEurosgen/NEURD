@@ -14,12 +14,19 @@ query signatures and existing features are retained. Statistics and decompositio
 products support slim objects with explicit diagnostic/centroid controls;
 axon/dendrite classification and synapse enrichment still require a migration decision.
 
-**Size:** the current integration candidate has **29 Python files / 19,345 physical lines**
+**Size:** the current integration candidate has **29 Python files / 19,343 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Raw export now lives in the package rather than the runner, which shrinks
 from 982 to 500 lines. The package and runner together grow by 28 lines for imports,
 compatibility aliases and documentation. Counts include comments and blank lines.
+The subsequent MAP/MP cleanup names stage results and removes intermediate aliases:
+`preprocess_limb` shrinks from 206 to 197 lines; its module shrinks by two lines.
+Its validation passes 1,031 unit tests / one expected skip and a 33-case prior-code
+oracle. Full raw H01 preserves all 218 exported files; native coverage is MP,
+with MAP/mixed routes checked under controlled providers. The Minnie branch
+retains nine spines and 27 geometry/mask files. Evidence:
+`artifacts/map_mp_boundary_cleanup_20261011/v1/`.
 
 ## Environment and tests
 
@@ -58,7 +65,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 
 | module | LOC | purpose |
 |---|---|---|
-| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3278 | mesh → limbs/branches with local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
+| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3276 | mesh → limbs/branches with named skeletonization/MAP/MP results and local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
 | [spine_utils.py](neurd/spine_utils.py) | 3367 | ordinary spine detection with named primary-refinement/final-filter stages, aligned result selection and scoped shaft paths; enabled by `RunConfig(calculate_spines=True)` |
 | [neuron_utils.py](neurd/neuron_utils.py) | 2665 | neuron queries/utilities, explicit-unit soma centers, soma-stitched whole skeleton and controlled decomposition-product storage; an intra-package **sink** |
 | [neuron.py](neurd/neuron.py) | 1845 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; actual soma counts, explicit decomposition controls and nonrecursive optional stage-product delegation |

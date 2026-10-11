@@ -2,6 +2,7 @@
 import copy
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import NamedTuple
 import gc
 import itertools
 import warnings
@@ -1159,6 +1160,15 @@ def _new_invalidation_d(
     return final_d
 
 
+class _SkeletonizationResult(NamedTuple):
+    """One skeletonization pass, retaining the provider's payload references."""
+
+    segment_branches: object
+    divided_submeshes: object
+    divided_submeshes_idx: object
+    segment_widths_median: object
+
+
 def _run_skeletonization_pass(
     limb_mesh_mparty,
     root_curr,
@@ -1166,11 +1176,7 @@ def _run_skeletonization_pass(
     limb_cfg,
     verbose=False,
 ):
-    """One pass: skeletonize the mesh + divide it into branches.
-
-    Returns (segment_branches, divided_submeshes, divided_submeshes_idx,
-             segment_widths_median).
-    """
+    """Skeletonize once and return named branch payloads without copying them."""
     sk_obj = cb.skeletonize_largest_component(
         limb_mesh_mparty,
         root=root_curr,
@@ -1182,13 +1188,13 @@ def _run_skeletonization_pass(
     if verbose:
         print(f"meshparty_segment_size = {meshparty_segment_size}")
 
-    return cb.skeleton_to_branches(
+    return _SkeletonizationResult(*cb.skeleton_to_branches(
         sk_obj,
         mesh=limb_mesh_mparty,
         meshparty_segment_size=meshparty_segment_size,
         combine_close_skeleton_nodes_threshold=limb_cfg["combine_close_skeleton_nodes_threshold_meshparty"],
         filter_end_node_length=limb_cfg["filter_end_node_length_meshparty"],
-    )
+    ))
 def _decide_next_limb_cfg(
     segment_branches,
     segment_widths_median,
@@ -1269,7 +1275,7 @@ def _skeletonize_with_adaptive_invalidation(
         return result
 
     new_limb_cfg = _decide_next_limb_cfg(
-        result[0], result[3], limb_cfg, neuron_cfg, verbose,
+        result.segment_branches, result.segment_widths_median, limb_cfg, neuron_cfg, verbose,
     )
     if new_limb_cfg is None:
         return result  # the first pass is final
@@ -1945,6 +1951,14 @@ def _group_into_map_mp_sublimbs(
     )
 
 
+class _SublimbDecompositionResult(NamedTuple):
+    """Per-sublimb correspondence and ordered soma-extension additions."""
+
+    correspondence: dict
+    endpoints_additions: list
+    soma_touching_additions: list
+
+
 def _decompose_mp_sublimbs(
     sublimb_meshes_MP,
     sublimb_skeleton_branches,
@@ -1958,14 +1972,9 @@ def _decompose_mp_sublimbs(
     print_fusion_steps,
     fusion_time,
 ):
-    """Part 10: run each MP sublimb through `_fix_mp_soma_extension` and build its correspondence.
+    """Build MP correspondence and ordered soma-extension additions.
 
-    Returns `(limb_correspondence_MP, endpoints_additions, soma_touching_additions)`:
-    the per-sublimb correspondence dict, plus the soma-extension must-keep endpoints /
-    soma-touching vertices for the caller to append (in order) to the limb-level
-    accumulators. `fusion_time` is consumed only for the diagnostic timing prints (not
-    returned — the caller does not read it after Part 10). Behavior identical to the
-    inline Part-10 loop.
+    `fusion_time` controls diagnostic timing prints and is not returned.
     """
     limb_correspondence_MP = dict()
     endpoints_additions = []
@@ -2049,7 +2058,9 @@ def _decompose_mp_sublimbs(
                                      operation="MP_partition_after_optional_soma_extension",
                                      index_scope="preprocess_limb.input_mesh.face_index"))
 
-    return limb_correspondence_MP, endpoints_additions, soma_touching_additions
+    return _SublimbDecompositionResult(
+        limb_correspondence_MP, endpoints_additions, soma_touching_additions,
+    )
 
 
 def _decompose_map_sublimbs(
@@ -2067,13 +2078,7 @@ def _decompose_map_sublimbs(
     max_stitch_distance_CGAL,
     distance_by_mesh_center,
 ):
-    """Part 9: run each MAP sublimb mesh through `_decompose_map_piece` (CGAL skeleton).
-
-    Returns `(limb_correspondence_MAP, endpoints_additions, soma_touching_additions)`:
-    the per-sublimb correspondence dict keyed by sublimb index, plus the must-keep
-    endpoints / soma-touching-vertices that the caller appends (in order) to the
-    limb-level accumulator lists. Behavior identical to the inline Part-9 loop.
-    """
+    """Build MAP correspondence and ordered must-keep endpoint / soma additions."""
     limb_correspondence_MAP = dict()
     endpoints_additions = []
     soma_touching_additions = []
@@ -2116,7 +2121,9 @@ def _decompose_map_sublimbs(
                                      index_scope="preprocess_limb.input_mesh.face_index"))
 
     print(f"Total time for MAP sublimb processing {time.time() - global_start_time}")
-    return limb_correspondence_MAP, endpoints_additions, soma_touching_additions
+    return _SublimbDecompositionResult(
+        limb_correspondence_MAP, endpoints_additions, soma_touching_additions,
+    )
 
 
 def _reroute_branch_endpoint(branch_skeleton, remove_point, target_point, else_point):
@@ -2709,7 +2716,8 @@ def preprocess_limb(
     width_threshold_MAP = neuron_params["width_threshold_MAP"]
     size_threshold_MAP = neuron_params["size_threshold_MAP"]
 
-    # -- config-driven parameters from the global config ----------------
+    # Capture MAP/cleaning scalars before skeletonization. Adaptive invalidation
+    # rereads its separate axon globals after the first pass.
     filter_end_node_length = p.filter_end_node_length
     surface_reconstruction_size = p.surface_reconstruction_size
     remove_mesh_interior_face_threshold = p.remove_mesh_interior_face_threshold
@@ -2752,12 +2760,7 @@ def preprocess_limb(
         fusion_time = time.time()
 
     # --------------- Part 3: Meshparty skeletonization and Decomposition ------------- #
-    (
-        segment_branches,
-        divided_submeshes,
-        divided_submeshes_idx,
-        segment_widths_median,
-    ) = _skeletonize_with_adaptive_invalidation(
+    skeletonization = _skeletonize_with_adaptive_invalidation(
         limb_mesh_mparty,
         root_curr,
         meshparty_segment_size=meshparty_segment_size,
@@ -2767,29 +2770,22 @@ def preprocess_limb(
 
 
     # --------------- Parts 4-8: split the meshparty decomposition into MAP / MP sublimbs ------------- #
-    _grp = _group_into_map_mp_sublimbs(
-        segment_branches,
-        divided_submeshes,
-        divided_submeshes_idx,
-        segment_widths_median,
+    grouping = _group_into_map_mp_sublimbs(
+        skeletonization.segment_branches,
+        skeletonization.divided_submeshes,
+        skeletonization.divided_submeshes_idx,
+        skeletonization.segment_widths_median,
         limb_mesh_mparty,
         limb_params['use_meshafterparty'],
         width_threshold_MAP,
         size_threshold_MAP,
     )
-    map_subs = _grp.map_subs
-    sublimb_meshes_MP = _grp.sublimb_meshes_MP
-    sublimb_mesh_branches_MP = _grp.sublimb_mesh_branches_MP
-    sublimb_mesh_idx_branches_MP = _grp.sublimb_mesh_idx_branches_MP
-    sublimb_skeleton_branches = _grp.sublimb_skeleton_branches
-    widths_MP = _grp.widths_MP
-    MAP_flag = _grp.MAP_flag
 
     # ------------------- At this point have the correct division between MAP and MP ------------------------
 
     # -------------- Part 9: Doing the MAP decomposition ------------------ #
-    limb_correspondence_MAP, _map_endpoints_add, _map_soma_touching_add = _decompose_map_sublimbs(
-        map_subs,
+    map_result = _decompose_map_sublimbs(
+        grouping.map_subs,
         soma_touching_vertices_dict,
         filter_end_node_length=filter_end_node_length,
         perform_cleaning_checks=perform_cleaning_checks,
@@ -2802,25 +2798,27 @@ def preprocess_limb(
         max_stitch_distance_CGAL=max_stitch_distance_CGAL,
         distance_by_mesh_center=distance_by_mesh_center,
     )
-    limb_to_endpoints_must_keep_list.extend(_map_endpoints_add)
-    limb_to_soma_touching_vertices_list.extend(_map_soma_touching_add)
+    limb_correspondence_MAP = map_result.correspondence
+    limb_to_endpoints_must_keep_list.extend(map_result.endpoints_additions)
+    limb_to_soma_touching_vertices_list.extend(map_result.soma_touching_additions)
 
 
     # ----------------- Part 10: Doing the MP Decomposition ---------------------- #
-    limb_correspondence_MP, _mp_endpoints_add, _mp_soma_touching_add = _decompose_mp_sublimbs(
-        sublimb_meshes_MP,
-        sublimb_skeleton_branches,
-        sublimb_mesh_branches_MP,
-        sublimb_mesh_idx_branches_MP,
-        widths_MP,
-        MAP_flag,
+    mp_result = _decompose_mp_sublimbs(
+        grouping.sublimb_meshes_MP,
+        grouping.sublimb_skeleton_branches,
+        grouping.sublimb_mesh_branches_MP,
+        grouping.sublimb_mesh_idx_branches_MP,
+        grouping.widths_MP,
+        grouping.MAP_flag,
         soma_touching_vertices_dict,
         limb_mesh_mparty,
         print_fusion_steps=print_fusion_steps,
         fusion_time=fusion_time,
     )
-    limb_to_endpoints_must_keep_list.extend(_mp_endpoints_add)
-    limb_to_soma_touching_vertices_list.extend(_mp_soma_touching_add)
+    limb_correspondence_MP = mp_result.correspondence
+    limb_to_endpoints_must_keep_list.extend(mp_result.endpoints_additions)
+    limb_to_soma_touching_vertices_list.extend(mp_result.soma_touching_additions)
 
 
     if check_correspondence_branches:

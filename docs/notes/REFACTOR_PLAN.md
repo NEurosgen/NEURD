@@ -100,14 +100,35 @@ All 28 supplied branch maps, graph identities, origin journals and spine-mask
 arrays are checked. The native Minnie control also retains all nine spines,
 nine volumes and 27 geometry/mask files exactly, with independent reload checks.
 
+The MAP/MP boundary pass introduces two private named tuple results for
+skeletonization and sublimb decomposition. Callers use named payload fields;
+seven redundant grouping aliases are removed. Payload arrays, mesh references
+and ordered additions are retained. Public return types and function signatures
+remain unchanged; private results support tuple indexing/unpacking, while their
+exact type is now a named tuple. MAP/cleaning scalars are still captured before
+skeletonization, and adaptive invalidation still rereads its separate globals
+after the first pass. The orchestrator shrinks **206 → 197 lines**, its module
+**3,278 → 3,276**, and the core **19,345 → 19,343**. Grouping, soma extension,
+axis-origin and stitch algorithms retain their AST; this is a readability change.
+Evidence is separate in `artifacts/map_mp_boundary_cleanup_20261011/v1/`.
+The 33 new portable boundary cases cover grouping thresholds, adaptive passes,
+configuration sampling, soma additions and public return flags. A 33-case oracle
+against frozen `3993b5bee` preserves ordered payloads, provider arguments,
+aliases, stdout and RNG state under controlled geometry providers.
+The frozen-source suite passes **1,031 tests / one expected skip** on 107
+source/test files and three configuration files with removed import roots blocked.
+Full raw H01 processing preserves all prior metrics and **218 exported files
+byte for byte**, including 239 ordered NumPy arrays. Its 22 preprocessing calls
+all use MP; four take a second skeletonization pass. MAP/mixed native processing
+is not exercised by this anchor. The separate Minnie branch retains nine spines,
+nine volumes and all 27 geometry/mask files, with independent reload checks.
+
 ## Remaining work, in order
 
-1. Clarify the MAP/MP stage result structures and resolve settings at clear stage
-   boundaries. Do not change axis pairing, fallback choices or generated-map scopes.
-2. Isolate package bootstrap/compatibility patches while preserving their exact
+1. Isolate package bootstrap/compatibility patches while preserving their exact
    initialization order and `PATCH_STATUS`. Existing native and mesh-tools patches
    are required behavior, not unused code.
-3. Define the input schema for retained axon/dendrite and synapse hooks before
+2. Define the input schema for retained axon/dendrite and synapse hooks before
    restoring aggregates or removing wrappers. Classification maps are unavailable
    on slim objects; empty branch labels do not establish anatomical compartments.
    The four shipped decomposition notebooks use historical enriched constructors
@@ -116,7 +137,7 @@ nine volumes and 27 geometry/mask files exactly, with independent reload checks.
    population policy and mixed-unit fields as separate scientific changes. Keep
    these optional enrichments outside the raw-path cleanup until their inputs and
    migration are defined.
-4. Validate a clean dependency/native-provider installation before publishing.
+3. Validate a clean dependency/native-provider installation before publishing.
    The blocked-import checks cover current supported paths; they do not exercise
    every dormant upstream helper or establish resolver behavior on another platform.
    Run a controlled complete raw-neuron benchmark and build an executed release

@@ -22,7 +22,7 @@ including string-dispatched axon queries, remain pending a reachability audit.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**19,345 physical Python lines across 29 core files**, including the raw export
+**19,343 physical Python lines across 29 core files**, including the raw export
 module moved from the batch runner. The runner shrinks from 982 to 500 lines;
 the package and runner together grow by 28 lines for imports, compatibility aliases
 and documentation. The earlier count describes the pre-refinement baseline.
@@ -226,6 +226,14 @@ and the CLI alias byte for byte. The native Minnie control retains nine spines,
 nine volumes and 27 geometry/mask arrays. Evidence is in
 `artifacts/raw_export_cleanup_20261011/v1/`; this change improves module boundaries
 and does not establish a speed or memory improvement.
+
+The MAP/MP readability pass uses named internal stage results and removes redundant
+aliases; `preprocess_limb` shrinks from 206 to 197 lines. It passes **1,031 tests with
+one expected skip** and a 33-case comparison against frozen prior code. Full raw
+H01 processing retains exact metrics and all 218 exported files; Minnie retains
+nine spines and 27 geometry/mask files. The H01 run exercises native MP; MAP and
+mixed routes are checked with controlled geometry providers. Evidence is in
+`artifacts/map_mp_boundary_cleanup_20261011/v1/`.
 
 | Export | Verified scope |
 |---|---|
