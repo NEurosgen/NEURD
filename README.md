@@ -46,17 +46,30 @@ Upstream publication: https://www.nature.com/articles/s41586-025-08660-5
 
 ## Install
 
-The installer supports **Python 3.10–3.12**; the current validation uses Python 3.12.
+The installer supports **Python 3.10–3.12**; clean Python-package installation was
+validated on Linux x86_64 / Python 3.12.13 with the existing native toolchain.
+See [installation scope and checks](docs/INSTALLATION.md).
 It also needs `meshlabserver` and `xvfb` for the
 mesh operations that still shell out (`apt install meshlab xvfb`). On a bare OS you may also need
 `apt install libgl1 libglib2.0-0 libgomp1` for open3d.
 
 ```bash
-bash scripts/install_local.sh          # creates ./.venv
-PYTHON=python3.12 bash scripts/install_local.sh
+PYTHON=python3.12 \
+PIP_CONSTRAINT="$PWD/constraints/linux-py312-20261012.txt" \
+bash scripts/install_local.sh          # creates the repository's .venv
 source .venv/bin/activate
-pytest                                 # portable unit gate
+pytest tests/unit/
 ```
+
+Run this command from the repository. The constraints select the reference
+dependency profile for Linux / Python 3.12. An unconstrained fresh installation
+changed branch geometry and spine counts in the whole-H01 comparison; successful
+imports and unit tests alone do not establish equivalent processing. Other
+Python versions need their own validated dependency profile.
+
+The script can also be invoked by its absolute path from another directory.
+Relative `VENV_DIR` paths resolve from the repository; reused environments are
+checked for supported Python before installation.
 
 The script handles the one fiddly bit: `mesh_processing_tools` pins `open3d==0.11.2` in its metadata,
 so it is installed with `--no-deps` before the rest of [requirements.txt](requirements.txt). It then
@@ -72,6 +85,10 @@ env). Headers are searched in the active/base interpreter prefixes and system in
 directories, including Eigen's `eigen3` layout. Missing headers, failed builds or failed
 native imports make installation fail. `NEURD_ALLOW_MISSING_CGAL=1` explicitly permits
 an incomplete development installation.
+
+Use the repository installer: `pip install neurd` alone does not supply the mesh
+provider or build these extensions. `pip check` still reports the historical
+Open3D pin; fresh validation found no other missing or conflicting requirements.
 
 The runtime requirements omit `graph-nx-tools`, `neuron_morphology_tools` and
 `code_structure_tools`. Their import roots are blocked during validation of the

@@ -2,17 +2,23 @@
 # Local (non-Docker) install for NEURD on Python 3.12.
 #
 # Usage:
-#   bash scripts/install_local.sh                # creates ./.venv with system python3
+#   bash scripts/install_local.sh                # creates the repository's .venv
 #   PYTHON=python3.12 bash scripts/install_local.sh
 #   NEURD_ALLOW_MISSING_CGAL=1 bash scripts/install_local.sh  # development only
+# Relative VENV_DIR paths are resolved from the repository, regardless of cwd.
 #
 # After install:
 #   source .venv/bin/activate
 #   pytest tests/unit/
 set -euo pipefail
 
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
+case "$VENV_DIR" in
+    /*) ;;
+    *) VENV_DIR="$REPO_DIR/$VENV_DIR" ;;
+esac
 NEURD_ALLOW_MISSING_CGAL="${NEURD_ALLOW_MISSING_CGAL:-0}"
 case "$NEURD_ALLOW_MISSING_CGAL" in
     0|1) ;;
@@ -36,6 +42,18 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 # shellcheck source=/dev/null
 source "$VENV_DIR/bin/activate"
+
+active_py_version="$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+case "$active_py_version" in
+    3.10|3.11|3.12) ;;
+    *)
+        echo "ERROR: Activated environment requires Python 3.10-3.12 (got $active_py_version)." >&2
+        echo "       Choose a new VENV_DIR instead of reusing $VENV_DIR." >&2
+        exit 1
+        ;;
+esac
+
+cd -- "$REPO_DIR"
 
 # Check before installing Python packages. A venv may obtain native headers from
 # its base interpreter (for example conda) or system development packages.

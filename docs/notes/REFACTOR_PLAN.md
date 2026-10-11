@@ -144,7 +144,8 @@ byte for byte, with 239 arrays and parent-face maps independently reloaded.
 The separate native Minnie branch retains nine spines, nine volumes and all
 27 geometry/mask files. The wheel contains 30 exact source modules and imports
 from an isolated unpacked directory with the compiled provider. These checks use
-the existing dependencies; clean installation and controlled benchmarking remain.
+the existing dependencies; clean installation and controlled benchmarking remained
+pending at that stage.
 
 The [optional enrichment input contract](../ENRICHMENT_CONTRACT.md) now defines
 compartment maps, synapse pre/post views and supplied endpoint distances, units,
@@ -156,14 +157,27 @@ consumers pass using tiny actual objects and supplied annotations. Runtime sourc
 notebooks and CSVs are unchanged; no full-neuron processing was repeated.
 Evidence: `artifacts/enrichment_contract_cleanup_20261011/v1/`.
 
+The 2026-10-12 installation pass fixes invocation-directory handling and rejects
+unsupported reused venvs before installation. A separate fresh Linux/Python 3.12
+environment builds both native providers and passes 1,063 tests / one expected skip,
+the native SDF/MAP checks and the Minnie control. Complete raw H01 processing
+retains all 218 exports exactly. An unconstrained fresh profile changed geometry;
+the final 207-entry constraints file records the successful dependency versions.
+Runtime algorithm source is unchanged. See [installation scope](../INSTALLATION.md)
+for the existing native-toolchain requirement, local fixtures and timing limits.
+
 ## Remaining work, in order
 
-1. Validate a clean dependency/native-provider installation before publishing.
-   The blocked-import checks cover current supported paths; they do not exercise
-   every dormant upstream helper or establish resolver behavior on another platform.
-   Run a controlled complete raw-neuron benchmark and build an executed release
+1. Run a controlled complete raw-neuron benchmark and build an executed release
    notebook with checksummed input, configuration, stage timings and peak memory.
-2. Optional enrichment migration requires a verified annotation source, units,
+   Separate cold/JIT setup from repeated processing and compare identical dependency
+   profiles, native providers, thread limits and outputs without concurrent gates.
+2. Provide portable fixtures/data acquisition and a required native CI job. The fresh
+   installation covers the populated local checkout on Linux/Python 3.12; other
+   interpreters/platforms and dormant upstream helpers remain outside that check.
+   Installed batch console commands and standalone native/provider distribution
+   require explicit packaging work beyond the current repository installer.
+3. Optional enrichment migration requires a verified annotation source, units,
    current branch/soma correspondence and an explicit storage/validation API using
    the documented input contract. Preserve the four enriched tutorials as archives;
    write a fresh raw example through the supported API. String dispatch and external

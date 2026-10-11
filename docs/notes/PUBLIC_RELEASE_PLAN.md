@@ -10,7 +10,7 @@ package and subsequent mesh-loading, H01 correspondence and segment-assembly wor
 refs, including the locally recorded `origin/*` refs; they do not assert the current live state
 of GitHub. The implementation uses a new local branch; nothing has been published.
 
-## Implementation status, 2026-10-11
+## Implementation status, 2026-10-12
 
 Candidate branch: **`release/integrate-spine-refinement`**, based directly on `c4ce054`.
 All 15 experimental commits and their stable-base ancestry are preserved. Existing local volume
@@ -27,15 +27,27 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated; external enrichment inputs and notebook migration documented | Clean installation; optional enrichment implementation requires verified annotation source/units/current geometry |
-| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
+| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated; external enrichment inputs and notebook migration documented; fresh constrained installation checked | Optional enrichment implementation requires verified annotation source/units/current geometry |
+| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup; both native providers built in a fresh Python environment | Installed console commands and standalone native/provider distribution |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
-| Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
+| Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts; exact full H01/Minnie checks in a fresh constrained Python environment | Portable downloadable fixtures and required native CI job; controlled whole-neuron benchmark and executed release notebook |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
 | OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
 | Spine label assembly and post-CGAL work | Narrow labels/SDF seam and stable grouping; nested post-CGAL traces; guarded exact shaft paths; accepted-mesh volume-quality handoff; separate timeout retry strictly complete with 300 spines / 286,839 faces | Measure remaining length/refinement/native costs on a bounded workload; no total-speed claim or anatomical validation |
 | Historical H01 failures | Read-only diagnosis of 47 archived keys; five-case surface/axis audits; failed-width journal; one timeout completed in a separate patched run | 46 current width problems remain; recover branch identity/support before changing measurement policy; historical archive unchanged |
 | Export lineage | Selected-MP fallback pairing corrected; graph labels by Branch object identity; ordered maps journaled with vertex bounds; bounded local MAP/MP decisions, axis fingerprints and fallback cause exported separately | Ordered raw ownership and historical attribution remain unavailable |
+
+The fresh-installation package is documented in [INSTALLATION.md](../INSTALLATION.md).
+On Linux/Python 3.12, a separate environment with the existing native development
+toolchain passes 1,063 unit tests / one expected skip, genuine SDF/MAP checks,
+Minnie and complete raw H01 with all 218 exports exactly preserved. A wheel installed
+into a separate target supplies all 30 exact modules. The first unconstrained
+installation changed geometry; the successful versions are recorded in 207 constraints.
+Both attempts and diagnostics are frozen separately under
+`artifacts/clean_install_validation_20261012/`. This establishes computational
+equivalence for the constrained profile, with no new comparative performance claim.
+The next package is the controlled benchmark and executed release notebook;
+portable fixtures and required native CI follow before public reproduction claims.
 
 The subsequent readability package reduces the core from **19,275 to 18,903
 physical lines** while adding a shared batch module and restoring supported skeleton
@@ -103,7 +115,7 @@ Full raw H01 retains exact metrics and all 218 exported files; its native routes
 are MP, with MAP/mixed covered by controlled-provider comparisons. Minnie retains
 nine spines, nine volumes and 27 geometry/mask files. Evidence is separate in
 `artifacts/map_mp_boundary_cleanup_20261011/v1/`; clean installation and a
-controlled performance benchmark remain publication work.
+controlled performance benchmark remained publication work at that stage.
 
 The bootstrap cleanup isolates compatibility installation in `neurd._bootstrap`,
 retaining the order and scientific patch bodies. `__init__.py` shrinks 503 → 48
@@ -135,7 +147,7 @@ Conditional real-label replays preserve all **460 arrays** across 61 plain and
 59 branch-file hashes and mtimes unchanged. The wheel contains the 28 checked
 core modules, excludes tests and unused model assets, and imports from an isolated
 unpacked directory without root runner files. It uses the existing native/dependency
-environment; a clean dependency installation remains pending. These checks support
+environment; a clean dependency installation was then pending. These checks support
 the cleanup's correctness, without a comparative whole-pipeline performance claim.
 
 The fifth package instruments post-CGAL work and integrates two measured local
