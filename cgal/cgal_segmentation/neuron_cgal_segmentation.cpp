@@ -60,6 +60,7 @@
 #include <sstream>
 #include <vector>
 #include <cstdlib>   // std::getenv / std::atoi (NEURD_SDF_RAYS override)
+#include <chrono>
 #endif
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
@@ -84,6 +85,18 @@ typedef CGAL::Polyhedron_3<Kernel> Polyhedron;
 //const char * cgal_segmentation(const char *location,const char * filename,int number_of_clusters,double smoothing_lambda)
 int cgal_segmentation(const char* location_with_filename, int number_of_clusters,double smoothing_lambda)
 {
+    // Opt-in stage timings leave CSV formatting and segmentation unchanged.
+    using Clock = std::chrono::steady_clock;
+    const char* timings_env = std::getenv("NEURD_CGAL_TIMINGS");
+    const bool timings = timings_env && std::string(timings_env) == "1";
+    auto stage_start = Clock::now();
+    const auto report_stage = [&](const char* name) {
+        const auto now = Clock::now();
+        if (timings)
+            std::cerr << "[neurd.cgal] " << name << "_seconds="
+                      << std::chrono::duration<double>(now - stage_start).count() << '\n';
+        stage_start = now;
+    };
 
     // create and read Polyhedron
     Polyhedron mesh;
@@ -117,6 +130,7 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
     if(( !CGAL::is_triangle_mesh(mesh))){
         return 6;
     }
+    report_stage("off_read");
 
     // create a property-map for SDF values
     typedef std::map<Polyhedron::Facet_const_handle, double> Facet_double_map;
@@ -135,6 +149,7 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
     }
     CGAL::sdf_values(mesh, sdf_property_map,
                      2.0 / 3.0 * CGAL_PI, number_of_rays, /*postprocess=*/true);
+    report_stage("sdf");
 
     char smoothing_lambda_str[5];
     snprintf(smoothing_lambda_str, sizeof(smoothing_lambda_str), "%.2f",smoothing_lambda );
@@ -149,11 +164,12 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
 
     for(Polyhedron::Facet_const_iterator facet_it = mesh.facets_begin();
         facet_it != mesh.facets_end(); ++facet_it) {
-        myfile_sdf << sdf_property_map[facet_it] << std::endl;
+        myfile_sdf << sdf_property_map[facet_it] << '\n';
     }
 
     std::cout << std::endl;
     myfile_sdf.close();
+    report_stage("sdf_write");
 
 
     // create a property-map for segment-ids
@@ -164,6 +180,7 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
     // Any other scalar values can be used instead of using SDF values computed using the CGAL function
 
     std::size_t number_of_segments = CGAL::segmentation_from_sdf_values(mesh, sdf_property_map, segment_property_map, number_of_clusters, smoothing_lambda);
+    report_stage("clustering");
     std::cout << "Number of segments: " << number_of_segments << std::endl;
     std::ofstream myfile;
     //create string for the float
@@ -177,11 +194,12 @@ int cgal_segmentation(const char* location_with_filename, int number_of_clusters
         facet_it != mesh.facets_end(); ++facet_it) {
         // ids are between [0, number_of_segments -1]
         //going to write the segments to an output CSV file so that they can be loaded into blender later
-        myfile << segment_property_map[facet_it] << std::endl;
+        myfile << segment_property_map[facet_it] << '\n';
     }
 
     std::cout << std::endl;
     myfile.close();
+    report_stage("labels_write");
 
     // Note that we can use the same SDF values (sdf_property_map) over and over again for segmentation.
     // This feature is relevant for segmenting the mesh several times with different parameters.

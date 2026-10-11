@@ -4,6 +4,7 @@
 # Usage:
 #   bash scripts/install_local.sh                # creates ./.venv with system python3
 #   PYTHON=python3.12 bash scripts/install_local.sh
+#   NEURD_ALLOW_MISSING_CGAL=1 bash scripts/install_local.sh  # development only
 #
 # After install:
 #   source .venv/bin/activate
@@ -12,6 +13,11 @@ set -euo pipefail
 
 PYTHON="${PYTHON:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
+NEURD_ALLOW_MISSING_CGAL="${NEURD_ALLOW_MISSING_CGAL:-0}"
+case "$NEURD_ALLOW_MISSING_CGAL" in
+    0|1) ;;
+    *) echo "ERROR: NEURD_ALLOW_MISSING_CGAL must be 0 or 1." >&2; exit 1 ;;
+esac
 
 py_version="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 case "$py_version" in
@@ -19,7 +25,7 @@ case "$py_version" in
         ;;
     *)
         echo "ERROR: NEURD local install requires Python 3.10-3.12 (got $py_version)."
-        echo "       Python 3.13+ has no open3d wheel; 3.9 lacks numpy 2 wheels for some deps."
+        echo "       This installer currently supports and validates only Python 3.10-3.12."
         echo "       Set PYTHON=python3.12 or use a conda env: conda create -n neurd python=3.12"
         exit 1
         ;;
@@ -31,60 +37,92 @@ fi
 # shellcheck source=/dev/null
 source "$VENV_DIR/bin/activate"
 
-pip install --upgrade pip
+# Check before installing Python packages. A venv may obtain native headers from
+# its base interpreter (for example conda) or system development packages.
+native_headers_available=1
+if ! python - <<'PY'
+import os
+import sys
+
+roots = list(dict.fromkeys([os.path.join(p, "include") for p in (sys.prefix, sys.base_prefix)]
+                          + ["/usr/local/include", "/usr/include"]))
+headers = {"CGAL/version.h": roots,
+           "Eigen/Core": [path for root in roots for path in (root, os.path.join(root, "eigen3"))]}
+missing = False
+for header, paths in headers.items():
+    if not any(os.path.isfile(os.path.join(path, header)) for path in paths):
+        print(f"ERROR: Missing {header}; searched: {', '.join(paths)}.", file=sys.stderr)
+        missing = True
+if missing:
+    print("Install native development dependencies first: conda-forge cgal eigen gmp mpfr, "
+          "or Debian/Ubuntu libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev.", file=sys.stderr)
+    sys.exit(1)
+PY
+then
+    native_headers_available=0
+    if [[ "$NEURD_ALLOW_MISSING_CGAL" != 1 ]]; then
+        echo "ERROR: Both native CGAL backends are required for a complete installation." >&2
+        echo "       NEURD_ALLOW_MISSING_CGAL=1 permits a development-only installation." >&2
+        exit 1
+    fi
+    echo "WARNING: Explicit development opt-out: native CGAL builds will be skipped." >&2
+fi
+
+python -m pip install --upgrade pip
 
 # mesh_processing_tools is pure-Python but pins open3d==0.11.2 in its metadata.
 # Install with --no-deps so we can use modern open3d (see requirements.txt).
-pip install --no-deps mesh_processing_tools==1.0.4
+python -m pip install --no-deps mesh_processing_tools==1.0.4
 
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # NEURD itself in editable mode, plus the test runner for the tests/unit gate.
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 
 # CGAL mean-curvature-flow skeletonizer (calcification_param_Module). Required for the
-# MAP decomposition path (thick branches); without it mesh_tools raises
-# `NameError: calcification_param` the moment a neuron has a thick limb. Best-effort:
-# it needs CGAL/Eigen/gmp/mpfr C++ headers in the env prefix (present in conda envs, or
-# `apt install libcgal-dev libeigen3-dev libgmp-dev libmpfr-dev`). If they are missing the
-# build is skipped with a warning — the pipeline still works for thin-branch neurons.
-echo
-echo "Building CGAL skeletonizer extension (calcification_param_Module)..."
-if [[ -f "$(python -c 'import sys; print(sys.prefix)')/include/CGAL/version.h" ]]; then
-    if pip install ./cgal/cgal_skeleton_param; then
-        echo "  CGAL skeletonizer installed."
-    else
-        echo "  WARNING: CGAL skeletonizer build FAILED — MAP path (thick branches) will crash."
-        echo "           See cgal/cgal_skeleton_param/ and PIPELINE.md."
-    fi
-else
-    echo "  WARNING: CGAL headers not found in env prefix — skipping calcification_param_Module."
-    echo "           MAP path (thick branches) will raise NameError. To enable: install CGAL 6"
-    echo "           (conda: 'conda install -c conda-forge cgal eigen gmp mpfr', or apt libcgal-dev),"
-    echo "           then 'pip install ./cgal/cgal_skeleton_param'."
-fi
+# MAP decomposition path (thick branches). Segmentation is required for spine
+# detection. Build and import both binaries; Python fallbacks do not satisfy this.
+native_complete="$native_headers_available"
+build_native() {
+    local package="$1" module="$2" entry_point="$3"
+    echo "Building native extension $module..."
+    if python -m pip install "$package" && python - "$module" "$entry_point" <<'PY'
+import importlib
+from importlib.machinery import EXTENSION_SUFFIXES
+import sys
 
-# Second CGAL extension: SDF mesh segmentation (cgal_Segmentation_Module). Without it
-# mesh_tools falls back to neurd/_cgal_segmentation.py (KMeans stand-in) which produces
-# 0 spines, so spine detection is effectively off. With it built, real CGAL segmentation
-# runs and spines work as in Docker. Same build prerequisites as the skeletonizer.
-echo
-echo "Building CGAL segmentation extension (cgal_Segmentation_Module)..."
-if [[ -f "$(python -c 'import sys; print(sys.prefix)')/include/CGAL/version.h" ]]; then
-    if pip install ./cgal/cgal_segmentation; then
-        echo "  CGAL segmentation installed (spine detection enabled)."
-    else
-        echo "  WARNING: CGAL segmentation build FAILED — spines fall back to the KMeans stub (0 spines)."
-        echo "           See cgal/cgal_segmentation/ and PIPELINE.md."
+module = importlib.import_module(sys.argv[1])
+origin = getattr(module, "__file__", "")
+if not origin or not any(origin.endswith(suffix) for suffix in EXTENSION_SUFFIXES):
+    raise RuntimeError(f"{sys.argv[1]} is not a compiled extension: {origin}")
+if not callable(getattr(module, sys.argv[2], None)):
+    raise RuntimeError(f"{sys.argv[1]} is missing native entry point {sys.argv[2]}")
+print(f"  Verified native backend: {origin}")
+PY
+    then
+        return 0
     fi
-else
-    echo "  WARNING: CGAL headers not found — skipping cgal_Segmentation_Module."
-    echo "           Spine detection will use the KMeans stub (0 spines). To enable: install CGAL 6,"
-    echo "           then 'pip install ./cgal/cgal_segmentation'."
+    native_complete=0
+    echo "ERROR: Native backend $module failed to build or import." >&2
+    echo "       Check the compiler output above and CGAL/Eigen/GMP/MPFR development dependencies." >&2
+    if [[ "$NEURD_ALLOW_MISSING_CGAL" != 1 ]]; then
+        return 1
+    fi
+    echo "WARNING: Continuing only because NEURD_ALLOW_MISSING_CGAL=1 was explicitly set." >&2
+}
+
+if [[ "$native_headers_available" == 1 ]]; then
+    build_native ./cgal/cgal_skeleton_param calcification_param_Module calcification_param
+    build_native ./cgal/cgal_segmentation cgal_Segmentation_Module cgal_segmentation
 fi
 
 echo
-echo "Install complete. Activate with:"
+if [[ "$native_complete" == 1 ]]; then
+    echo "Install complete; both native CGAL backends verified. Activate with:"
+else
+    echo "Development install complete with missing native CGAL backends." >&2
+    echo "MAP skeletonization or spine segmentation may be unavailable. Activate with:" >&2
+fi
 echo "  source $VENV_DIR/bin/activate"
 echo "Smoke check:"
 echo "  pytest tests/unit/test_env_compat.py tests/unit/test_numpy_compat.py tests/unit/test_mesh_tools_compat.py"
