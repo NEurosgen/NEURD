@@ -47,13 +47,13 @@ print('LIGHTWEIGHT_HELPERS_PASS')
 
 
 @pytest.mark.parametrize('changed', [
-    'neurd/batch_utils.py', 'neurd/science.py', 'process_all_neurons_parallel.py',
+    'neurd/batch_utils.py', 'neurd/neuron_export.py', 'neurd/science.py', 'process_all_neurons_parallel.py',
 ])
 def test_raw_fingerprint_includes_shared_module_and_runner_source(tmp_path, monkeypatch, changed):
     from neurd.run_config import RunConfig
 
     for relative in ('process_all_neurons.py', 'process_all_neurons_parallel.py',
-                     'neurd/batch_utils.py', 'neurd/science.py'):
+                     'neurd/batch_utils.py', 'neurd/neuron_export.py', 'neurd/science.py'):
         path = tmp_path/relative
         path.parent.mkdir(exist_ok=True)
         path.write_text('# source snapshot\n')
@@ -64,7 +64,7 @@ def test_raw_fingerprint_includes_shared_module_and_runner_source(tmp_path, monk
     before = helpers.raw_run_signature(config, source_root=tmp_path)
     assert set(before['code_sha256']) == {
         'process_all_neurons.py', 'process_all_neurons_parallel.py',
-        'neurd/batch_utils.py', 'neurd/science.py',
+        'neurd/batch_utils.py', 'neurd/neuron_export.py', 'neurd/science.py',
     }
     assert before['schema_version'] == 1
     assert before['decimation_ratio'] == 0.0 and before['max_somas'] is None

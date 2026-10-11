@@ -17,16 +17,18 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **28 Python files / 18,835 physical lines**, compared with 21 / 17,859
-at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
+The candidate core has **29 Python files / 19,345 physical lines**, compared with 21 / 17,859
+at the experiment tip. This count includes raw export moved from the runner into
+the package: package plus runner grows by 28 lines in that pass, while the runner
+shrinks from 982 to 500. The parallel raw runner is a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
 
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named spine stages, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected | Define axon/synapse input schemas and migrate historical notebooks; clean installation; separate raw export/bootstrap if justified |
-| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
+| Readability cleanup | Named spine stages, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision | Explicit MAP/MP results; bootstrap isolation; define axon/synapse input schemas and migrate historical notebooks; clean installation |
+| Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
@@ -82,6 +84,16 @@ The full raw H01 control retains 1 soma, 5 limbs, 28 branches and 18 spines /
 The same real object exercises diagnostic omission and exact returned/stored
 decomposition products and skeleton bytes, without supplied upstream diagnostics
 or inferred voxel calibration; geometry remains exact after statistics.
+
+The raw export pass makes `neurd.neuron_export.save_segmentation` usable from an
+installed package or notebook while retaining the runner's original imports.
+All 14 moved export functions and 16 retained runner functions preserve their
+baseline source/AST. Its frozen-source suite passes **998 tests / 1 expected skip**
+with removed import roots blocked. Complete raw H01 processing retains exact prior
+metrics, and the frozen saver, public API and CLI alias write the same **218 files
+byte for byte**, including 28 spine-mask archives. The Minnie branch preserves
+nine spines, nine volumes and all 27 geometry/mask files. Evidence is separate in
+`artifacts/raw_export_cleanup_20261011/v1/`; there is no comparative performance claim.
 
 The preceding readability cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
 Conditional real-label replays preserve all **460 arrays** across 61 plain and

@@ -82,25 +82,45 @@ and all 28 branch maps/origin journals. Actual-object statistics omit unavailabl
 diagnostics, and returned/stored decomposition products and skeleton bytes agree
 without inferring voxel calibration. Geometry metrics remain exact after the audit.
 
+The raw export pass separates geometry writing from supervision.
+`neurd.neuron_export.save_segmentation` is available without the repository runner;
+the runner retains compatibility aliases and shrinks from **982 to 500 lines**.
+All 14 moved export functions and 16 retained runner functions preserve their
+baseline AST. Staging, completion publication, limits and verified resume stay
+with the worker/scheduler. The core now has **29 files / 19,345 lines**, because
+the 510-line export module moved into the package; package plus runner grows by
+28 lines for imports, aliases and documentation. This is a separation of duties,
+without a size or computational-performance claim. Evidence is retained in
+`artifacts/raw_export_cleanup_20261011/v1/`.
+The frozen portable suite passes **998 tests / 1 expected skip** on 106 source/test
+files and three configuration files with removed import roots blocked. Full raw
+H01 processing preserves prior metrics (18 spines / 8,145 faces); all 218 exported
+files are byte-identical between the frozen prior saver, the library and CLI alias.
+All 28 supplied branch maps, graph identities, origin journals and spine-mask
+arrays are checked. The native Minnie control also retains all nine spines,
+nine volumes and 27 geometry/mask files exactly, with independent reload checks.
+
 ## Remaining work, in order
 
-1. Define the input schema for retained axon/dendrite and synapse hooks before
+1. Clarify the MAP/MP stage result structures and resolve settings at clear stage
+   boundaries. Do not change axis pairing, fallback choices or generated-map scopes.
+2. Isolate package bootstrap/compatibility patches while preserving their exact
+   initialization order and `PATCH_STATUS`. Existing native and mesh-tools patches
+   are required behavior, not unused code.
+3. Define the input schema for retained axon/dendrite and synapse hooks before
    restoring aggregates or removing wrappers. Classification maps are unavailable
    on slim objects; empty branch labels do not establish anatomical compartments.
    The four shipped decomposition notebooks use historical enriched constructors
    and require wider notebook migration. String dispatch and external notebooks
    can still call retained features. Review the legacy spine count versus volume
-   population policy and mixed-unit fields as separate scientific changes.
-2. Separate raw export from process supervision if the current shared helpers
-   are insufficient. Keep the CLI compatible; avoid another generic executor.
-3. Clarify the MAP/MP stage result structures and resolve settings at clear stage
-   boundaries. Do not change axis pairing, fallback choices or generated-map scopes.
-4. Isolate package bootstrap/compatibility patches while preserving their exact
-   initialization order and `PATCH_STATUS`. Existing native and mesh-tools patches
-   are required behavior, not unused code.
-5. Validate a clean dependency/native-provider installation before publishing.
+   population policy and mixed-unit fields as separate scientific changes. Keep
+   these optional enrichments outside the raw-path cleanup until their inputs and
+   migration are defined.
+4. Validate a clean dependency/native-provider installation before publishing.
    The blocked-import checks cover current supported paths; they do not exercise
    every dormant upstream helper or establish resolver behavior on another platform.
+   Run a controlled complete raw-neuron benchmark and build an executed release
+   notebook with checksummed input, configuration, stage timings and peak memory.
 
 ## Working method
 

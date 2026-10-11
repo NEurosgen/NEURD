@@ -22,8 +22,10 @@ including string-dispatched axon queries, remain pending a reachability audit.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,835 physical Python lines across 28 core files**; the earlier count describes the
-pre-refinement baseline.
+**19,345 physical Python lines across 29 core files**, including the raw export
+module moved from the batch runner. The runner shrinks from 982 to 500 lines;
+the package and runner together grow by 28 lines for imports, compatibility aliases
+and documentation. The earlier count describes the pre-refinement baseline.
 
 ## Why a fork
 
@@ -101,10 +103,12 @@ and non-nested.
 Programmatically, use the same configuration:
 
 ```python
+from pathlib import Path
 import neurd                                     # activates the compat + perf patches
 from neurd.run_config import RunConfig
 from neurd.segmentation_pipeline import segmentation_pipeline
 from neurd.mesh_io import load_mesh
+from neurd.neuron_export import save_segmentation
 
 mesh = load_mesh("neuron.off")
 config = RunConfig(dataset="h01", calculate_spines=True, sdf_profile="reference")
@@ -113,6 +117,8 @@ neuron = segmentation_pipeline(mesh, segment_id=123, max_somas=1, config=config)
 for limb in neuron.limbs:
     for branch in limb:
         branch.mesh, branch.skeleton, branch.spines
+
+save_segmentation(neuron, Path("output/neuron_123"))
 ```
 
 `import neurd` must come first: it installs the numpy-2 / meshlab / CGAL shims that `datasci_tools`
@@ -121,6 +127,14 @@ and `mesh_tools` need, plus the perf patches.
 The API defaults to `calculate_spines=False`; request spines explicitly as above.
 Without an explicit dataset it retains the selected parameter dataset. Dataset parameters
 and SDF rays are process globals, so concurrent runs use separate processes.
+
+`neurd.neuron_export.save_segmentation` writes soma, limb, branch and spine meshes,
+skeleton arrays, graph mappings, supplied face indices and provenance journals.
+It can be used from an installed package or notebook without importing a batch
+runner. The legacy `process_all_neurons.save_segmentation` import remains available.
+The saver writes directly into the supplied directory; use a fresh directory for
+each export. The raw batch runners provide worker isolation, limits, staging,
+completion records and verified resume.
 
 `neuron_searching.query_neuron` retains string and callable features. Its default
 result groups branch IDs by limb; `return_limb_grouped_branches=False` returns
@@ -204,6 +218,14 @@ memory gain. Its local evidence is in `artifacts/statistics_api_cleanup_20261011
 The full raw H01 control retains 28 branches and 18 spines with exact prior metrics
 and ordered masks; the new statistics and returned/stored decomposition products
 are also checked on that actual constructed object.
+
+The raw export separation passes **998 tests with one expected skip**, with the
+three removed import roots blocked. A complete raw H01 run retains the same
+28 branches and 18 spines: all **218 exported files** match the frozen prior saver
+and the CLI alias byte for byte. The native Minnie control retains nine spines,
+nine volumes and 27 geometry/mask arrays. Evidence is in
+`artifacts/raw_export_cleanup_20261011/v1/`; this change improves module boundaries
+and does not establish a speed or memory improvement.
 
 | Export | Verified scope |
 |---|---|

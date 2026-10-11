@@ -14,10 +14,12 @@ query signatures and existing features are retained. Statistics and decompositio
 products support slim objects with explicit diagnostic/centroid controls;
 axon/dendrite classification and synapse enrichment still require a migration decision.
 
-**Size:** the current integration candidate has **28 Python files / 18,835 physical lines**
+**Size:** the current integration candidate has **29 Python files / 19,345 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
-behavior. Counts include comments and blank lines.
+behavior. Raw export now lives in the package rather than the runner, which shrinks
+from 982 to 500 lines. The package and runner together grow by 28 lines for imports,
+compatibility aliases and documentation. Counts include comments and blank lines.
 
 ## Environment and tests
 
@@ -52,7 +54,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (28 files)
+## Module map (29 files)
 
 | module | LOC | purpose |
 |---|---|---|
@@ -66,6 +68,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 | [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
 | [h01_batch.py](neurd/h01_batch.py) | 752 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
 | [batch_utils.py](neurd/batch_utils.py) | 135 | shared completion hashes/inventory, runtime/source fingerprints and exact geometry keys; stdlib-only module body, pinned standalone workers load their own sibling |
+| [neuron_export.py](neurd/neuron_export.py) | 510 | direct raw-neuron geometry, graph, masks and local provenance export; no worker supervision or completion publication |
 | [submesh_ops.py](neurd/submesh_ops.py) | 458 | **owned** partition/provenance layer (`SubMesh`); stable label grouping without per-label full scans — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
 | [neuron_statistics.py](neurd/neuron_statistics.py) | 344 | ordered statistics with lazy exclusions and explicit upstream-diagnostic control; skeleton features and explicitly scaled voxel centroids |
@@ -92,8 +95,11 @@ practice — most of its lines are cross-library surgery — and it is the one a
 look in.
 
 **Entry points:** `segmentation_pipeline.py` is the public raw-neuron API.
+`neuron_export.save_segmentation` saves its result from Python or an installed package.
 `process_all_neurons.py` supervises isolated spawn workers using that API;
 `process_all_neurons_parallel.py` is a small adapter to the same executor.
+The raw runner keeps aliases for its historical export functions. It owns staging,
+limits, completion records and resume; the saver writes directly into its destination.
 Shared hashing, completion and runtime fingerprints live in `batch_utils.py`;
 the gate and raw runner import them directly, and legacy H01 imports remain compatible.
 `scripts/resegment_h01.py` launches the separate exported-branch batch, and

@@ -221,7 +221,7 @@ def test_behavior_flags_change_resume_hash_but_ambient_sdf_rays_do_not(monkeypat
     assert batch._run_hash(config, 0.0, None) != original
 
 
-def test_exported_masks_preserve_actual_parent_face_identity(tmp_path):
+def test_exported_masks_preserve_actual_parent_face_identity(tmp_path, raw_exporter):
     import numpy as np
     import trimesh
     # The first two parent faces are geometrically identical, but only face 1
@@ -233,7 +233,7 @@ def test_exported_masks_preserve_actual_parent_face_identity(tmp_path):
                              spines_face_idx=[np.array([1], dtype=np.int64)])
     limb = SimpleNamespace(mesh=parent, skeleton=None, branches=[branch])
     obj = SimpleNamespace(limbs=[limb], concept_network=None)
-    batch.save_segmentation(obj, tmp_path)
+    raw_exporter.save_segmentation(obj, tmp_path)
     with np.load(tmp_path / 'limb_000/branch_000/spine_faces.npz', allow_pickle=False) as masks:
         assert masks['faces'].tolist() == [1]
         assert masks['offsets'].tolist() == [0, 1]
@@ -244,13 +244,13 @@ def test_exported_masks_preserve_actual_parent_face_identity(tmp_path):
     assert (tmp_path / 'limb_000/branch_000/spines/spine_000.off').is_file()
     branch.spines_face_idx = None
     legacy = tmp_path / 'legacy'
-    batch.save_segmentation(obj, legacy)
+    raw_exporter.save_segmentation(obj, legacy)
     assert not (legacy / 'limb_000/branch_000/spine_faces.npz').exists()
     assert json.loads((legacy / 'summary.json').read_text())['limbs'][0]['spine_face_provenance_per_branch'] == ['unavailable']
 
 
 @pytest.mark.parametrize('bad_mask', ['count', 'bounds', 'geometry', 'duplicate', 'float'])
-def test_supplied_spine_masks_are_validated_before_export(tmp_path, bad_mask):
+def test_supplied_spine_masks_are_validated_before_export(tmp_path, bad_mask, raw_exporter):
     import numpy as np
     import trimesh
     parent = trimesh.creation.box()
@@ -259,21 +259,21 @@ def test_supplied_spine_masks_are_validated_before_export(tmp_path, bad_mask):
                  duplicate=[np.array([0,0])], float=[np.array([0.0])])
     branch = SimpleNamespace(mesh=parent, spines_face_idx=masks[bad_mask])
     with pytest.raises(ValueError, match='[Ss]pine'):
-        batch._save_spine_masks(branch, [spine], tmp_path / 'masks.npz')
+        raw_exporter._save_spine_masks(branch, [spine], tmp_path / 'masks.npz')
     assert not (tmp_path / 'masks.npz').exists()
 
 
-def test_computed_empty_spine_masks_have_an_explicit_empty_export(tmp_path):
+def test_computed_empty_spine_masks_have_an_explicit_empty_export(tmp_path, raw_exporter):
     import numpy as np
     import trimesh
     branch = SimpleNamespace(mesh=trimesh.creation.box(), spines_face_idx=[])
-    batch._save_spine_masks(branch, [], tmp_path / 'masks.npz')
+    raw_exporter._save_spine_masks(branch, [], tmp_path / 'masks.npz')
     with np.load(tmp_path / 'masks.npz', allow_pickle=False) as masks:
         assert masks['faces'].tolist() == []
         assert masks['offsets'].tolist() == [0]
 
 
-def test_distinct_parent_ids_cannot_hide_cross_spine_surface_overlap(tmp_path):
+def test_distinct_parent_ids_cannot_hide_cross_spine_surface_overlap(tmp_path, raw_exporter):
     import numpy as np
     import trimesh
     parent = trimesh.Trimesh(vertices=[[0,0,0],[1,0,0],[0,1,0]],
@@ -281,12 +281,12 @@ def test_distinct_parent_ids_cannot_hide_cross_spine_surface_overlap(tmp_path):
     meshes = [parent.submesh([[index]], append=True, repair=False) for index in (0,1)]
     branch = SimpleNamespace(mesh=parent, spines_face_idx=[np.array([0]),np.array([1])])
     with pytest.raises(ValueError, match='same triangle geometry'):
-        batch._save_spine_masks(branch, meshes, tmp_path / 'overlap.npz')
+        raw_exporter._save_spine_masks(branch, meshes, tmp_path / 'overlap.npz')
     assert not (tmp_path / 'overlap.npz').exists()
     # Original duplicated faces inside one object retain their distinct parent
     # identities; this check prevents sharing between different objects only.
     branch.spines_face_idx = [np.array([0,1])]
     combined = parent.submesh([[0,1]], append=True, repair=False)
-    batch._save_spine_masks(branch, [combined], tmp_path / 'single_spine.npz')
+    raw_exporter._save_spine_masks(branch, [combined], tmp_path / 'single_spine.npz')
     with np.load(tmp_path / 'single_spine.npz', allow_pickle=False) as masks:
         assert masks['faces'].tolist() == [0,1]

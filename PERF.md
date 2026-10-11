@@ -501,6 +501,16 @@ external-process escalation, using the authenticated prior CGAL binary. The fina
 run includes extra summary/storage audits, so its recorded durations and RSS are
 correctness observations without a controlled performance comparison.
 
+The raw export separation passes **998 unit tests / 1 expected skip**. It moves
+14 unchanged export functions into `neurd.neuron_export` and reduces the raw runner
+from 982 to 500 lines; package plus runner grows by 28 lines for documentation,
+imports and compatibility aliases. Full raw H01 processing retains prior metrics
+and produces 218 byte-identical files with the old saver, public API and CLI alias.
+The Minnie native control preserves nine spines, nine volumes and all 27 saved
+geometry/mask files. The raw observation includes three exports and additional
+audits; its timings and RSS establish no controlled speed or memory improvement.
+Evidence is in `artifacts/raw_export_cleanup_20261011/v1/`.
+
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work
 must preserve sampling/RNG behavior, and native changes need per-face gates.

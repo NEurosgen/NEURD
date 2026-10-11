@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 import trimesh
 
-import process_all_neurons as batch
 from tests.unit.test_mesh_axis_origin import helpers
 
 
@@ -21,12 +20,12 @@ def fixture(origin):
     return SimpleNamespace(limbs=[limb], concept_network=None), branch
 
 
-def test_export_keeps_observed_axis_origin_separate_from_file_and_face_validation(tmp_path):
+def test_export_keeps_observed_axis_origin_separate_from_file_and_face_validation(tmp_path, raw_exporter):
     origin = helpers()['_new_axis_origin']('test_pre_normalization',
                                          np.array([[[0., 0., 0.], [1., 0., 0.]]]))
     obj, branch = fixture(origin)
     original_axis = branch.skeleton.copy()
-    batch.save_segmentation(obj, tmp_path)
+    raw_exporter.save_segmentation(obj, tmp_path)
     folder = tmp_path / 'limb_000/branch_000'
     journal = json.loads((folder / 'branch_origin.json').read_text())
     face = json.loads((folder / 'face_provenance.json').read_text())
@@ -52,9 +51,9 @@ def test_export_keeps_observed_axis_origin_separate_from_file_and_face_validatio
     ({'schema_version': 1, 'scope': 'local_map_mp_selection_and_axis_pairing',
       'raw_input_map_available': False, 'invalid_array': np.array([1])}, 'metadata_not_json_safe'),
 ])
-def test_missing_or_unsupported_origin_is_unavailable_even_when_supplied_map_passes(tmp_path, origin, reason):
+def test_missing_or_unsupported_origin_is_unavailable_even_when_supplied_map_passes(tmp_path, origin, reason, raw_exporter):
     obj, _ = fixture(origin)
-    batch.save_segmentation(obj, tmp_path)
+    raw_exporter.save_segmentation(obj, tmp_path)
     folder = tmp_path / 'limb_000/branch_000'
     journal = json.loads((folder / 'branch_origin.json').read_text())
     assert journal['status'] == 'unavailable'
@@ -63,10 +62,10 @@ def test_missing_or_unsupported_origin_is_unavailable_even_when_supplied_map_pas
     assert json.loads((folder / 'face_provenance.json').read_text())['status'] == 'available'
 
 
-def test_origin_without_skeleton_has_explicitly_missing_export_hash(tmp_path):
+def test_origin_without_skeleton_has_explicitly_missing_export_hash(tmp_path, raw_exporter):
     origin = helpers()['_new_axis_origin']('test', np.zeros((1, 2, 3)))
     branch = SimpleNamespace(mesh_axis_origin=origin)
-    batch._save_branch_origin(branch, tmp_path)
+    raw_exporter._save_branch_origin(branch, tmp_path)
     journal = json.loads((tmp_path / 'branch_origin.json').read_text())
     assert journal['status'] == 'available'
     assert journal['exported_skeleton_file_sha256'] is None
