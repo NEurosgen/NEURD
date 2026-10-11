@@ -22,7 +22,7 @@ including string-dispatched axon queries, remain pending a reachability audit.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,903 physical Python lines across 28 core files**; the earlier count describes the
+**18,800 physical Python lines across 28 core files**; the earlier count describes the
 pre-refinement baseline.
 
 ## Why a fork
@@ -49,7 +49,7 @@ mesh operations that still shell out (`apt install meshlab xvfb`). On a bare OS 
 bash scripts/install_local.sh          # creates ./.venv
 PYTHON=python3.12 bash scripts/install_local.sh
 source .venv/bin/activate
-pytest                                 # unit gate; about one minute in the tested environment
+pytest                                 # portable unit gate
 ```
 
 The script handles the one fiddly bit: `mesh_processing_tools` pins `open3d==0.11.2` in its metadata,
@@ -66,6 +66,11 @@ env). Headers are searched in the active/base interpreter prefixes and system in
 directories, including Eigen's `eigen3` layout. Missing headers, failed builds or failed
 native imports make installation fail. `NEURD_ALLOW_MISSING_CGAL=1` explicitly permits
 an incomplete development installation.
+
+The runtime requirements omit `graph-nx-tools`, `neuron_morphology_tools` and
+`code_structure_tools`. Their import roots are blocked during validation of the
+supported segmentation paths. `machine-learning-tools` stays because the mesh
+provider uses its PCA helpers; upstream imports also still require seaborn.
 
 ## Run
 
@@ -117,6 +122,17 @@ The API defaults to `calculate_spines=False`; request spines explicitly as above
 Without an explicit dataset it retains the selected parameter dataset. Dataset parameters
 and SDF rays are process globals, so concurrent runs use separate processes.
 
+`neuron_searching.query_neuron` retains string and callable features. Its default
+result groups branch IDs by limb; `return_limb_grouped_branches=False` returns
+ordered `(limb, node)` rows, including shape `(0, 2)` for an empty result.
+`neuron_utils.soma_centers` returns centers in nm without a scale. To convert to
+voxels, pass `voxel_adjustment=True` and an explicit three-value
+`voxel_adjustment_vector` in nm per voxel. Centroid statistics containing both nm
+and voxel coordinates require this vector; a dataset-specific scale is not inferred.
+The legacy `neuron_stats` and `calculate_decomposition_products` analysis path still
+expects upstream diagnostics absent from the slim constructor; it needs migration
+before use. The supported segmentation/export path does not call it.
+
 The raw runners, descriptor extractor and geometry gates use `neurd.mesh_io.load_mesh`.
 It reads plain triangular ASCII OFF files in bounded chunks, preserving float64
 coordinates, duplicate/unused vertices and ordered integer faces. Other mesh formats
@@ -153,6 +169,11 @@ and all nine Minnie65 spines; conditional plain/refined replays preserve all
 460 ordered arrays. Its checks are recorded in
 `artifacts/readability_cleanup_20261011/v1/`. See the
 [current refactoring plan](docs/notes/REFACTOR_PLAN.md) for remaining work.
+
+The following query/object API and dependency pass passes **881 tests with one
+expected skip**, with the three removed import roots blocked. Its evidence is in
+`artifacts/legacy_api_cleanup_20261011/v1/`; this is a separate package from the
+802-test readability pass above.
 
 | Export | Verified scope |
 |---|---|

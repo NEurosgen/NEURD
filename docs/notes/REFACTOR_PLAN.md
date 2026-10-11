@@ -32,12 +32,45 @@ Validation receipts and frozen baseline source are in the local ignored director
 `artifacts/readability_cleanup_20261011/v1/`. This is cleanup and API repair;
 there is no new whole-process speed or memory claim.
 
+The following query/object API pass reduces the core from **18,903 to 18,800
+physical lines**, and `neuron_searching` from **810 to 696**. It retains all query
+signatures and scientific feature bodies, fixes ordered-pair/empty-dataframe returns,
+and computes NaN counts directly with the same pandas operation. Custom limb
+callbacks retain the historical post-callback graph lookup.
+
+Soma centers now work without the deleted global scale; all-soma indexing and empty
+array shape are fixed. Voxel conversion and centroid statistics require an explicit
+positive finite three-value nm-per-voxel vector. Skeleton statistics without centroid
+conversion need no scale. Missing `Neuron` attributes raise normal `AttributeError`
+without recursion; optional stage-product delegation remains compatible.
+
+The import/provider and installed-metadata audit removes three direct runtime roots:
+`graph-nx-tools`, `neuron_morphology_tools`, and `code_structure_tools`.
+Their import roots are blocked during unit/native validation. Under the recorded
+Linux CPython 3.12 metadata/marker/extras profile, the reachable distribution graph
+falls from **210 to 192**. This is a potential installation graph reduction, not an
+uninstall, a byte measurement or a clean installation test. Keep the ML provider,
+mesh stack and seaborn transitive imports. Audit evidence and baseline copies live
+separately in `artifacts/legacy_api_cleanup_20261011/v1/`.
+The frozen-source portable suite passes **881 tests / 1 expected skip** with the
+removed import roots blocked; the native Minnie65 branch also preserves all nine
+spines and 27 geometry/mask files exactly. Native timings are correctness
+observations, not comparative performance results.
+The full raw H01 native gate retains exact prior metrics (18 spines / 8,145 faces),
+28 supplied ordered branch maps and 28 origin journals. Old/new query selection and
+feature rows agree on the actual 28-branch object, with RNG unchanged. The built
+wheel matches frozen module bytes and current requirements and imports from an
+isolated unpacked directory with the three removed roots blocked.
+
 ## Remaining work, in order
 
-1. Continue the production reachability audit of `neuron_searching`,
-   `neuron_utils` and legacy object properties. String dispatch and user notebooks
-   can call functions with no ordinary internal callers. Remove an API only after
-   deciding its supported replacement or migration.
+1. Migrate or explicitly retire legacy `neuron_stats`/
+   `calculate_decomposition_products` and axon/synapse hooks. The shipped upstream
+   notebooks contain actual decomposition-product calls, while the slim constructor
+   does not provide their diagnostic fields or stage-product initialization.
+   Do not invent zero diagnostic counts or infer voxel scales. String dispatch and
+   external notebooks can still call retained features; preserve compatibility until
+   a replacement/migration is decided.
 2. Separate raw export from process supervision if the current shared helpers
    are insufficient. Keep the CLI compatible; avoid another generic executor.
 3. Clarify the MAP/MP stage result structures and resolve settings at clear stage
@@ -45,8 +78,9 @@ there is no new whole-process speed or memory claim.
 4. Isolate package bootstrap/compatibility patches while preserving their exact
    initialization order and `PATCH_STATUS`. Existing native and mesh-tools patches
    are required behavior, not unused code.
-5. Test candidate dependency removals in an isolated environment, including the
-   imports of upstream providers. A search limited to `neurd` cannot prove removal.
+5. Validate a clean dependency/native-provider installation before publishing.
+   The blocked-import checks cover current supported paths; they do not exercise
+   every dormant upstream helper or establish resolver behavior on another platform.
 
 ## Working method
 

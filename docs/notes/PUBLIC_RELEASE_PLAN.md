@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **28 Python files / 18,903 physical lines**, compared with 21 / 17,859
+The candidate core has **28 Python files / 18,800 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -25,7 +25,7 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named primary-refinement/final-filter stages and aligned result selection; shared completion/provenance module with compatible imports; restored historical whole-skeleton API; removed unused arrays, duplicate definitions and cell-typing assets; Markdown packaging excludes tests | Audit legacy string-dispatched/query/object APIs and transitive dependencies; separate raw export/bootstrap if justified |
+| Readability cleanup | Named spine stages, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/pair/empty-result and soma-unit contracts repaired; recursive missing-attribute lookup fixed; three unused runtime roots removed | Migrate legacy analysis/axon/synapse APIs; clean installation; separate raw export/bootstrap if justified |
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
@@ -46,7 +46,28 @@ See [the current readability plan](REFACTOR_PLAN.md) for remaining legacy API,
 query-dispatch and dependency work. The release notebook with a checksummed raw
 neuron and recorded metrics is scheduled for the publication preparation stage.
 
-The cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
+The following query/object pass reduces the core further to **18,800 lines**,
+retaining all query signatures and scientific features. Ordered pair/empty outputs,
+soma indexing and explicit voxel conversion now have contracts; optional stage-product
+delegation no longer recurses. The installed-provider audit removes three direct
+dependency roots, with a **210 → 192** reachable distribution graph under the recorded
+Linux CPython 3.12 metadata profile. Blocked imports exercise supported paths;
+this is not a clean installation or a measured installed-size reduction.
+Evidence lives separately in `artifacts/legacy_api_cleanup_20261011/v1/`.
+Its frozen-source portable suite passes **881 tests / 1 expected skip** with all
+three removed import roots blocked. The current Minnie65 native branch preserves
+all nine spines / 2,854 faces, nine scalar volumes and 27 saved geometry/mask arrays;
+independent reload verification checks every ordered mask. These checks use the
+existing provider environment and establish no comparative performance gain.
+The final full raw H01 gate also retains 1 soma, 5 limbs, 28 branches and
+**18 spines / 8,145 faces**, with all 28 supplied branch maps and local origin
+journals valid. On its actual object, old/new query feature rows, dtypes and selected
+ordered branch IDs match exactly, with RNG unchanged. Soma centers match the original
+mesh centers in nm. Removed import roots are neither requested nor loaded. The final
+wheel contains all 28 frozen modules and the reduced 15 direct runtime requirements;
+isolated unpacked-wheel import also passes with those roots blocked.
+
+The preceding readability cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
 Conditional real-label replays preserve all **460 arrays** across 61 plain and
 54 refined spines. Native checks preserve the full raw H01 result (1 soma,
 5 limbs, 28 branches, 18 spines / 8,145 faces), the independently reloaded

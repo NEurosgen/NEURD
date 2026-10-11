@@ -475,6 +475,16 @@ recorded fast/12-ray, refinement-off policy, not a controlled before/after
 performance comparison. The cleanup removes unused whole-mesh allocations,
 but no additional overall speed or memory reduction has been measured.
 
+The subsequent query/object API pass is a correctness/readability and dependency
+change. Its **881 unit tests / 1 expected skip**, full raw H01 gate and native
+Minnie65 gate pass with three removed import roots blocked. The raw observer also
+compares old/new query rows and branch selections on the same actual object.
+These runs use the existing environment; the raw run overlaps portable testing
+and includes additional query audits. Their elapsed times provide no controlled
+before/after speed or memory result. The installed-metadata graph reduction
+**210 → 192** is a potential dependency closure change, not a measured installation
+size. Evidence is in `artifacts/legacy_api_cleanup_20261011/v1/`.
+
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work
 must preserve sampling/RNG behavior, and native changes need per-face gates.
