@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **29 Python files / 19,343 physical lines**, compared with 21 / 17,859
+The candidate core has **30 Python files / 19,379 physical lines**, compared with 21 / 17,859
 at the experiment tip. This count includes raw export moved from the runner into
 the package: package plus runner grows by 28 lines in that pass, while the runner
 shrinks from 982 to 500. The parallel raw runner is a 59-line adapter to the common executor;
@@ -27,7 +27,7 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision | Bootstrap isolation; define axon/synapse input schemas and migrate historical notebooks; clean installation |
+| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated | Define axon/synapse input schemas and migrate historical notebooks; clean installation |
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
@@ -104,6 +104,19 @@ are MP, with MAP/mixed covered by controlled-provider comparisons. Minnie retain
 nine spines, nine volumes and 27 geometry/mask files. Evidence is separate in
 `artifacts/map_mp_boundary_cleanup_20261011/v1/`; clean installation and a
 controlled performance benchmark remain publication work.
+
+The bootstrap cleanup isolates compatibility installation in `neurd._bootstrap`,
+retaining the order and scientific patch bodies. `__init__.py` shrinks 503 → 48
+lines; the core grows by 36 lines. Its **1,053 tests / one expected skip**, 22 new
+import contracts and 19-case frozen-source comparison pass. Independent review
+checks aliases, deferred globals, warning call sites and historical pickle global
+lookups. Import flags require a fresh process; private wrapper module names now
+point to bootstrap. Evidence: `artifacts/bootstrap_cleanup_20261011/v1/`.
+Full raw H01 retains 28 branches, 18 spines / 8,145 faces and all 218 exports
+byte for byte; the separate Minnie branch retains nine spines and 27 geometry/mask
+files. The wheel contains 30 exact source modules and imports in isolation with
+compiled CGAL. These correctness gates establish no speed or memory gain and
+use the existing scientific/native environment.
 
 The preceding readability cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
 Conditional real-label replays preserve all **460 arrays** across 61 plain and
@@ -600,9 +613,9 @@ candidate code/configuration. Historical percentages are not added together into
 3. Separate extraction/filtering, geometry refinement, volume/descriptor calculations and
    diagnostics in `spine_utils`. Keep compatibility wrappers initially. Factor duplicated
    policies or traversal instead of rewriting every `mesh_tools` primitive.
-4. Move compat installation and backend choice out of the large `__init__.py`, retaining
-   ordered initialization and `PATCH_STATUS`. Prevent unrelated packages from being silently
-   replaced by global stubs where they are genuinely installed.
+4. Preserve the separated `_bootstrap.py`, its ordered initialization and `PATCH_STATUS`.
+   Review optional import-stub policy separately before changing which missing submodules
+   may be replaced; bootstrap extraction retains the historical policy.
 5. Audit duplicated upstream/downstream skeleton helpers and factor their implementation
    behind existing properties. Do not redesign all Neuron/Limb/Branch storage for the release.
 6. Consolidate overlapping research scripts around shared comparison/report utilities and

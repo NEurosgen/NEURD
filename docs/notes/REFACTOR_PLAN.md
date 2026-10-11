@@ -123,12 +123,32 @@ all use MP; four take a second skeletonization pass. MAP/mixed native processing
 is not exercised by this anchor. The separate Minnie branch retains nine spines,
 nine volumes and all 27 geometry/mask files, with independent reload checks.
 
+The bootstrap separation moves compatibility installation into private
+`neurd._bootstrap`. `__init__.py` shrinks **503 → 48 lines**; the new module has
+491 lines, so the core grows by 36 lines to **30 files / 19,379 lines**. The 39
+ordered executable blocks and three public entry-point nodes retain their source
+and AST. Package aliases share the original registry and helpers; installed
+wrappers keep deferred globals in the bootstrap module. Private callable module
+names change to `neurd._bootstrap`. Flags are sampled on the first import;
+changing them requires a fresh process, rather than reloading the package.
+The mesh-load benchmark fingerprints bootstrap when present and still supports
+historical snapshots without it. Evidence is separate in
+`artifacts/bootstrap_cleanup_20261011/v1/`.
+The frozen-source suite passes **1,053 tests / one expected skip** on 109
+source/test files and three configuration files with removed import roots blocked.
+The 22 new import tests and 19-case controlled-provider oracle cover flag decisions,
+failure continuation, provider precedence, warning call sites and deferred globals.
+Independent review also checks old private pickle global lookup aliases.
+Full raw H01 retains 28 branches, 18 spines / 8,145 faces and all 218 exported files
+byte for byte, with 239 arrays and parent-face maps independently reloaded.
+The separate native Minnie branch retains nine spines, nine volumes and all
+27 geometry/mask files. The wheel contains 30 exact source modules and imports
+from an isolated unpacked directory with the compiled provider. These checks use
+the existing dependencies; clean installation and controlled benchmarking remain.
+
 ## Remaining work, in order
 
-1. Isolate package bootstrap/compatibility patches while preserving their exact
-   initialization order and `PATCH_STATUS`. Existing native and mesh-tools patches
-   are required behavior, not unused code.
-2. Define the input schema for retained axon/dendrite and synapse hooks before
+1. Define the input schema for retained axon/dendrite and synapse hooks before
    restoring aggregates or removing wrappers. Classification maps are unavailable
    on slim objects; empty branch labels do not establish anatomical compartments.
    The four shipped decomposition notebooks use historical enriched constructors
@@ -137,7 +157,7 @@ nine volumes and all 27 geometry/mask files, with independent reload checks.
    population policy and mixed-unit fields as separate scientific changes. Keep
    these optional enrichments outside the raw-path cleanup until their inputs and
    migration are defined.
-3. Validate a clean dependency/native-provider installation before publishing.
+2. Validate a clean dependency/native-provider installation before publishing.
    The blocked-import checks cover current supported paths; they do not exercise
    every dormant upstream helper or establish resolver behavior on another platform.
    Run a controlled complete raw-neuron benchmark and build an executed release

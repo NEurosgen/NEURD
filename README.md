@@ -22,7 +22,7 @@ including string-dispatched axon queries, remain pending a reachability audit.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**19,343 physical Python lines across 29 core files**, including the raw export
+**19,379 physical Python lines across 30 core files**, including the raw export
 module moved from the batch runner. The runner shrinks from 982 to 500 lines;
 the package and runner together grow by 28 lines for imports, compatibility aliases
 and documentation. The earlier count describes the pre-refinement baseline.
@@ -234,6 +234,14 @@ H01 processing retains exact metrics and all 218 exported files; Minnie retains
 nine spines and 27 geometry/mask files. The H01 run exercises native MP; MAP and
 mixed routes are checked with controlled geometry providers. Evidence is in
 `artifacts/map_mp_boundary_cleanup_20261011/v1/`.
+
+Compatibility installation now lives in `neurd._bootstrap`; `__init__.py` shrinks
+from 503 to 48 lines while the core grows by 36 lines. The bootstrap cleanup passes
+**1,053 tests with one expected skip** and 19 initial-import comparisons against
+frozen prior code. The eight patches retain their bodies and installation order;
+set behavior flags before importing, using a fresh process to change them.
+Evidence is in `artifacts/bootstrap_cleanup_20261011/v1/`. This separation
+improves navigation and establishes no measured speed or memory improvement.
 
 | Export | Verified scope |
 |---|---|

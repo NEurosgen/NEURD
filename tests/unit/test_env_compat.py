@@ -1,4 +1,4 @@
-"""Smoke tests for the local-env shims in `neurd/__init__.py`.
+"""Smoke tests for the local-env shims activated by `import neurd`.
 
 These guard against regressions of Phase 3:
 - numpy>=2 compatibility (np.float_ restored as alias)

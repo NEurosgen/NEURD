@@ -44,7 +44,7 @@ path (its only caller was removed).
 - **Mesh segmentation by SDF.** Clustering faces by SDF via a CGAL MRF graph cut. The real C++
   `cgal_Segmentation_Module` (.so) is **restored** (`cgal/cgal_segmentation/`, see
   [cgal/README.md](cgal/README.md)); the KMeans stand-in `neurd/_cgal_segmentation.py` remains only as
-  a **fallback** when the .so is not built (`__init__.py` registers the stub only if the real module is
+  a **fallback** when the .so is not built (`_bootstrap.py` registers the stub only if the real module is
   absent). KMeans gave a coarse segmentation — acceptable for the soma, but **0 spines** — which is why
   real CGAL was brought back. **Code:** `tu.mesh_segmentation(mesh, clusters, smoothness)` → submeshes
   + a **per-segment SDF median**.
@@ -220,7 +220,15 @@ found, so the error stays late until the substantial fix lands.
 ## 3. The compat patches (numpy 2 / trimesh 4 / a dead meshlabserver)
 
 All of them live in `neurd/` (never upstream). Most are monkeypatches in
-[neurd/__init__.py](neurd/__init__.py), applied on `import neurd` (before `mesh_tools` is imported).
+[neurd/_bootstrap.py](neurd/_bootstrap.py), installed on the first `import neurd`.
+The order is NumPy aliases, `datasci_tools` compatibility, optional import stubs,
+CGAL fallback selection, Neo4j stub, then the registry and eight provider patches.
+CGAL selection precedes importing `mesh_tools`. Installed wrappers keep their
+deferred globals in the bootstrap module; `__init__.py` exposes the same registry
+and historical compatibility names alongside version and parameter entry points.
+Set behavior flags before the first import and use a fresh process to change them.
+Reloading the package does not reconfigure providers. `set_volume_params` continues
+to switch dataset parameters through `neurd.parameters`.
 **This is load-bearing — understand a patch's purpose before editing it.** Each registers into
 `neurd.PATCH_STATUS` and warns loudly if it fails to install; `tests/unit/test_perf_patches.py` asserts
 none of them silently regressed.
@@ -228,11 +236,11 @@ none of them silently regressed.
 | # | symptom | cause | fix (where) |
 |---|---|---|---|
 | 1 | `TypeError ... scalar index` (soma split) | trimesh≥4 `mesh.split()` returns a `list`, not an `ndarray` | `soma_extraction_utils.py`: `list(...)` + list comprehension |
-| 2 | Poisson does not run, no output file | `meshlab.Poisson` writes `<xmlfilter>` XML that MeshLabServer 2020.09 ignores | `__init__.py`: **superseded** — `Poisson.__call__` → in-process no-op (output = input), since the filter was a no-op on this build anyway; a real Poisson sits behind `NEURD_REAL_POISSON=1` |
-| 3 | `NameError: csm` (CGAL not installed) | the C++ `cgal_Segmentation_Module` is missing | **the real ext was restored** (`cgal/cgal_segmentation/`). `__init__.py` installs the `_cgal_segmentation.py` KMeans stub into `sys.modules` **only if** the .so is absent |
-| 4 | `scipy ValueError: axis 0 index ... exceeds` | the MeshLabServer 2020.09 OFF exporter writes compacted vertices but leaves faces in the original numbering | `__init__.py`: patch `Meshlab.fetch_mesh_from_off` (searchsorted renumbering) |
-| 5 | `ValueError: data_pts ... 2 dimensions` | newer pykdtree requires 2-D data, upstream builds trees from 1-D arrays | `__init__.py`: wrap `skeleton_utils.KDTree` (1-D → (N,1)) |
-| 6 | `numpy_dep has no attribute 'in1d'` | `np.in1d` was removed in numpy 2 | `__init__.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
+| 2 | Poisson does not run, no output file | `meshlab.Poisson` writes `<xmlfilter>` XML that MeshLabServer 2020.09 ignores | `_bootstrap.py`: **superseded** — `Poisson.__call__` → in-process no-op (output = input), since the filter was a no-op on this build anyway; a real Poisson sits behind `NEURD_REAL_POISSON=1` |
+| 3 | `NameError: csm` (CGAL not installed) | the C++ `cgal_Segmentation_Module` is missing | **the real ext was restored** (`cgal/cgal_segmentation/`). `_bootstrap.py` installs the `_cgal_segmentation.py` KMeans stub into `sys.modules` **only if** the .so is absent |
+| 4 | `scipy ValueError: axis 0 index ... exceeds` | the MeshLabServer 2020.09 OFF exporter writes compacted vertices but leaves faces in the original numbering | `_bootstrap.py`: patch `Meshlab.fetch_mesh_from_off` (searchsorted renumbering) |
+| 5 | `ValueError: data_pts ... 2 dimensions` | newer pykdtree requires 2-D data, upstream builds trees from 1-D arrays | `_bootstrap.py`: wrap `skeleton_utils.KDTree` (1-D → (N,1)) |
+| 6 | `numpy_dep has no attribute 'in1d'` | `np.in1d` was removed in numpy 2 | `_bootstrap.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
 | 7 | `NameError: calcification_param` (MAP path, thick branches) | the CGAL teasar skeletonizer (`calcification_param_Module`) was built inside Docker and vanished with it; `mesh_tools.skeleton_utils` imports it in a `try/except`, so the name is simply unbound | **not a stub but a real rebuild:** [cgal/cgal_skeleton_param/](cgal/cgal_skeleton_param/), sources from git, ported to CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Built best-effort by `install_local.sh`. Without it, only neurons with thick branches fail |
 
 There was also a historical guard for `IndexError ... size 1` in the multi-soma split
@@ -241,7 +249,7 @@ There was also a historical guard for `IndexError ... size 1` in the multi-soma 
 **Perf patches** (not bug fixes — in-process replacements of expensive `mesh_tools` nodes; numbers and
 rationale in [PERF.md](PERF.md)):
 
-| node | was | now (`__init__.py`) | effect |
+| node | was | now (`_bootstrap.py`) | effect |
 |---|---|---|---|
 | `meshlab.Poisson` | xvfb+meshlabserver subprocess (filter was a no-op) | in-process no-op; real behind `NEURD_REAL_POISSON=1` | −536 s |
 | `meshlab.FillHoles` | subprocess (also broken → no-op) | in-process pass-through | one less fork |
@@ -252,8 +260,8 @@ rationale in [PERF.md](PERF.md)):
 | trimesh `mesh._cache` | accumulates | `_drop_trimesh_caches` after segmentation + `_clear_mesh_caches` on branches | lowers the plateau |
 | soma→segment boundary | ~1.9 GB of garbage left resident | `_reclaim_memory` (`gc.collect` + `malloc_trim`) | **peak −33%** |
 
-> Bug roots are in `git log` for the relevant commits; this table is the what/where, so `__init__.py`
-> is readable. Patch #7 (the CGAL skeletonizer) is a separate C++ extension, not a monkeypatch — see
+> Bug roots are in `git log` for the relevant commits; this table describes each patch's purpose
+> and location. Patch #7 (the CGAL skeletonizer) is a separate C++ extension, not a monkeypatch — see
 > [cgal/README.md](cgal/README.md).
 > **Why perf fixes are monkeypatches rather than edits to mesh_tools:** `mesh_tools` is plain
 > site-packages, so edits are lost on reinstall (this already happened to the `.so` and to

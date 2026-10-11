@@ -42,8 +42,9 @@ thread settings when comparing historical measurements. The production fidelity 
 | memory reclaim at the soma→segment boundary | on (`_reclaim_memory`) | — |
 
 The public spine/refinement/ray settings are applied by `RunConfig`. Compatibility patches
-are installed by `neurd/__init__.py` and registered in `neurd.PATCH_STATUS`; failed patches
-warn. The runner fingerprints effective settings, behavior flags and native binaries for resume.
+are installed by `neurd/_bootstrap.py` on the first package import and registered
+in `neurd.PATCH_STATUS`; failed patches warn. The runner fingerprints effective
+settings, behavior flags and native binaries for resume.
 
 ---
 
@@ -59,7 +60,7 @@ are observations from their respective configurations, not additive release spee
 | CGAL SDF ray count 25 → 12 | big **−17.8%**; now the explicit fast profile, with a different sampling budget | `c4197ab`, `a06ef87` |
 | `tu.vertex_components` → owned scipy union-find | −205..219 s (−10%) | `a83d7c3` |
 | spine segment connectivity O(N²) → `submesh_ops.pieces_adjacency` | **−23%** on the 187 MB h01 | `cc81169` |
-| `get_matching_vertices` O(N²) distance matrix → `cKDTree.query_pairs` | −~250 s, ~25 GB less churn | patch in `__init__.py` |
+| `get_matching_vertices` O(N²) distance matrix → `cKDTree.query_pairs` | −~250 s, ~25 GB less churn | patch in `_bootstrap.py` |
 | `get_matching_vertices` skeleton path → `cKDTree.query_pairs` | O(N²) → O(N log N) | `a6d4f98` |
 | debug `compressed_pickle` dump-before-raise → no-op | −98 s (−4.6%) | `19de5c2` |
 | cascaded open3d decimation in halving steps | −25 s of 107 | `8409365` |
@@ -246,7 +247,7 @@ losing fidelity.
 
 Use an owned wrapper at explicit call sites when the contract can be isolated, as
 with `mesh_io.load_mesh`. Shared upstream seams can be intercepted in-process through
-`neurd/__init__.py`, with a reversible flag and an equivalence gate. That is how
+`neurd/_bootstrap.py`, with a reversible flag and an equivalence gate. That is how
 Poisson, FillHoles, Decimator, `vertex_components` and `get_matching_vertices` are
 handled. Keep durable changes in this repository rather than editing site-packages.
 
@@ -525,6 +526,22 @@ observation, metrics/export audits and overlaps other validation work. Unchanged
 native SDF stages also take longer than prior observations; the cause has not
 been established. These runs provide no controlled before/after speed or memory
 comparison, and this cleanup establishes no measured performance improvement.
+
+The bootstrap extraction passes **1,053 unit tests / one expected skip** and a
+19-case initial-import comparison. It retains the scientific patch bodies and
+installation order while reducing `__init__.py` from 503 to 48 lines; the core
+grows by 36 lines. Full raw H01 processing with 507,737 faces, seed zero, fast
+12-ray profile, spines enabled and refinement off retains 28 branches, 18 spines
+and 8,145 spine faces. All 218 exports match the preceding package byte for byte.
+This correctness observation records loading **0.588 s**, decomposition
+**157.799 s**, one public export **1.346 s**, observed total **160.548 s** and
+process lifetime peak RSS **1,324,535,808 bytes**. The run includes stage observation
+and metrics/export audits; it is not a repeated, isolated before/after benchmark.
+Its difference from earlier observations cannot be attributed to this extraction,
+which establishes no measured speed or memory improvement. Evidence:
+`artifacts/bootstrap_cleanup_20261011/v1/`.
+The separate Minnie native branch retains nine spines, nine volumes and all
+27 geometry/mask files; this is a branch control, not a full Minnie-neuron run.
 
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work

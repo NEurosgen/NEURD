@@ -1,6 +1,7 @@
 """The import-time perf/compat patches must actually install.
 
-`neurd/__init__.py` rewrites functions that live in `mesh_tools` / `datasci_tools`.
+`neurd._bootstrap`, activated by package import, rewrites functions that live in
+`mesh_tools` / `datasci_tools`.
 If one of those moves or is renamed upstream, the patch stops applying and *nothing
 breaks* -- the build still succeeds, just ~15 min slower on a big H01 neuron and
 without the OFF-renumber repair. That is the failure mode this file exists to catch.
@@ -25,7 +26,7 @@ skip_if_datasci_tools_unusable()
 
 import neurd  # noqa: E402
 
-# Every patch neurd/__init__.py is expected to register. Adding a patch without adding
+# Every patch the package bootstrap is expected to register. Adding a patch without adding
 # it here (or vice versa) fails test_registry_covers_exactly_the_known_patches.
 EXPECTED_PATCHES = {
     "poisson_noop",
@@ -76,7 +77,7 @@ def test_vertex_components_is_the_scipy_one():
     from mesh_tools import trimesh_utils as tu
     if neurd.PATCH_STATUS["vertex_components_scipy"] is None:
         pytest.skip("opted out via NEURD_LEGACY_VERTEX_COMPONENTS")
-    # the patch binds a closure defined in neurd/__init__.py that delegates to submesh_ops
+    # the patch binds a bootstrap function that delegates to submesh_ops
     assert tu.vertex_components.__module__.startswith("neurd"), (
         f"tu.vertex_components is {tu.vertex_components!r}, not the neurd scipy version -- "
         f"the ~205s networkx vertex-graph is back"

@@ -1,4 +1,4 @@
-"""numpy>=2 compatibility checks for the shim in `neurd/__init__.py`."""
+"""numpy>=2 compatibility checks for the shim activated by `import neurd`."""
 import numpy as np
 
 

@@ -14,7 +14,7 @@ query signatures and existing features are retained. Statistics and decompositio
 products support slim objects with explicit diagnostic/centroid controls;
 axon/dendrite classification and synapse enrichment still require a migration decision.
 
-**Size:** the current integration candidate has **29 Python files / 19,343 physical lines**
+**Size:** the current integration candidate has **30 Python files / 19,379 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Raw export now lives in the package rather than the runner, which shrinks
@@ -27,6 +27,11 @@ oracle. Full raw H01 preserves all 218 exported files; native coverage is MP,
 with MAP/mixed routes checked under controlled providers. The Minnie branch
 retains nine spines and 27 geometry/mask files. Evidence:
 `artifacts/map_mp_boundary_cleanup_20261011/v1/`.
+Bootstrap separation then reduces `__init__.py` from 503 to 48 lines and adds
+the 491-line `_bootstrap.py`, a net growth of 36 core lines. Its ordered patch
+bodies are retained. The complete suite passes 1,053 tests / one expected skip;
+22 new import contracts and a 19-case frozen-source comparison cover the move.
+Evidence: `artifacts/bootstrap_cleanup_20261011/v1/`.
 
 ## Environment and tests
 
@@ -41,7 +46,8 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 - **Fast gate** (`tests/unit/`): portable geometry, query/object, configuration and export contracts,
   core import smoke, `submesh_ops` `tu`-equivalence, the perf-patch registry, and the
   numpy-2 / mesh_tools compat shims. `tests/unit/__init__.py` imports
-  `neurd` first, which activates the shims in [neurd/__init__.py](neurd/__init__.py). It catches
+  `neurd` first, which activates [neurd/_bootstrap.py](neurd/_bootstrap.py) through the
+  package entry point. It catches
   syntax, import and isolated contract/equivalence regressions. A complete native
   decomposition is checked by the separate full-neuron gate.
 - **Full-decomposition gate** (`tests/tools/neuron_gate.py`) is the backstop for any core change: a
@@ -61,7 +67,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (29 files)
+## Module map (30 files)
 
 | module | LOC | purpose |
 |---|---|---|
@@ -72,7 +78,8 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 | [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
 | [neuron_searching.py](neurd/neuron_searching.py) | 696 | branch query system with string/callable features, grouped IDs, ordered pairs and dataframe results. One production call from `spine_utils`; legacy string-dispatched features retained |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 899 | soma identification |
-| [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
+| [__init__.py](neurd/__init__.py) | 48 | public version/parameter entry points and compatibility aliases; imports bootstrap first |
+| [_bootstrap.py](neurd/_bootstrap.py) | 491 | ordered compatibility shims and eight provider patches; owns shared `PATCH_STATUS` and deferred wrapper globals — see PIPELINE.md §3 |
 | [h01_batch.py](neurd/h01_batch.py) | 752 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
 | [batch_utils.py](neurd/batch_utils.py) | 135 | shared completion hashes/inventory, runtime/source fingerprints and exact geometry keys; stdlib-only module body, pinned standalone workers load their own sibling |
 | [neuron_export.py](neurd/neuron_export.py) | 510 | direct raw-neuron geometry, graph, masks and local provenance export; no worker supervision or completion publication |
@@ -97,9 +104,8 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 
 **Seam family** (`submesh_ops.py` / `_mesh_ops.py` / `_correspondence_backend.py` /
 `skeletal_distance_ops.py`): the NEURD-owned layer that isolates or replaces the fragile `mesh_tools`
-surface. Details in [MESH_OPS.md](MESH_OPS.md). Note that `neurd/__init__.py` is *also* a seam in
-practice — most of its lines are cross-library surgery — and it is the one a reader will not think to
-look in.
+surface. Details in [MESH_OPS.md](MESH_OPS.md). Package-level provider compatibility
+lives in `_bootstrap.py`, imported before public entry points are defined in `__init__.py`.
 
 **Entry points:** `segmentation_pipeline.py` is the public raw-neuron API.
 `neuron_export.save_segmentation` saves its result from Python or an installed package.
@@ -172,8 +178,9 @@ workarounds — hoisting them is open work, see [docs/notes/REFACTOR_PLAN.md](do
 - **Don't edit the upstream packages** (`datasci_tools`, `mesh_tools`, `meshparty`): they are plain
   site-packages, so edits vanish on reinstall. Fix by wrapping or patching inside `neurd/` — see
   PIPELINE.md §3.
-- **`neurd/__init__.py` is load-bearing.** Every patch block has its own reason, documented inline. If
-  you touch it, `tests/unit/test_perf_patches.py` must stay green — it asserts each patch installed.
+- **`neurd/_bootstrap.py` is load-bearing.** Every patch block has its own reason, documented inline.
+  Changes must preserve the initialization order, `PATCH_STATUS`, and installed wrappers' globals.
+  Keep `test_bootstrap_contract.py` and `test_perf_patches.py` green.
 
 ## Dependencies
 

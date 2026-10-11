@@ -114,6 +114,9 @@ def main(argv=None):
         parser.error('Output receipt must be separate from the input mesh')
     original_hash, original_stat = sha(mesh), file_metadata(mesh)
     code = [Path(__file__).resolve(), ROOT/'neurd/__init__.py']
+    bootstrap_source = ROOT/'neurd/_bootstrap.py'
+    if bootstrap_source.is_file():
+        code.append(bootstrap_source)
     owned_source = ROOT/'neurd/mesh_io.py'
     if not args.legacy_only and not owned_source.is_file():
         parser.error('Owned loader is unavailable; use --legacy-only to record the baseline')
