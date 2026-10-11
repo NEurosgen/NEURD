@@ -161,7 +161,8 @@ def _descriptor_configuration(data_type):
         "parameters": dict(params._data),
         "feature_names": list(FEATURE_NAMES),
         "environment": {name: os.environ.get(name) for name in (
-            "NEURD_SDF_RAYS", "NEURD_LEGACY_MESH_LOADER", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
+            "NEURD_SDF_RAYS", "NEURD_LEGACY_MESH_LOADER", "NEURD_LEGACY_CGAL_ASSEMBLY",
+            "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
             "NEURD_POISSON_BACKEND", "NEURD_POISSON_ITERS", "NEURD_OWNED_SKELETAL_DISTANCE",
             "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_NUM_THREADS")},
         "python": sys.version,

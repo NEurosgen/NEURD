@@ -13,6 +13,7 @@ import networkx as nx
 import pandas as pd
 from pathlib import Path
 from .spine_volume import mesh_volume as validated_spine_volume, estimate_mesh_volume
+from .cgal_labels import mesh_segmentation_labels, assemble_face_groups, phase as cgal_phase
 from scipy.spatial import KDTree
 try:
     import seaborn as sns
@@ -3235,14 +3236,12 @@ def split_mesh_into_spines_shaft(
     
 
     #print(f"plot_segmentation= {plot_segmentation}")
-    cgal_data,cgal_sdf_data = tu.mesh_segmentation(current_mesh,
+    cgal_data,cgal_sdf_data = mesh_segmentation_labels(current_mesh,
                                                   cgal_folder=cgal_folder,
                                                    clusters=clusters,
                                                    smoothness=smoothness,
                                                    return_sdf=True,
                                                    delete_temp_files=delete_temp_file,
-                                                   return_meshes=False,
-                                                   return_ordered_by_size=False,
                                                    plot_segmentation = plot_segmentation,
                                                   )
     
@@ -3252,8 +3251,7 @@ def split_mesh_into_spines_shaft(
         print(f"Counter of data = {Counter(cgal_data)}")
 
     #gets the meshes that are split using the cgal labels
-    split_meshes,split_meshes_idx = tu.split_mesh_into_face_groups(current_mesh,cgal_data,return_idx=True,
-                                   check_connect_comp = False)
+    split_meshes,split_meshes_idx = assemble_face_groups(current_mesh,cgal_data)
     
     
     
@@ -3283,10 +3281,11 @@ def split_mesh_into_spines_shaft(
     
     #return meshes
     
-    sh_idx = spu.restrict_meshes_to_shaft_meshes_without_coordinates(
-        meshes,
-        **kwargs
-    )
+    with cgal_phase("shaft_filter", groups=len(meshes)):
+        sh_idx = spu.restrict_meshes_to_shaft_meshes_without_coordinates(
+            meshes,
+            **kwargs
+        )
     
     shaft_meshes = [meshes[k] for k in sh_idx]
     shaft_meshes_idx = [split_meshes_idx[meshes_idx[k]] for k in sh_idx]

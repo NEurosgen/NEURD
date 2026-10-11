@@ -206,7 +206,8 @@ def test_timeout_removes_supervised_scratch_and_staging(raw_case, monkeypatch, n
         assert not raw_case[1].exists()
 
 
-@pytest.mark.parametrize('flag', ['NEURD_OWNED_SKELETAL_DISTANCE', 'NEURD_LEGACY_MESH_LOADER'])
+@pytest.mark.parametrize('flag', ['NEURD_OWNED_SKELETAL_DISTANCE', 'NEURD_LEGACY_MESH_LOADER',
+                                  'NEURD_LEGACY_CGAL_ASSEMBLY'])
 def test_behavior_flags_change_resume_hash_but_ambient_sdf_rays_do_not(monkeypatch, flag):
     monkeypatch.setattr(batch, 'dependency_signature', lambda: {})
     monkeypatch.delenv(flag, raising=False)

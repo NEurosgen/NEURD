@@ -280,6 +280,53 @@ handled. Keep durable changes in this repository rather than editing site-packag
   The corrected rule: **to move a peak you must not allocate the object, or reduce what coexists
   during its construction — freeing afterwards is useless.**
 
+## Spine label assembly, October 11 follow-up
+
+The installed labels-only `mesh_segmentation` path still constructed all segment
+meshes, discarded them, and let the spine caller construct them again. On a bounded
+synthetic 625-label case, the actual caller performed two assemblies taking about
+0.063 and 0.057 s. The owned `neurd/cgal_labels.py` seam preserves preparation,
+native arguments, CSV parsing, original-face remapping and temporary-file behavior,
+while constructing the required label meshes once. Its explicit assembly uses the
+same trimesh call and face order as the previous spine caller.
+
+`submesh_ops.face_groups_by_label` now uses one stable sort and group slices rather
+than `np.where(labels == label)` for each label. Three fresh interleaved trials on
+the same **synthetic 1,564,481-face / 22,167-label vector** gave:
+
+| Index grouping | Median seconds |
+|---|---:|
+| Previous per-label scan | 9.569 |
+| Stable grouping | 0.155 |
+
+All label groups, ordered face indices and input hashes matched exactly. This
+approximately **62×** result measures index grouping only. It excludes native
+segmentation, mesh construction and shaft/head filters, and does not demonstrate
+resolution of the historical 2,700-second timeout. The archived measured source
+and final source have identical executable ASTs; only the module scope docstring
+was updated to describe production use.
+
+Two compiled-provider per-face comparisons and the real Minnie65 positive branch
+matched labels/SDF, masks and volumes. Its sequential wall times were affected by
+concurrent work and are not performance evidence. The full raw H01 neuron
+`2530864375` also matched every metric exactly between the previous and owned
+assembly paths: 18 spines, 8,145 spine faces and the same actual-face-mask digest,
+with all invalid/ambiguous/overlap/volume counters zero. Both runs used seed 0,
+fast 12 rays, the same compiled provider and pinned threads (Numba 4; the recorded
+BLAS/OpenMP/NumExpr limits 1). Their single observed times, 394.844 and 235.075 s,
+are retained for traceability, not a whole-pipeline speedup claim; the first run
+overlapped unit validation. The initial sandboxed MeshLab failure is retained;
+both successful comparison runs used the same elevated execution profile. Use
+`NEURD_LEGACY_CGAL_ASSEMBLY=1` for the previous path. `NEURD_CGAL_TIMINGS=1` adds
+flushed begin/end records for Python preparation, native/CSV, explicit assembly
+and shaft filtering, alongside native timings. An unfinished begin record can
+identify the phase active when a worker is killed.
+
+Local receipts and reproducible bounded probes are in
+`artifacts/h01_correspondence_followup_20261011/v1/grouping_benchmark/` and
+`artifacts/h01_correspondence_followup_20261011/v1/timeout_review/`; the full-neuron
+comparison is in `artifacts/h01_correspondence_followup_20261011/v1/full_gate/`.
+
 ## GPU — honest assessment
 
 For a **single neuron** GPU offers little: the bottleneck is skeleton graphs and topology, not number

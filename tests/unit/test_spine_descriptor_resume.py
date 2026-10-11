@@ -206,15 +206,16 @@ def test_configuration_snapshot_tracks_dataset_rays_and_feature_order(monkeypatc
     assert first != extractor._descriptor_configuration("h01")
 
 
-def test_changing_mesh_loader_invalidates_descriptor_resume(completed, monkeypatch):
+@pytest.mark.parametrize("flag", ["NEURD_LEGACY_MESH_LOADER", "NEURD_LEGACY_CGAL_ASSEMBLY"])
+def test_changing_mesh_loader_invalidates_descriptor_resume(completed, monkeypatch, flag):
     mesh, desc, centroid, _ = completed
-    monkeypatch.delenv("NEURD_LEGACY_MESH_LOADER", raising=False)
+    monkeypatch.delenv(flag, raising=False)
     configuration = extractor._descriptor_configuration("h01")
-    assert configuration["environment"]["NEURD_LEGACY_MESH_LOADER"] is None
+    assert configuration["environment"][flag] is None
     extractor._publish_result(mesh, desc, centroid, np.load(desc), np.load(centroid),
                               quality_record(), "h01", configuration, extractor._sha256(mesh))
     assert extractor._completed_valid(mesh, desc, centroid, "h01", configuration)
-    monkeypatch.setenv("NEURD_LEGACY_MESH_LOADER", "1")
+    monkeypatch.setenv(flag, "1")
     changed = extractor._descriptor_configuration("h01")
     assert changed != configuration
     assert not extractor._completed_valid(mesh, desc, centroid, "h01", changed)
