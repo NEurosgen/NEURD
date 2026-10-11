@@ -4,7 +4,6 @@ from shutil import rmtree
 from typing import NamedTuple
 import os
 from pathlib import Path
-from scipy.spatial import KDTree
 import random
 import time
 import trimesh
@@ -61,11 +60,8 @@ def side_length_check(current_mesh,side_length_ratio_threshold=3):
 
 
 def largest_mesh_piece(msh):
-    mesh_splits_inner = list(msh.split(only_watertight=False))
-    total_mesh_split_lengths_inner = [len(k.faces) for k in mesh_splits_inner]
-    sort_idx = np.flip(np.argsort(total_mesh_split_lengths_inner)).tolist()
-    ordered_mesh_splits_inner = [mesh_splits_inner[i] for i in sort_idx]
-    return ordered_mesh_splits_inner[0]
+    """Return the first piece under the shared descending face-count ordering."""
+    return _ordered_splits(msh)[0]
 
 def soma_volume_ratio(current_mesh,
                      #watertight_method="fill_holes,
@@ -481,9 +477,9 @@ def _somas_from_mesh_piece(largest_mesh, p, poisson_obj, dec_inner, mesh_filenam
 def _ordered_splits(mesh):
     """Split `mesh` into connected pieces, largest (by face count) first.
 
-    Ties keep the `np.flip(np.argsort(...))` order the call sites used, which REVERSES
-    equal-sized pieces relative to the split order -- `sorted(reverse=True)` would keep
-    them, and that changes which piece a downstream `[0]` picks.
+    Preserve the exact `np.flip(np.argsort(...))` ordering at the call sites,
+    including NumPy's tie policy. Python's stable `sorted(reverse=True)` can
+    select a different first piece when face counts tie.
     """
     pieces = list(mesh.split(only_watertight=False))
     order = np.flip(np.argsort([len(m.faces) for m in pieces])).tolist()

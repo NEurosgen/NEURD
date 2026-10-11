@@ -131,7 +131,56 @@ def convert_limb_concept_network_to_neuron_skeleton(curr_concept_network,check_c
     if check_connected_component:
         sk.check_skeleton_one_component(full_skeleton)
     return full_skeleton
-    
+
+
+def get_soma_skeleton(current_neuron, soma_name):
+    """Join a soma center to each recorded starting coordinate of its limbs.
+
+    Neighbor and starting-coordinate order are preserved, including multiple
+    attachments from the same limb. These segments are virtual soma stitches;
+    the branch skeletons themselves remain unchanged.
+    """
+    graph = current_neuron.concept_network
+    limb_names = xu.get_neighbors(graph, soma_name, int_label=False)
+    soma_center = graph.nodes[soma_name]["data"].mesh_center
+    pieces = []
+    for limb_name in limb_names:
+        limb = graph.nodes[limb_name]["data"]
+        for data in limb.all_concept_network_data:
+            if f"S{data['starting_soma']}" == soma_name:
+                pieces.append(np.vstack([soma_center, data["starting_coordinate"]]).reshape(-1, 2, 3))
+    return sk.stack_skeletons(pieces)
+
+
+def get_whole_neuron_skeleton(current_neuron, check_connected_component=True,
+                             print_flag=False):
+    """Stack limb skeletons, then soma stitches, using the original API order.
+
+    Each limb is always checked for connectivity. ``check_connected_component``
+    additionally checks the combined neuron, as in the original implementation.
+    """
+    pieces = []
+    for limb_name in current_neuron.get_limb_node_names():
+        if print_flag:
+            print(f"\nWorking on limb: {limb_name}")
+        limb = current_neuron.concept_network.nodes[limb_name]["data"]
+        skeleton = limb.get_skeleton(check_connected_component=True)
+        if print_flag:
+            print(f"curr_limb_skeleton.shape = {skeleton.shape}")
+        pieces.append(skeleton)
+    for soma_name in current_neuron.get_soma_node_names():
+        if print_flag:
+            print(f"\nWorking on soma: {soma_name}")
+        skeleton = get_soma_skeleton(current_neuron, soma_name)
+        if print_flag:
+            print(f"for soma {soma_name}, curr_soma_skeleton.shape = {skeleton.shape}")
+        pieces.append(skeleton)
+    skeleton = sk.stack_skeletons(pieces)
+    if check_connected_component:
+        sk.check_skeleton_one_component(skeleton)
+    return skeleton
+
+
 def get_starting_info_from_concept_network(concept_networks):
     """
     Purpose: To turn a dictionary that maps the soma indexes to a concept map
@@ -1022,19 +1071,7 @@ def n_spines(neuron_obj,skeletal_length_max=None):
     else:
         if skeletal_length_max is not None:
             if not hasattr(neuron_obj,"spines_skeletal_length")  or len(neuron_obj.spines_skeletal_length) != len(neuron_obj.spines):
-#                 sk_len_array = []
-#                 for k in neuron_obj.spines:
-#                     try:
-#                         curr_skeletal_length = sk.calculate_skeleton_distance(sk.surface_skeleton(k))
-#                     except:
-#                         curr_skeletal_length = 0 
-                        
-#                     sk_len_array.append(curr_skeletal_length)
-#                 neuron_obj.spines_skeletal_length = np.array(sk_len_array)
-                
                 neuron_obj.spines_skeletal_length = calculate_spines_skeletal_length(neuron_obj)
-                                                                            
-                #neuron_obj.spines_skeletal_length = np.array([sk.calculate_skeleton_distance(sk.surface_skeleton(k)) for k in neuron_obj.spines])
             valid_spine_idx = np.where(np.array(neuron_obj.spines_skeletal_length)<skeletal_length_max)[0]
             return len(valid_spine_idx)
         else:
@@ -1657,9 +1694,6 @@ def clean_neuron_all_concept_network_data(neuron_obj,verbose=False):
         if verbose:
             print(f"curr_limb.all_concept_network_data = {curr_limb.all_concept_network_data}\n\n")
             
-#         neuron_obj[j] = curr_limb
-    
-#     return neuron_obj
 
 
 

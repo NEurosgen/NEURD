@@ -1,20 +1,5 @@
-'''
-
-
-
-Purpose: Module provides tools for helping to find the interesting branches
-and limbs according to the query and functions that you define
-
-** To create a limb function **
-Have it return either one singular value or a dictionary mapping the 
-branch idx to a 
-
-
-
-
-'''
+"""Evaluate branch and limb features and query neurons through dataframes."""
 import copy
-from copy import deepcopy
 import pandas as pd
 import re
 import sys
@@ -27,14 +12,7 @@ limb_function_append_name = "limb_ns"
 def convert_neuron_to_branches_dataframe(current_neuron,
                                         limbs_to_process=None,
                                         limb_branch_dict_restriction=None):
-    """axon_segment
-    Purpose: 
-    How to turn a concept map into a pandas table with only the limb_idx and node_idx
-    
-    Example: 
-    neuron_df = convert_neuron_to_branches_dataframe(current_neuron = recovered_neuron)
-    
-    """
+    """Return one dataframe row per selected limb and branch."""
     curr_concept_network = nru.return_concept_network(current_neuron)
     
     if limbs_to_process is None:
@@ -124,8 +102,6 @@ def n_boutons(branch,limb_name=None,branch_name=None,**kwargs):
     return nru.n_boutons(branch)
 
 
-    
-
 # ---------- new possible widths ----------------- #
 
 @run_options(run_type="Branch")
@@ -141,9 +117,6 @@ def no_spine_median_mesh_center(branch,limb_name=None,branch_name=None,**kwargs)
     return branch.width_new["no_spine_median_mesh_center"]
 
 # ---------- new possible widths ----------------- #
-
-
-
 
 
 @run_options(run_type="Branch")
@@ -165,20 +138,9 @@ def spine_density(branch,limb_name=None,branch_name=None,**kwargs):
 # ----------- working with different labels -----------------#
 
             
-
 @run_options(run_type="Branch")
 def labels(branch,limb_name=None,branch_name=None,**kwargs):
     return branch.labels
-
-
-
-
-
-
-
-
-
-        
 
 
 #------------------------------- Limb Functions ------------------------------------#
@@ -232,9 +194,6 @@ def limb_error_branches(curr_limb,limb_name=None,**kwargs):
     return dict([(k,k in error_nodes) for k in node_names])
 
 
-
-
-
 @run_options(run_type="Limb")
 def skeletal_distance_from_soma(curr_limb,
                     limb_name = None,
@@ -255,12 +214,6 @@ def skeletal_distance_from_soma(curr_limb,
                     **kwargs)
 
 
-
-
-
-
-    
-
 axon_width_like_functions_list = [
     "width",
     "median_mesh_center",
@@ -272,14 +225,7 @@ axon_width_like_functions_list = [
 ]
 
 
-
 # ------------- 1//22: Addition that accounts for newer higher fidelity spining --------- #
-
-
-
-
-
-
 
 
 # ------- 2/3: Will help flip dendrites back to axons (to help with axon identification) --------------- #
@@ -481,8 +427,6 @@ def flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name=None,
     return return_dict
     
 
-            
-
 #------------------------------- Creating the Data tables from the neuron and functions------------------------------
 def get_run_type(f):
     """
@@ -543,7 +487,6 @@ def apply_function_to_neuron(current_neuron,current_function,function_kwargs=Non
             print(f"Using the limb_branch_dict_restriction = {limb_branch_dict_restriction}")
         
     
-    
     function_mapping = dict([(limb_name,dict()) for limb_name in curr_limb_names if limb_name in limb_branch_dict_restriction.keys()])
 
     #curr_run_type = getattr(current_function,"run_type","Branch")
@@ -594,18 +537,7 @@ def apply_function_to_neuron(current_neuron,current_function,function_kwargs=Non
 
 
 def map_new_limb_node_value(current_df,mapping_dict,value_name):
-    """
-    To apply a dictionary to a neuron dataframe table
-    
-    mapping_dict = dict()
-    for x,y in zip(neuron_df["limb"].to_numpy(),neuron_df["node"].to_numpy()):
-        if x not in mapping_dict.keys():
-            mapping_dict[x]=dict()
-        mapping_dict[x][y] = np.random.randint(10)
-        
-    map_new_limb_node_value(neuron_df,mapping_dict,value_name="random_number")
-    neuron_df
-    """
+    """Add a dataframe column from a ``{limb: {branch: value}}`` mapping."""
     if len(current_df) > 0:
         current_df[value_name] = current_df.apply(lambda x: mapping_dict[x["limb"]][x["node"]], axis=1)
     return current_df
@@ -614,37 +546,10 @@ def generate_neuron_dataframe(current_neuron,
                               functions_list,
                               check_nans=True,
                               function_kwargs=dict()):
-    """
-    Purpose: With a neuron and a specified set of functions generate a dataframe
-    with the values computed
-    
-    Arguments:
-    current_neuron: Either a neuron object or the concept network of a neuron
-    functions_list: List of functions to process the limbs and branches of the concept network
-    check_nans : whether to check and raise an Exception if any nans in run
-    
-    Application: We will then later restrict using df.eval()
-    
-    Pseudocode: 
-    1) convert the functions_list to a list
-    2) Create a dataframe for the neuron
-    3) For each function:
-    a. get the dictionary mapping of limbs/branches to values
-    b. apply the values to the dataframe
-    4) return the dataframe
-    
-    Example: 
-    returned_df = generate_neuron_dataframe(recovered_neuron,functions_list=[
-    n_faces_branch,
-    width,
-    skeleton_distance_branch,
-    skeleton_distance_limb,
-    n_faces_limb,
-    merge_limbs,
-    limb_error_branches
-    ])
+    """Evaluate branch or limb features into a dataframe for querying.
 
-    returned_df[returned_df["merge_limbs"] == True]
+    Feature names become columns; ``function_kwargs`` can restrict limbs and
+    branches. With ``check_nans=True``, incomplete feature values raise.
     """
     
     if not nu.is_array_like(functions_list):
@@ -683,7 +588,6 @@ def generate_neuron_dataframe(current_neuron,
     
     #4) return the dataframe
     return curr_df
-
 
 
 # -------------------- Function that does full querying of neuron -------------------------- #
@@ -741,117 +645,22 @@ def query_neuron(
     plot_limb_branch_dict = False,
     check_nans = True,
     ):
-    """
-    *** to specify "limbs_to_process" to process just put in the function kwargs
-    
-    Purpose: Recieve a neuron object or concept map 
-    representing a neuron and apply the query
-    to find the releveant limbs, branches
-    
-    
-    Possible Ouptuts: 
-    1) filtered dataframe
-    2) A list of the [(limb_idx,branches)] ** default
-    3) A dictionary that makes limb_idx to the branches that apply (so just grouping them)
-    4) Just a list of the limbs
-    
-    Arguments
-    concept_network,
-    feature_functios, #the list of str/functions that specify what metrics want computed (so can use in query)
-    query, #df.query string that specifies how to filter for the desired branches/limbs
-    local_dict=dict(), #if any variables in the query string whose values can be loaded into query (variables need to start with @)
-    return_dataframe=False, #if just want the filtered dataframe
-    return_limbs=False, #just want limbs in query returned
-    return_limb_grouped_branches=True, #if want dictionary with keys as limbs and values as list of branches in the query
-    print_flag=True,
-    
-    
-    Example: 
-    from os import sys
-    sys.path.append("../../neurd_packages/meshAfterParty/meshAfterParty/")
-    from importlib import reload
-    
-    from datasci_tools import pandas_utils as pu
-    import pandas as pd
-    from pathlib import Path
-    
-    
-    compressed_neuron_path = Path("../test_neurons/test_objects/12345_2_soma_practice_decompress")
+    """Select branches using a pandas query over branch and limb features.
 
-    from neurd import neuron_utils as nru
-    nru = reload(nru)
-    from neurd import neuron
-    neuron=reload(neuron)
+    ``functions_list`` accepts callables and names from this module or branch
+    attributes. If omitted, feature names are extracted from ``query``.
+    ``query_variables_dict`` provides values referenced with ``@name``.
+    ``function_kwargs`` supplies feature arguments; the limb restrictions limit
+    which rows are evaluated.
 
-    from datasci_tools import system_utils as su
+    Returns a ``{limb: branch_indices}`` mapping by default. The dataframe flags
+    return feature rows before or after filtering; ``return_limbs`` returns
+    the matching limb names.
 
-    with su.suppress_stdout_stderr():
-        recovered_neuron = nru.decompress_neuron(filepath=compressed_neuron_path,
-                          original_mesh=compressed_neuron_path)
+    Example::
 
-    recovered_neuron
-    
-    ns = reload(ns)
-    nru = reload(nru)
-
-    list_of_faces = [1038,5763,7063,11405]
-    branch_threshold = 31000
-    current_query = "n_faces_branch in @list_of_faces or skeleton_distance_branch > @branch_threshold"
-    local_dict=dict(list_of_faces=list_of_faces,branch_threshold=branch_threshold)
-
-
-    functions_list=[
-    n_faces_branch,
-    "width",
-    skeleton_distance_branch,
-    skeleton_distance_limb,
-    "n_faces_limb",
-    merge_limbs,
-    limb_error_branches
-    ]
-
-    returned_output = query_neuron(recovered_neuron,
-                             functions_list,
-                              current_query,
-                              local_dict=local_dict,
-                              return_dataframe=False,
-                              return_limbs=False,
-                              return_limb_grouped_branches=True,
-                             print_flag=False)
-    
-    
-    
-    Example 2:  How to use the local dictionary with a list
-    
-    ns = reload(ns)
-
-    current_functions_list = [
-        "skeletal_distance_from_soma",
-        "no_spine_average_mesh_center",
-        "n_spines",
-        "n_faces_branch",
-
-    ]
-
-    function_kwargs=dict(somas=[0],print_flag=False)
-    query="skeletal_distance_from_soma > -1 and (limb in @limb_list)"
-    query_variables_dict = dict(limb_list=['L1','L2',"L3"])
-
-    limb_branch_dict_df = query_neuron(uncompressed_neuron,
-                                       query=query,
-                                          function_kwargs=function_kwargs,
-                                          query_variables_dict=query_variables_dict,
-                   functions_list=current_functions_list,
-                                      return_dataframe=True)
-
-    limb_branch_dict = query_neuron(uncompressed_neuron,
-                                       query=query,
-                   functions_list=current_functions_list,
-                                       query_variables_dict=query_variables_dict,
-                                       function_kwargs=function_kwargs,
-                                      return_dataframe=False)
-    
-    
+        query_neuron(neuron, "(width > @minimum) and (n_faces_branch > 100)",
+                     query_variables_dict={"minimum": 115})
     """
     if functions_list is None:
         functions_list = functions_list_from_query(query)
@@ -896,7 +705,6 @@ def query_neuron(
         print(f"final_feature_functions = {final_feature_functions}")
         
         
-    
     if limb_branch_dict_restriction is not None:
         function_kwargs["limb_branch_dict_restriction"] = limb_branch_dict_restriction
         
@@ -947,43 +755,6 @@ def query_neuron(
             return np.array([]).reshape(-1,2)
         
         
-
-
-
-
-
-
-
-# ----- 4/19 ---------------
-
-
-    
-
-
-
-
-
-#raise Exception("Need to fix all of the relational skeletal angles")
-
-
-
-
-
-# @run_options(run_type="Limb")
-# def n_downstream_nodes(curr_limb,limb_name=None,
-#                **kwargs):
-#     output_dict = dict()
-#     for b in curr_limb.get_branch_names():
-#         downstream_nodes = xu.downstream_nodes(curr_limb.concept_network_directional,b)
-#         output_dict[b] = len(downstream_nodes)
-        
-#     return output_dict
-
-
-
-
-
-
 @run_options(run_type="Limb")
 def skeletal_length_downstream(curr_limb,limb_name=None,
                **kwargs):
@@ -994,10 +765,6 @@ def skeletal_length_downstream(curr_limb,limb_name=None,
                                                 verbose=False)
         output_dict[b] = curr_value
     return output_dict
-
-
-
-
 
 
 def run_limb_function(limb_func,curr_limb,limb_name=None,
@@ -1022,32 +789,6 @@ def run_limb_function(limb_func,curr_limb,limb_name=None,
     return output_dict
 
 
-
-
-
-
-
-# ---------- 6/9: Synapse Features --------------#
-
-
-# ----------- 6/21: v6 statistics -----------
-
-# --------- 7/19: Helping with the new E/I classification --------
-
-
-
-# ------- functions for apical classification ---------#
-
-
-
-
-
-
-
-
-
-# ------------------ 2/9 autoproofredaing of human ---------
-
 @run_options(run_type="Branch")
 def closest_mesh_skeleton_dist(curr_branch,name=None,branch_name=None,**kwargs):
     return bu.closest_mesh_skeleton_dist(curr_branch)
@@ -1056,26 +797,14 @@ def closest_mesh_skeleton_dist(curr_branch,name=None,branch_name=None,**kwargs):
 def area(curr_branch,name=None,branch_name=None,**kwargs):
     return curr_branch.area
 
-# ------------- skeletal angles -------------
-
-
-# --- for better controlling stitching errors --
-
-
-
 #--- from neurd_packages ---
 from . import branch_utils as bu
 from . import neuron_utils as nru
-
-from . import width_utils as wu
 
 #--- from mesh_tools ---
 from mesh_tools import skeleton_utils as sk
 
 #--- from datasci_tools ---
-from datasci_tools import networkx_utils as xu
-from datasci_tools import numpy_dep as np
 from datasci_tools import numpy_utils as nu
 from datasci_tools import pandas_utils as pu
-from datasci_tools import system_utils as su
 

@@ -1129,11 +1129,6 @@ class Soma:
     def mesh_volume(self,**kwargs):
         return self.volume
 
-    #     Old defaul paramters   def __init__(
-    #     self,
-    #     mesh,
-
-    #     ):
 
 def _soma_piece_graph(soma_to_piece_connectivity):
     """The networkx graph that holds most of a Neuron's data, from soma connectivity."""
@@ -1378,12 +1373,14 @@ class Neuron:
         return np.sum([len(self.concept_network.nodes[li]["data"].concept_network.nodes()) for li in self.get_limb_node_names()])
 
     def get_skeleton(self,check_connected_component=True):
+        """Return the limb skeletons joined to their soma centers."""
         return nru.get_whole_neuron_skeleton(self,
                                  check_connected_component=check_connected_component)
 
-
-
-
+    @property
+    def skeleton(self):
+        """The complete skeleton, allowing disconnected limbs as in the original property."""
+        return self.get_skeleton(check_connected_component=False)
 
     def calculate_new_width(self,**kwargs):
         wu.calculate_new_width_for_neuron_obj(self,**kwargs)
@@ -1570,10 +1567,6 @@ class Neuron:
     @property
     def dendrite_mesh(self):
         return nru.dendrite_mesh(self)
-
-    @property
-    def axon_skeleton(self):
-        return nru.axon_skeleton(self)
 
     @property
     def axon_skeleton(self):

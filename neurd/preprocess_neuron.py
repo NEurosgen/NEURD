@@ -1249,13 +1249,16 @@ def _decide_next_limb_cfg(
 
     # 3. MAP pieces present -> final
     return None
-def _cycle_for_something(
+
+
+def _skeletonize_with_adaptive_invalidation(
     limb_mesh_mparty,
     root_curr,
     meshparty_segment_size,
     neuron_cfg,
     limb_cfg,
 ):
+    """Skeletonize once, then repeat at most once with revised limb parameters."""
     verbose = neuron_cfg.get("verbose", False)
 
     result = _run_skeletonization_pass(
@@ -1323,8 +1326,6 @@ def _resolve_mesh_connectivity(
     sublimb_meshes_MP,
     sublimb_meshes_MAP,
     limb_mesh_mparty,
-    sublimb_skeletons_MP,
-    sublimb_skeletons_MAP,
     connectivity_type,
 ):
     n_mp = len(sublimb_meshes_MP)
@@ -2517,16 +2518,10 @@ def _overwrite_stitched_entries(ctx):
         limb_correspondence_MP[MP_idx][curr_MP_leftover]["branch_skeleton"] = curr_MP_sk[curr_MP_leftover_idx]
 
 
-def _assemble_sublimbs(limb_correspondence):
-    """Combine each sublimb's branch meshes/skeletons into per-sublimb (meshes, skeletons) lists.
-
-    Order-preserving: mirrors the two identical Part-11 loops it replaces (byte-identical).
-    """
-    meshes, skeletons = [], []
-    for _sublimb_key, sublimb_v in limb_correspondence.items():
-        meshes.append(submesh_ops.combine([bv["branch_mesh"] for bv in sublimb_v.values()]))
-        skeletons.append(sk.stack_skeletons([bv["branch_skeleton"] for bv in sublimb_v.values()]))
-    return meshes, skeletons
+def _assemble_sublimb_meshes(limb_correspondence):
+    """Combine branch meshes in dictionary order for the connectivity check."""
+    return [submesh_ops.combine([branch["branch_mesh"] for branch in sublimb.values()])
+            for sublimb in limb_correspondence.values()]
 
 
 def _stitch_map_and_mp(
@@ -2544,15 +2539,13 @@ def _stitch_map_and_mp(
     # -------------(filtering connections to only MP to MAP edges)--------------- #
 
     # ---- Doing the mesh connectivity ---------#
-    sublimb_meshes_MP,  sublimb_skeletons_MP  = _assemble_sublimbs(limb_correspondence_MP)
-    sublimb_meshes_MAP, sublimb_skeletons_MAP = _assemble_sublimbs(limb_correspondence_MAP)
+    sublimb_meshes_MP = _assemble_sublimb_meshes(limb_correspondence_MP)
+    sublimb_meshes_MAP = _assemble_sublimb_meshes(limb_correspondence_MAP)
 
     mesh_conn, mesh_conn_vertex_groups, connectivity_type = _resolve_mesh_connectivity(
         sublimb_meshes_MP,
         sublimb_meshes_MAP,
         limb_mesh_mparty,
-        sublimb_skeletons_MP,
-        sublimb_skeletons_MAP,
         connectivity_type="edges",
     )
 
@@ -2764,7 +2757,7 @@ def preprocess_limb(
         divided_submeshes,
         divided_submeshes_idx,
         segment_widths_median,
-    ) = _cycle_for_something(
+    ) = _skeletonize_with_adaptive_invalidation(
         limb_mesh_mparty,
         root_curr,
         meshparty_segment_size=meshparty_segment_size,
@@ -3082,7 +3075,6 @@ def _stitch_floating_pieces(
     floating_meshes,
     limb_network_starts,
     soma_mesh,
-    params
 ):
     """
     Stitches the detached (floating) mesh pieces back onto the main skeleton.
@@ -3240,7 +3232,6 @@ def preprocess_neuron(
         floating_meshes,
         limb_network_starts,
         soma_mesh,
-        params
     )
 
     # FIX (class A): _stitch_floating_pieces leaves floating/cut branches in a foreign mesh frame.
