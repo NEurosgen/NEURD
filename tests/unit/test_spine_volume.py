@@ -88,19 +88,20 @@ def test_missing_dependency_is_not_a_geometric_fallback():
 
 
 def test_descriptor_resume_does_not_silently_mix_legacy_volumes(tmp_path):
-    import ast
+    import importlib.util
     source = Path(__file__).resolve().parents[2] / 'scripts' / 'extract_spine_descriptors.py'
-    tree = ast.parse(source.read_text())
-    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_gather_jobs')
-    namespace = {'Path': Path}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
+    spec = importlib.util.spec_from_file_location('spine_extractor_resume', source)
+    extractor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(extractor)
     incoming, outgoing = tmp_path / 'meshes', tmp_path / 'descriptors'
     incoming.mkdir(); outgoing.mkdir()
     (incoming / 'spine.off').write_text('placeholder')
     np.save(outgoing / 'spine.npy', np.array([123.0]))
     np.save(outgoing / 'spine_centroid.npy', np.zeros(3))
-    with pytest.raises(ValueError, match='Legacy descriptors'):
-        namespace['_gather_jobs'](incoming, outgoing, '*.off', False, False)
+    jobs, skipped, total = extractor._gather_jobs(
+        incoming, outgoing, '*.off', False, False, configuration={'data_type': 'microns'})
+    assert len(jobs) == 1 and skipped == 0 and total == 1
     assert np.load(outgoing / 'spine.npy')[0] == 123.0
-    jobs, skipped, total = namespace['_gather_jobs'](incoming, outgoing, '*.off', False, True)
+    jobs, skipped, total = extractor._gather_jobs(
+        incoming, outgoing, '*.off', False, True, configuration={'data_type': 'microns'})
     assert len(jobs) == 1 and skipped == 0 and total == 1

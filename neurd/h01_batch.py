@@ -38,7 +38,7 @@ def digest_json(data):
 
 def dependency_signature():
     versions = {}
-    for name in ('numpy','scipy','trimesh','networkx','meshparty','mesh-tools','datasci-tools'):
+    for name in ('numpy','scipy','trimesh','networkx','meshparty','mesh-processing-tools','datasci-stdlib-tools'):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -115,14 +115,79 @@ def coverage(vertices, segments, sample=2048):
 
 def graph_data(segments):
     import numpy as np
+    segments = np.asarray(segments, dtype=float)
+    if segments.ndim != 3 or segments.shape[1:] != (2,3) or not len(segments):
+        raise ValueError('Invalid or empty skeleton segments')
     if not np.isfinite(segments).all():
         raise ValueError('Nonfinite skeleton coordinates')
-    vertices, inverse = np.unique(np.asarray(segments).reshape(-1,3),axis=0,return_inverse=True)
+    vertices, inverse = np.unique(segments.reshape(-1,3),axis=0,return_inverse=True)
     edges = inverse.reshape(-1,2)
     if np.any(edges[:,0] == edges[:,1]):
         raise ValueError('Zero length skeleton edges')
     degree = np.bincount(edges.ravel(),minlength=len(vertices))
     return vertices, edges, degree
+
+
+def _landmark_topology(segments):
+    """Contract degree-2 paths, retaining exact landmark labels and multiedges.
+
+    Edge identities matter: sets would hide parallel paths and cycles returning
+    to the same landmark. Components with no landmarks are recorded separately;
+    anchoring conservatively rejects these cycles rather than inventing labels.
+    """
+    vertices, edges, degree = graph_data(segments)
+    adjacency = [[] for _ in vertices]
+    for edge_id, (a,b) in enumerate(edges):
+        adjacency[a].append(edge_id)
+        adjacency[b].append(edge_id)
+    component_count, seen_vertices = 0, set()
+    for start in range(len(vertices)):
+        if start in seen_vertices:
+            continue
+        component_count += 1
+        queue = [start]
+        seen_vertices.add(start)
+        while queue:
+            vertex = queue.pop()
+            for edge_id in adjacency[vertex]:
+                a,b = edges[edge_id]
+                neighbor = int(b if a == vertex else a)
+                if neighbor not in seen_vertices:
+                    seen_vertices.add(neighbor)
+                    queue.append(neighbor)
+    labels = {i:tuple(float(x) for x in point) for i,point in enumerate(vertices) if degree[i] != 2}
+    paths, used_edges = [], set()
+    for start in labels:
+        for edge_id in adjacency[start]:
+            if edge_id in used_edges:
+                continue
+            current = start
+            while True:
+                used_edges.add(edge_id)
+                a,b = edges[edge_id]
+                current = int(b if a == current else a)
+                if current in labels:
+                    paths.append(tuple(sorted((labels[start],labels[current]))))
+                    break
+                edge_id = next(i for i in adjacency[current] if i != edge_id)
+    unlabelled_cycles = 0
+    for first in range(len(edges)):
+        if first in used_edges:
+            continue
+        unlabelled_cycles += 1
+        queue = [first]
+        used_edges.add(first)
+        while queue:
+            edge_id = queue.pop()
+            for vertex in edges[edge_id]:
+                for neighbor in adjacency[vertex]:
+                    if neighbor not in used_edges:
+                        used_edges.add(neighbor)
+                        queue.append(neighbor)
+    return dict(landmarks=tuple((labels[i],int(degree[i])) for i in labels),
+                paths=tuple(sorted(paths)),components=component_count,
+                cycle_rank=len(edges)-len(vertices)+component_count,
+                unlabelled_cycles=unlabelled_cycles)
 
 
 def triangle_keys(mesh):
@@ -136,18 +201,19 @@ def triangle_keys(mesh):
 def anchor_skeleton(original, fresh, maximum_connector_nm=2000):
     """Prune a fresh tree to original graph landmarks, retaining exact positions.
 
-    Return None if an endpoint/junction lies far from the fresh axis, if the
-    fresh graph is disconnected/cyclic, or if any landmark degree changes.
+    Return None if an endpoint/junction lies far from the fresh axis, if either
+    graph is disconnected/cyclic, or if the labelled landmark topology changes.
     Geometry coverage is checked separately after anchoring, before acceptance.
     """
     import numpy as np
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-    old_v, old_e, old_d = graph_data(original)
-    verts, edges, _ = graph_data(fresh)
-    graph = coo_matrix((np.ones(len(edges)), (edges[:,0],edges[:,1])),shape=(len(verts),len(verts)))
-    if connected_components(graph,directed=False)[0] != 1 or len(edges) != len(verts)-1:
+    old_v, _, old_d = graph_data(original)
+    old_topology = _landmark_topology(original)
+    if old_topology['components'] != 1 or old_topology['cycle_rank'] != 0:
+        return None, 'original_graph_is_not_a_connected_tree'
+    fresh_topology = _landmark_topology(fresh)
+    if fresh_topology['components'] != 1 or fresh_topology['cycle_rank'] != 0:
         return None, 'fresh_axis_is_not_a_connected_tree'
+    verts, edges, _ = graph_data(fresh)
     landmarks = np.flatnonzero(old_d != 2)
     if len(landmarks) < 2:
         return None, 'no_original_graph_landmarks'
@@ -201,7 +267,9 @@ def anchor_skeleton(original, fresh, maximum_connector_nm=2000):
     if not kept:
         return None, 'anchoring_collapses_axis'
     result = np.asarray(verts)[np.asarray(kept)]
-    return result, 'exact_original_graph_landmarks_preserved'
+    if _landmark_topology(result) != old_topology:
+        return None, 'anchoring_changes_original_landmark_topology'
+    return result, 'exact_original_graph_landmark_topology_preserved'
 
 
 def repair_skeleton(parent, original, settings):
@@ -225,6 +293,9 @@ def repair_skeleton(parent, original, settings):
         if after['q95_nm'] >= .5*before['q95_nm'] or after['q95_nm'] > settings['coverage_q95_nm']:
             record.update(status='repair_rejected',reason='coverage_did_not_improve_sufficiently')
             return original, None, record
+        if not settings.get('allow_topological_replacement', False):
+            record.update(status='auxiliary_axis_only',reason='topological_replacement_disabled')
+            return original, fresh, record
         anchored, reason = anchor_skeleton(original,fresh,settings['maximum_connector_nm'])
         record['topology_reason'] = reason
         if anchored is not None:
@@ -246,12 +317,27 @@ def complete_valid(dest, run_hash, source_inputs):
     if not result_path.is_file():
         return False
     record = json.loads(result_path.read_text())
+    if not isinstance(record, dict):
+        raise ValueError(f'Malformed completion record: {result_path}')
     if record.get('status') != 'complete' or record.get('run_hash') != run_hash or record.get('inputs') != source_inputs:
         raise ValueError(f'Existing result has changed inputs or settings: {dest}')
-    for relative, expected in record['outputs_sha256'].items():
+    outputs = record.get('outputs_sha256')
+    if not isinstance(outputs, dict) or not outputs:
+        raise ValueError(f'Completion record requires a nonempty output hash map: {result_path}')
+    excluded = {'run.log', 'result.json'}
+    for relative, expected in outputs.items():
+        if (not isinstance(relative, str) or not relative or Path(relative).is_absolute()
+                or '..' in Path(relative).parts or Path(relative).name in excluded
+                or not isinstance(expected, str) or len(expected) != 64
+                or any(character not in '0123456789abcdef' for character in expected)):
+            raise ValueError(f'Malformed completed output hash entry: {result_path}')
         path = Path(dest)/relative
         if not path.is_file() or sha(path) != expected:
             raise ValueError(f'Completed output is missing or changed: {path}')
+    actual = {str(path.relative_to(dest)) for path in Path(dest).rglob('*')
+              if (path.is_file() or path.is_symlink()) and path.name not in excluded}
+    if set(outputs) != actual:
+        raise ValueError(f'Completed output hash inventory is incomplete or changed: {dest}')
     return True
 
 
@@ -456,6 +542,8 @@ def main(argv=None):
     parser.add_argument('--max-faces',type=int,default=2000000)
     parser.add_argument('--rays',type=int,default=25)
     parser.add_argument('--no-skeleton-repair',action='store_true')
+    parser.add_argument('--experimental-skeleton-replacement',action='store_true',
+                        help='Experimental: allow topology-preserving replacement of the exported skeleton')
     parser.add_argument('--auxiliary-heads',action='store_true',help='Experimental: use rebuilt axis for head completion')
     parser.add_argument('--worker')
     parser.add_argument('--staging',type=Path)
@@ -466,6 +554,8 @@ def main(argv=None):
         parser.error('--source and --config are required')
     if args.workers < 1 or args.timeout < 1 or args.max_faces < 1 or args.rays < 1 or (args.limit is not None and args.limit < 1):
         parser.error('Worker, timeout, face, ray and limit values must be positive')
+    if args.no_skeleton_repair and args.experimental_skeleton_replacement:
+        parser.error('--experimental-skeleton-replacement requires skeleton repair')
     source, output = separate_roots(args.source,args.output)
     output.mkdir(parents=True,exist_ok=True)
     with (output/'.lock').open('a') as lock:
@@ -481,7 +571,8 @@ def run(args,source,output):
     repo = Path(__file__).resolve().parents[1]
     code = {str(p.relative_to(repo)):sha(p) for p in (repo/'neurd').rglob('*') if p.is_file() and p.suffix in ('.py','.json')}
     settings = dict(source=str(source),refinement_config=config,sdf_rays=args.rays,maximum_parent_faces=args.max_faces,
-                    skeleton=dict(repair=not args.no_skeleton_repair,coverage_q95_nm=10000,
+                    skeleton=dict(repair=not args.no_skeleton_repair,
+                                  allow_topological_replacement=args.experimental_skeleton_replacement,coverage_q95_nm=10000,
                                   invalidation_d_nm=12000,maximum_connector_nm=2000,
                                   use_auxiliary_for_heads=args.auxiliary_heads),code_sha256=code,
                     dependencies=dependency_signature())

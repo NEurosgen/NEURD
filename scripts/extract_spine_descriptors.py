@@ -40,6 +40,9 @@ import time
 import shutil
 import tempfile
 import argparse
+import hashlib
+import importlib.metadata
+import importlib.util
 import warnings
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -93,6 +96,175 @@ FEATURE_NAMES = [
 
 # NEURD sentinel for "no head" -> stored as NaN in the .npy (cleaner for ML).
 _NO_HEAD_SENTINEL = -1
+
+# QC doubles as the completion marker. Older unversioned sidecars are rebuilt,
+# because file existence cannot establish which algorithm produced a vector.
+QUALITY_SCHEMA_VERSION = 1
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _quality_path(out_desc):
+    path = Path(out_desc)
+    return path.with_name(path.stem + "_volume_qc.json")
+
+
+def _descriptor_configuration(data_type):
+    """Snapshot settings and implementations that can affect descriptors.
+
+    Use a separate parameter object so inventory does not change the process's
+    active dataset. Worker processes apply the requested dataset themselves.
+    """
+    from neurd import parameters
+
+    params = parameters._Params()
+    params.use(data_type)
+    root = Path(__file__).resolve().parents[1]
+    source_files = [Path(__file__).resolve(), *sorted((root / "neurd").glob("*.py"))]
+    versions = {}
+    for name in ("numpy", "scipy", "trimesh", "networkx", "meshparty",
+                 "mesh-processing-tools", "datasci-stdlib-tools",
+                 "embreex", "pyembree", "rtree"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    provider = {}
+    # Head selection and width descriptors use the available ray intersector.
+    # Fingerprint its native modules as well as distribution versions, since a
+    # local rebuild need not change a package version. Calcification is recorded
+    # conservatively as an installed mesh-tools backend; the current descriptor
+    # skeletal-length path itself uses meshparty surface skeletons.
+    for name in ("cgal_Segmentation_Module", "calcification_param_Module", "mesh_tools",
+                 "embreex.rtcore", "embreex.rtcore_scene", "embreex.mesh_construction",
+                 "pyembree.rtcore", "pyembree.rtcore_scene", "pyembree.mesh_construction",
+                 "rtree.core"):
+        try:
+            spec = importlib.util.find_spec(name)
+        except (ImportError, ValueError, OSError):
+            spec = None
+        origin = getattr(spec, "origin", None) or getattr(sys.modules.get(name), "__file__", None)
+        provider[name] = {"path": origin, "sha256": _sha256(origin) if origin and Path(origin).is_file() else None}
+        if name == "mesh_tools" and origin:
+            for basename in ("mesh_utils.py", "trimesh_utils.py", "skeleton_utils.py", "meshparty_skeletonize.py"):
+                path = Path(origin).parent / basename
+                if path.is_file():
+                    provider[f"mesh_tools/{basename}"] = {"path": str(path), "sha256": _sha256(path)}
+    return {
+        "data_type": data_type,
+        "parameters": dict(params._data),
+        "feature_names": list(FEATURE_NAMES),
+        "environment": {name: os.environ.get(name) for name in (
+            "NEURD_SDF_RAYS", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
+            "NEURD_POISSON_BACKEND", "NEURD_POISSON_ITERS", "NEURD_OWNED_SKELETAL_DISTANCE",
+            "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_NUM_THREADS")},
+        "python": sys.version,
+        "code_sha256": {str(path.relative_to(root)): _sha256(path) for path in source_files},
+        "dependencies": versions,
+        "providers": provider,
+    }
+
+
+def _completed_valid(path, out_desc, out_centroid, data_type, configuration):
+    """Only skip a complete, matching record whose files still match hashes.
+
+    Missing, malformed and legacy records are queued for regeneration. In
+    particular, NaN volumes are valid scientific outputs when QC records the
+    failed closure; validity here concerns provenance, not a positive volume.
+    """
+    from neurd.spine_volume import VOLUME_ALGORITHM
+
+    try:
+        def invalid_constant(value):
+            raise ValueError(f"Nonfinite JSON constant: {value}")
+
+        quality = json.loads(_quality_path(out_desc).read_text(encoding="utf-8"), parse_constant=invalid_constant)
+        if not isinstance(quality, dict):
+            return False
+        if (type(quality.get("schema_version")) is not int
+                or quality.get("schema_version") != QUALITY_SCHEMA_VERSION
+                or quality.get("status") != "complete"
+                or quality.get("algorithm") != VOLUME_ALGORITHM
+                or quality.get("data_type") != data_type
+                or quality.get("configuration") != configuration
+                or quality.get("input_sha256") != _sha256(path)):
+            return False
+        outputs = quality.get("outputs_sha256")
+        if not isinstance(outputs, dict):
+            return False
+        expected_names = {Path(out_desc).name, Path(out_centroid).name}
+        if set(outputs) != expected_names:
+            return False
+        for output in (out_desc, out_centroid):
+            if outputs[Path(output).name] != _sha256(output):
+                return False
+        # A truncated sidecar must not turn an arbitrary vector into a result.
+        if not _quality_records_valid(quality, VOLUME_ALGORITHM):
+            return False
+        return True
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+def _quality_records_valid(quality, algorithm):
+    required = {"algorithm", "method", "valid", "volume_nm3", "input_watertight", "fallback_reason"}
+    for name in ("spine", "head", "neck"):
+        if name not in quality:
+            return False
+        report = quality[name]
+        if name == "head" and report is None:
+            continue
+        if (not isinstance(report, dict) or not required.issubset(report)
+                or report["algorithm"] != algorithm
+                or not isinstance(report["valid"], bool)):
+            return False
+    return True
+
+
+def _publish_result(path, out_desc, out_centroid, vector, centroid, quality,
+                    data_type, configuration, input_sha256):
+    """Stage both arrays, then atomically publish the QC completion marker.
+
+    Arrays have to keep their historical filenames. Their replacement is not
+    one atomic filesystem operation, so remove the previous marker first and
+    publish the new marker only after both arrays were replaced successfully.
+    """
+    import numpy as np
+    from neurd.spine_volume import VOLUME_ALGORITHM
+
+    if not _quality_records_valid(quality, VOLUME_ALGORITHM):
+        raise ValueError("Missing or incompatible spine/head/neck volume QC")
+    out_desc, out_centroid = Path(out_desc), Path(out_centroid)
+    out_desc.parent.mkdir(parents=True, exist_ok=True)
+    quality_path = _quality_path(out_desc)
+    staging = Path(tempfile.mkdtemp(prefix=".spine_result_", dir=out_desc.parent))
+    try:
+        staged_desc, staged_centroid = staging / out_desc.name, staging / out_centroid.name
+        np.save(staged_desc, vector)
+        np.save(staged_centroid, centroid)
+        record = dict(quality)
+        record.update(
+            schema_version=QUALITY_SCHEMA_VERSION, status="complete",
+            algorithm=VOLUME_ALGORITHM, data_type=data_type,
+            configuration=configuration, input_sha256=input_sha256,
+            outputs_sha256={out_desc.name: _sha256(staged_desc), out_centroid.name: _sha256(staged_centroid)},
+        )
+        staged_quality = staging / quality_path.name
+        staged_quality.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+        if _sha256(path) != input_sha256:
+            raise ValueError(f"Input mesh changed while descriptors were computed: {path}")
+        quality_path.unlink(missing_ok=True)
+        staged_desc.replace(out_desc)
+        staged_centroid.replace(out_centroid)
+        staged_quality.replace(quality_path)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _f(x):
@@ -219,24 +391,27 @@ def _compute_descriptors(path: str, *, with_quality=False):
 
 def _worker(args):
     """Runs in a separate process, in a private CWD for CGAL's sake."""
-    path, out_desc, out_centroid, data_type = args
-    import numpy as np
+    path, out_desc, out_centroid, data_type, *supplied_configuration = args
     from neurd import parameters
 
-    parameters.params.use(data_type)  # a no-op for head/neck, but set it honestly
+    parameters.params.use(data_type)
+    configuration = supplied_configuration[0] if supplied_configuration else _descriptor_configuration(data_type)
+    path = str(Path(path).resolve())
 
     prev_cwd = os.getcwd()
     tmp = tempfile.mkdtemp(prefix="spine_cgal_")
     try:
         os.chdir(tmp)  # CGAL writes temp files into "./" -> isolate them
         t0 = time.time()
+        if _descriptor_configuration(data_type) != configuration:
+            raise ValueError("Descriptor runtime changed after job planning")
+        input_sha256 = _sha256(path)
         vec, centroid, quality = _compute_descriptors(path, with_quality=True)
+        if _descriptor_configuration(data_type) != configuration:
+            raise ValueError("Descriptor runtime changed during computation")
         os.chdir(prev_cwd)  # restore BEFORE writing the result (out paths are absolute)
-        np.save(out_desc, vec)
-        np.save(out_centroid, centroid)
-        quality["data_type"] = data_type
-        quality_path = Path(out_desc).with_name(Path(out_desc).stem + "_volume_qc.json")
-        quality_path.write_text(json.dumps(quality, indent=2, allow_nan=False) + "\n")
+        _publish_result(path, out_desc, out_centroid, vec, centroid, quality,
+                        data_type, configuration, input_sha256)
         return (True, path, f"{time.time() - t0:.1f}s")
     except Exception as e:
         import traceback
@@ -250,7 +425,9 @@ def _worker(args):
 
 
 def _gather_jobs(input_dir: Path, output_dir: Path, pattern: str,
-                 recursive: bool, overwrite: bool):
+                 recursive: bool, overwrite: bool, *, data_type="microns", configuration=None):
+    if configuration is None:
+        configuration = _descriptor_configuration(data_type)
     files = sorted(input_dir.rglob(pattern) if recursive else input_dir.glob(pattern))
     jobs, skipped = [], 0
     for f in files:
@@ -261,14 +438,7 @@ def _gather_jobs(input_dir: Path, output_dir: Path, pattern: str,
         out_sub = output_dir / rel_parent
         out_desc = out_sub / f"{f.stem}.npy"
         out_centroid = out_sub / f"{f.stem}_centroid.npy"
-        if (not overwrite) and out_desc.exists() and out_centroid.exists():
-            quality_path = out_sub / f"{f.stem}_volume_qc.json"
-            if not quality_path.exists():
-                raise ValueError(
-                    f"Legacy descriptors without volume QC: {out_desc}. "
-                    "Use a new output directory for the revised volume algorithm; "
-                    "--overwrite is only for deliberate replacement after backup."
-                )
+        if not overwrite and _completed_valid(f, out_desc, out_centroid, data_type, configuration):
             skipped += 1
             continue
         out_sub.mkdir(parents=True, exist_ok=True)
@@ -287,9 +457,9 @@ def main():
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1,
                     help="number of processes (default = number of cores)")
     ap.add_argument("--data-type", choices=["microns", "h01"], default="microns",
-                    help="NEURD parameter set; no effect on head/neck (default microns)")
+                    help="NEURD parameter set (default microns)")
     ap.add_argument("--overwrite", action="store_true",
-                    help="recompute even if the .npy already exists")
+                    help="recompute even verified completed results; incomplete or mismatched results always recompute")
     args = ap.parse_args()
 
     input_dir = Path(args.input_dir).resolve()
@@ -303,8 +473,10 @@ def main():
     with open(output_dir / "feature_names.json", "w", encoding="utf-8") as fh:
         json.dump(FEATURE_NAMES, fh, ensure_ascii=False, indent=2)
 
+    configuration = _descriptor_configuration(args.data_type)
     jobs, skipped, n_found = _gather_jobs(
-        input_dir, output_dir, args.pattern, args.recursive, args.overwrite)
+        input_dir, output_dir, args.pattern, args.recursive, args.overwrite,
+        data_type=args.data_type, configuration=configuration)
 
     print(f"[i] input: {input_dir} (pattern={args.pattern}, recursive={args.recursive})")
     print(f"[i] meshes found: {n_found}, to process: {len(jobs)}, skipped (already done): {skipped}")
@@ -312,9 +484,9 @@ def main():
     print(f"[i] descriptors per vector: {len(FEATURE_NAMES)} -> {output_dir/'feature_names.json'}")
     if not jobs:
         print("[i] nothing to do.")
-        return
+        return 0
 
-    task_args = [(p, od, oc, args.data_type) for (p, od, oc) in jobs]
+    task_args = [(p, od, oc, args.data_type, configuration) for (p, od, oc) in jobs]
     failed_log = output_dir / "failed.txt"
     ok = fail = 0
     t0 = time.time()
@@ -336,7 +508,8 @@ def main():
     print(f"\nDone in {time.time() - t0:.1f}s. ok={ok}, fail={fail}, skipped={skipped}")
     if fail:
         print(f"[i] error details: {failed_log}")
+    return 1 if fail else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
