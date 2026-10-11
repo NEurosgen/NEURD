@@ -27,7 +27,7 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated | Define axon/synapse input schemas and migrate historical notebooks; clean installation |
+| Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated; external enrichment inputs and notebook migration documented | Clean installation; optional enrichment implementation requires verified annotation source/units/current geometry |
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
@@ -117,6 +117,15 @@ byte for byte; the separate Minnie branch retains nine spines and 27 geometry/ma
 files. The wheel contains 30 exact source modules and imports in isolation with
 compiled CGAL. These correctness gates establish no speed or memory gain and
 use the existing scientific/native environment.
+
+The subsequent [enrichment contract](../ENRICHMENT_CONTRACT.md) documents the
+inputs and limits of retained compartment/synapse hooks and migration of all four
+historical autoproof notebooks. Missing inputs remain distinct from inspected
+empty populations; unlabeled branches do not establish dendrites. Deleted axon
+classification helpers remain removed. This pass changes documentation only:
+runtime bytes, notebooks and CSVs are preserved, with bounded supplied-fixture
+probes and read-only audits in `artifacts/enrichment_contract_cleanup_20261011/v1/`.
+It does not repeat whole-neuron processing or establish performance/anatomical gains.
 
 The preceding readability cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
 Conditional real-label replays preserve all **460 arrays** across 61 plain and

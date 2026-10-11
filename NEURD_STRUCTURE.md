@@ -11,8 +11,11 @@ mesh + skeleton + raw spines). Downstream processing subsystems — autoproofrea
 connectome/motif/proximity, GNN and cloud/dataset adapters — are removed. Some legacy
 object properties and string-dispatched query helpers remain for compatibility; their
 query signatures and existing features are retained. Statistics and decomposition
-products support slim objects with explicit diagnostic/centroid controls;
-axon/dendrite classification and synapse enrichment still require a migration decision.
+products support slim objects with explicit diagnostic/centroid controls.
+The [optional enrichment contract](docs/ENRICHMENT_CONTRACT.md) specifies external
+classification maps and synapse-distance inputs, including unavailable legacy
+delegates and historical notebook migration. Annotation assignment remains outside
+the supported raw path.
 
 **Size:** the current integration candidate has **30 Python files / 19,379 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from

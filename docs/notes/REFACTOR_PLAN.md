@@ -146,22 +146,30 @@ The separate native Minnie branch retains nine spines, nine volumes and all
 from an isolated unpacked directory with the compiled provider. These checks use
 the existing dependencies; clean installation and controlled benchmarking remain.
 
+The [optional enrichment input contract](../ENRICHMENT_CONTRACT.md) now defines
+compartment maps, synapse pre/post views and supplied endpoint distances, units,
+geometry identity and missing versus inspected-empty data. It records unavailable
+delegates and migration of all four historical autoproof notebooks. Git history
+confirms the deliberate removal of the classifier and its mesh/length/area
+helpers; those algorithms remain removed. Sixteen bounded probes of existing
+consumers pass using tiny actual objects and supplied annotations. Runtime source,
+notebooks and CSVs are unchanged; no full-neuron processing was repeated.
+Evidence: `artifacts/enrichment_contract_cleanup_20261011/v1/`.
+
 ## Remaining work, in order
 
-1. Define the input schema for retained axon/dendrite and synapse hooks before
-   restoring aggregates or removing wrappers. Classification maps are unavailable
-   on slim objects; empty branch labels do not establish anatomical compartments.
-   The four shipped decomposition notebooks use historical enriched constructors
-   and require wider notebook migration. String dispatch and external notebooks
-   can still call retained features. Review the legacy spine count versus volume
-   population policy and mixed-unit fields as separate scientific changes. Keep
-   these optional enrichments outside the raw-path cleanup until their inputs and
-   migration are defined.
-2. Validate a clean dependency/native-provider installation before publishing.
+1. Validate a clean dependency/native-provider installation before publishing.
    The blocked-import checks cover current supported paths; they do not exercise
    every dormant upstream helper or establish resolver behavior on another platform.
    Run a controlled complete raw-neuron benchmark and build an executed release
    notebook with checksummed input, configuration, stage timings and peak memory.
+2. Optional enrichment migration requires a verified annotation source, units,
+   current branch/soma correspondence and an explicit storage/validation API using
+   the documented input contract. Preserve the four enriched tutorials as archives;
+   write a fresh raw example through the supported API. String dispatch and external
+   notebooks can still call retained hooks. Review mixed statistics units and legacy
+   spine count versus volume population policy as separate scientific changes.
+   This wider annotation workflow is outside the raw fork's publication scope.
 
 ## Working method
 

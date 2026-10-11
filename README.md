@@ -18,7 +18,11 @@ mesh (.off)  ->  Neuron
 The downstream subsystems — automated proofreading, multi-soma splitting, synapse assignment,
 cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GNN, the cloud and
 dataset adapters — **are removed**. Some legacy object properties and query helpers,
-including string-dispatched axon queries, remain pending a reachability audit.
+including string-dispatched axon queries, remain for historical callers. Their
+[external input requirements and current limits](docs/ENRICHMENT_CONTRACT.md)
+are explicit: raw segmentation supplies neither compartment classification nor
+synapse assignment. The four upstream autoproof notebooks remain historical
+examples of the wider framework.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains

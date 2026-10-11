@@ -268,3 +268,12 @@ rationale in [PERF.md](PERF.md)):
 > skeleton_utils patches); and it is 116 functions / 16.7k lines of core algorithms — replacing it means
 > rewriting NEURD. Intercepting nodes in-process is durable, reversible via an env flag, and
 > fidelity-neutral. Full rationale in [PERF.md](PERF.md).
+
+## 4. Optional external annotations
+
+Raw construction leaves compartment maps and synapse assignment unavailable.
+The [enrichment input contract](docs/ENRICHMENT_CONTRACT.md) documents the retained
+hooks, required external maps/distance records, units and historical notebook
+migration. Empty branch labels or default synapse containers do not establish
+anatomical labels or inspected-empty populations. Mesh/length/area compartment
+delegates remain unavailable after the classification helpers' intentional removal.
