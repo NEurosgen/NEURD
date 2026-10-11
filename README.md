@@ -22,7 +22,7 @@ including string-dispatched axon queries, remain pending a reachability audit.
 The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,800 physical Python lines across 28 core files**; the earlier count describes the
+**18,835 physical Python lines across 28 core files**; the earlier count describes the
 pre-refinement baseline.
 
 ## Why a fork
@@ -129,9 +129,30 @@ ordered `(limb, node)` rows, including shape `(0, 2)` for an empty result.
 voxels, pass `voxel_adjustment=True` and an explicit three-value
 `voxel_adjustment_vector` in nm per voxel. Centroid statistics containing both nm
 and voxel coordinates require this vector; a dataset-specific scale is not inferred.
-The legacy `neuron_stats` and `calculate_decomposition_products` analysis path still
-expects upstream diagnostics absent from the slim constructor; it needs migration
-before use. The supported segmentation/export path does not call it.
+For statistics on a slim neuron, explicitly omit upstream preprocessing diagnostics:
+
+```python
+summary = neuron.neuron_stats(include_upstream_diagnostics=False)
+products = neuron.calculate_decomposition_products(
+    include_upstream_diagnostics=False,
+    include_centroids=False,
+    store_in_obj=True,
+)
+```
+
+`stats_to_ignore` skips getters before evaluating them. The legacy default
+`include_upstream_diagnostics=True` requires the four original preprocessing
+diagnostic fields and preserves enriched-object statistics. `n_somas` counts the
+actual soma nodes. Decomposition keeps the `StageProducts` return type and merges
+into the decomposition stage when storage is requested, creating a missing
+`PipelineProducts` container after calculation succeeds. Skeleton features use S0
+as their soma reference, including on multi-soma objects. Centroid output contains
+nm and voxel coordinates: keep `include_centroids=True` only with an explicit
+`voxel_adjustment_vector`; otherwise use False as above. Each selected getter still
+requires its inputs, such as computed width entries; omit unavailable fields with
+`stats_to_ignore`. Decomposition requires S0 even with centroids disabled, so
+zero-soma decomposition is unsupported. Fields retain their mixed historical units
+and scalings. Volume-density helpers check their own length divisor before division.
 
 The raw runners, descriptor extractor and geometry gates use `neurd.mesh_io.load_mesh`.
 It reads plain triangular ASCII OFF files in bounded chunks, preserving float64
@@ -174,6 +195,15 @@ The following query/object API and dependency pass passes **881 tests with one
 expected skip**, with the three removed import roots blocked. Its evidence is in
 `artifacts/legacy_api_cleanup_20261011/v1/`; this is a separate package from the
 802-test readability pass above.
+
+The subsequent statistics/decomposition repair passes **958 tests with one
+expected skip** and preserves the native nine-spine Minnie control. A 66-case
+historical oracle verifies enriched summaries. The explicit API/storage controls
+add 35 core lines; this package establishes correctness, with no measured speed or
+memory gain. Its local evidence is in `artifacts/statistics_api_cleanup_20261011/v1/`.
+The full raw H01 control retains 28 branches and 18 spines with exact prior metrics
+and ordered masks; the new statistics and returned/stored decomposition products
+are also checked on that actual constructed object.
 
 | Export | Verified scope |
 |---|---|
@@ -243,7 +273,7 @@ NEURD_SPINE_BRANCH_MANIFEST=/path/to/fixture.json \
     pytest tests/integration/test_spine_branch_gate.py
 ```
 
-The last one is the real backstop for any change to the decomposition: a full build of the h01 anchor
+`tests/tools/neuron_gate.py` is the backstop for decomposition changes: a full build of the h01 anchor
 (~3.5 min) compared against a recorded baseline. **Use `--tolerance`** — the pipeline has one
 documented nondeterminism (`np.random.choice` in the waterfill), so exact comparison fails even on
 unchanged code. `tests/tools/` also holds the profiling harnesses (`benchmark_neuron.py`,

@@ -10,10 +10,11 @@ investigations + open plans).
 mesh + skeleton + raw spines). Downstream processing subsystems — autoproofreading, cell typing, synapse assignment,
 connectome/motif/proximity, GNN and cloud/dataset adapters — are removed. Some legacy
 object properties and string-dispatched query helpers remain for compatibility; their
-query signatures and existing features are retained; the remaining upstream
-analysis APIs need an explicit migration decision.
+query signatures and existing features are retained. Statistics and decomposition
+products support slim objects with explicit diagnostic/centroid controls;
+axon/dendrite classification and synapse enrichment still require a migration decision.
 
-**Size:** the current integration candidate has **28 Python files / 18,800 physical lines**
+**Size:** the current integration candidate has **28 Python files / 18,835 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Counts include comments and blank lines.
@@ -57,8 +58,8 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 |---|---|---|
 | [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3278 | mesh → limbs/branches with local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
 | [spine_utils.py](neurd/spine_utils.py) | 3367 | ordinary spine detection with named primary-refinement/final-filter stages, aligned result selection and scoped shaft paths; enabled by `RunConfig(calculate_spines=True)` |
-| [neuron_utils.py](neurd/neuron_utils.py) | 2644 | neuron queries/utilities, explicit-unit soma centers and historical soma-stitched whole skeleton API; an intra-package **sink** |
-| [neuron.py](neurd/neuron.py) | 1829 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; optional Branch origin metadata and nonrecursive optional stage-product delegation |
+| [neuron_utils.py](neurd/neuron_utils.py) | 2665 | neuron queries/utilities, explicit-unit soma centers, soma-stitched whole skeleton and controlled decomposition-product storage; an intra-package **sink** |
+| [neuron.py](neurd/neuron.py) | 1845 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; actual soma counts, explicit decomposition controls and nonrecursive optional stage-product delegation |
 | [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
 | [neuron_searching.py](neurd/neuron_searching.py) | 696 | branch query system with string/callable features, grouped IDs, ordered pairs and dataframe results. One production call from `spine_utils`; legacy string-dispatched features retained |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 899 | soma identification |
@@ -67,7 +68,7 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 | [batch_utils.py](neurd/batch_utils.py) | 135 | shared completion hashes/inventory, runtime/source fingerprints and exact geometry keys; stdlib-only module body, pinned standalone workers load their own sibling |
 | [submesh_ops.py](neurd/submesh_ops.py) | 458 | **owned** partition/provenance layer (`SubMesh`); stable label grouping without per-label full scans — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
-| [neuron_statistics.py](neurd/neuron_statistics.py) | 346 | skeleton/centroid statistics. Centroid conversion requires an explicit scale; legacy decomposition-product notebooks require migration, and the slim path does not call them |
+| [neuron_statistics.py](neurd/neuron_statistics.py) | 344 | ordered statistics with lazy exclusions and explicit upstream-diagnostic control; skeleton features and explicitly scaled voxel centroids |
 | [skeletal_distance_ops.py](neurd/skeletal_distance_ops.py) | 281 | owned correspondence/width kernel, behind `NEURD_OWNED_SKELETAL_DISTANCE` (off by default) |
 | [mesh_io.py](neurd/mesh_io.py) | 218 | bounded triangular ASCII OFF loading; exact coordinates and ordered faces |
 | [width_utils.py](neurd/width_utils.py) | 183 | branch surface-to-skeleton width measurements |

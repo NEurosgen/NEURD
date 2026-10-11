@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **28 Python files / 18,800 physical lines**, compared with 21 / 17,859
+The candidate core has **28 Python files / 18,835 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -25,7 +25,7 @@ still requires the production reachability work in Stage 7.
 | Package | Implemented | Remaining |
 |---|---|---|
 | Candidate and topology | Contracted labelled-graph comparison; connected-tree-only export replacement behind `--experimental-skeleton-replacement`; auxiliary axis remains separate | Independent anatomical audit of axis-assisted repairs |
-| Readability cleanup | Named spine stages, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/pair/empty-result and soma-unit contracts repaired; recursive missing-attribute lookup fixed; three unused runtime roots removed | Migrate legacy analysis/axon/synapse APIs; clean installation; separate raw export/bootstrap if justified |
+| Readability cleanup | Named spine stages, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected | Define axon/synapse input schemas and migrate historical notebooks; clean installation; separate raw export/bootstrap if justified |
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and clean native-provider installation |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
@@ -66,6 +66,22 @@ ordered branch IDs match exactly, with RNG unchanged. Soma centers match the ori
 mesh centers in nm. Removed import roots are neither requested nor loaded. The final
 wheel contains all 28 frozen modules and the reduced 15 direct runtime requirements;
 isolated unpacked-wheel import also passes with those roots blocked.
+
+The subsequent statistics/decomposition migration preserves enriched defaults and
+adds explicit controls for slim objects, lazy exclusions, graph soma counts and
+optional stage storage. Two density guards now check their actual divisor. The
+core grows by 35 lines to **18,835**; the default callback keyword order and
+existing positive-length formulas are preserved. The frozen-source suite passes
+**958 tests / 1 expected skip**, and the 66-case historical summary oracle matches
+ordered values and scalar types. Native Minnie retains nine spines, nine volumes
+and all 27 geometry/mask files exactly. Evidence is separate in
+`artifacts/statistics_api_cleanup_20261011/v1/`; these checks use the existing
+environment and do not establish comparative performance or clean installation.
+The full raw H01 control retains 1 soma, 5 limbs, 28 branches and 18 spines /
+8,145 faces, with exact prior metrics/masks and valid maps/origin journals.
+The same real object exercises diagnostic omission and exact returned/stored
+decomposition products and skeleton bytes, without supplied upstream diagnostics
+or inferred voxel calibration; geometry remains exact after statistics.
 
 The preceding readability cleanup's frozen-source checks pass **802 unit tests / 1 expected skip**.
 Conditional real-label replays preserve all **460 arrays** across 61 plain and

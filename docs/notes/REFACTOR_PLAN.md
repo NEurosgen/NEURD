@@ -62,15 +62,35 @@ feature rows agree on the actual 28-branch object, with RNG unchanged. The built
 wheel matches frozen module bytes and current requirements and imports from an
 isolated unpacked directory with the three removed roots blocked.
 
+The supported statistics/decomposition pass now restores graph-derived soma counts,
+lazy statistic exclusions and explicit `include_upstream_diagnostics` controls.
+Enriched defaults preserve their ordered values and types. Decomposition accepts
+an explicit voxel scale or `include_centroids=False`, and creates a missing stage
+container only after successful calculation when storage is requested. Historical
+callback argument order and strict default keyword sets remain compatible. The two
+volume-density guards now check their own actual length divisor; all positive-length
+formulas and counting/volume policies remain unchanged. This bounded API repair adds
+35 core lines (**18,800 → 18,835**); it does not claim a size reduction or performance
+gain. Evidence lives in `artifacts/statistics_api_cleanup_20261011/v1/`.
+The portable suite passes **958 tests / 1 expected skip** with the removed import
+roots blocked. A 66-case historical oracle preserves enriched summaries; 77 new
+portable cases cover exclusions, diagnostic controls, decomposition/storage and
+the density edge cases. The native Minnie branch retains all nine spines and
+27 geometry/mask files exactly against the preceding package.
+The full raw H01 control retains exact prior metrics (18 spines / 8,145 faces)
+and all 28 branch maps/origin journals. Actual-object statistics omit unavailable
+diagnostics, and returned/stored decomposition products and skeleton bytes agree
+without inferring voxel calibration. Geometry metrics remain exact after the audit.
+
 ## Remaining work, in order
 
-1. Migrate or explicitly retire legacy `neuron_stats`/
-   `calculate_decomposition_products` and axon/synapse hooks. The shipped upstream
-   notebooks contain actual decomposition-product calls, while the slim constructor
-   does not provide their diagnostic fields or stage-product initialization.
-   Do not invent zero diagnostic counts or infer voxel scales. String dispatch and
-   external notebooks can still call retained features; preserve compatibility until
-   a replacement/migration is decided.
+1. Define the input schema for retained axon/dendrite and synapse hooks before
+   restoring aggregates or removing wrappers. Classification maps are unavailable
+   on slim objects; empty branch labels do not establish anatomical compartments.
+   The four shipped decomposition notebooks use historical enriched constructors
+   and require wider notebook migration. String dispatch and external notebooks
+   can still call retained features. Review the legacy spine count versus volume
+   population policy and mixed-unit fields as separate scientific changes.
 2. Separate raw export from process supervision if the current shared helpers
    are insufficient. Keep the CLI compatible; avoid another generic executor.
 3. Clarify the MAP/MP stage result structures and resolve settings at clear stage

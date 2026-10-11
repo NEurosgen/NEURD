@@ -485,6 +485,22 @@ before/after speed or memory result. The installed-metadata graph reduction
 **210 → 192** is a potential dependency closure change, not a measured installation
 size. Evidence is in `artifacts/legacy_api_cleanup_20261011/v1/`.
 
+The following statistics/decomposition API repair passes **958 unit tests / 1
+expected skip** on 104 frozen source/test files. It adds explicit input/storage
+controls and corrects two zero-length density guards; the 66-case historical
+summary oracle preserves ordinary enriched results and scalar types. Its native
+Minnie control retains nine spines and all 27 geometry/mask files exactly.
+The core grows by 35 physical lines (**18,800 → 18,835**) to support the repaired
+API. These are correctness checks; no new time, memory or installation-size
+improvement is measured. Evidence is in
+`artifacts/statistics_api_cleanup_20261011/v1/`.
+Its full raw H01 control also preserves all prior metrics and 28 supplied maps,
+and exercises returned/stored products on the actual object. The first sandboxed
+attempt failed in external MeshLab filters; the same frozen source passed after
+external-process escalation, using the authenticated prior CGAL binary. The final
+run includes extra summary/storage audits, so its recorded durations and RSS are
+correctness observations without a controlled performance comparison.
+
 The large retry's 1,233.340-second native SDF is still the largest observed stage.
 The new traces should guide the next CPU change; surface-skeleton length work
 must preserve sampling/RNG behavior, and native changes need per-face gates.
