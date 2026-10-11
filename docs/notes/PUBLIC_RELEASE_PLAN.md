@@ -30,7 +30,7 @@ still requires the production reachability work in Stage 7.
 | Readability cleanup | Named spine and MAP/MP stage results, shared completion/provenance, historical whole-skeleton API, dead allocation/model removal and Markdown packaging; query/soma contracts repaired; three unused runtime roots removed; statistics/decomposition controls and graph soma counts restored; density divisor guards corrected; raw export separated from supervision; ordered bootstrap isolated; external enrichment inputs and notebook migration documented; fresh constrained installation checked | Optional enrichment implementation requires verified annotation source/units/current geometry |
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; installed-package geometry saver with legacy runner aliases; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup; both native providers built in a fresh Python environment | Installed console commands and standalone native/provider distribution |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
-| Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts; exact full H01/Minnie checks in a fresh constrained Python environment | Portable downloadable fixtures and required native CI job; controlled whole-neuron benchmark and executed release notebook |
+| Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts; exact full H01/Minnie checks in a fresh constrained Python environment; controlled full-H01 comparison and executed release notebook | Portable downloadable fixtures and required native CI job; profiling the observed construction-time difference and additional whole-neuron coverage |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
 | OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
 | Spine label assembly and post-CGAL work | Narrow labels/SDF seam and stable grouping; nested post-CGAL traces; guarded exact shaft paths; accepted-mesh volume-quality handoff; separate timeout retry strictly complete with 300 spines / 286,839 faces | Measure remaining length/refinement/native costs on a bounded workload; no total-speed claim or anatomical validation |
@@ -46,8 +46,13 @@ installation changed geometry; the successful versions are recorded in 207 const
 Both attempts and diagnostics are frozen separately under
 `artifacts/clean_install_validation_20261012/`. This establishes computational
 equivalence for the constrained profile, with no new comparative performance claim.
-The next package is the controlled benchmark and executed release notebook;
-portable fixtures and required native CI follow before public reproduction claims.
+The controlled benchmark and executed [H01 notebook](../../examples/h01_single_neuron.ipynb)
+are now available. Three measured pairs against `e2fb11026` observe 34.6% faster
+loading, but 213.38 → 227.16 s complete processing and 1.4% higher worker peak RSS.
+All eight benchmark passes and the notebook preserve the scientific outputs;
+the candidate adds 84 provenance files. [BENCHMARKING.md](../BENCHMARKING.md)
+records exact scopes, limits and reproduction commands. Profiling construction,
+portable fixtures and required native CI remain before broader release claims.
 
 The subsequent readability package reduces the core from **19,275 to 18,903
 physical lines** while adding a shared batch module and restoring supported skeleton

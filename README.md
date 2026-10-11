@@ -37,7 +37,7 @@ Upstream NEURD is a full analysis framework built around its Docker image. This 
 narrower question — *segment one neuron mesh, quickly, on a plain local env* — which makes tradeoffs
 available that the general framework cannot take: exactly one soma with no glia or nuclei, no
 downstream stages, and permission to replace expensive-but-inconsequential steps with in-process
-equivalents. Measured on a 166 MB / 3.27 M-face H01 neuron, peak RAM went **4842 → 3226 MB (−33%)**
+equivalents. Historical measurements on a 166 MB / 3.27 M-face H01 neuron found peak RAM **4842 → 3226 MB (−33%)**
 and several independent wall-time levers landed — details and numbers in [PERF.md](PERF.md).
 
 It also runs without Docker on numpy 2 / trimesh 4, which upstream does not.
@@ -141,6 +141,12 @@ for limb in neuron.limbs:
 
 save_segmentation(neuron, Path("output/neuron_123"))
 ```
+
+The [whole-H01 notebook](examples/h01_single_neuron.ipynb) demonstrates raw mesh
+processing, export, geometry/spine metrics and a neuron preview. The
+[controlled comparison](docs/BENCHMARKING.md) records three before/after pairs:
+loading improves on this case, while the complete workflow is 6.5% slower. It
+compares recent integration changes and keeps earlier historical gains separate.
 
 `import neurd` must come first: it installs the numpy-2 / meshlab / CGAL shims that `datasci_tools`
 and `mesh_tools` need, plus the perf patches.

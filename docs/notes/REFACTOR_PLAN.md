@@ -166,12 +166,20 @@ the final 207-entry constraints file records the successful dependency versions.
 Runtime algorithm source is unchanged. See [installation scope](../INSTALLATION.md)
 for the existing native-toolchain requirement, local fixtures and timing limits.
 
+The controlled benchmark and executed [whole-H01 notebook](../../examples/h01_single_neuron.ipynb)
+are now complete. Eight full benchmark passes and a separate notebook pass preserve
+geometry and exports. Three measured pairs against `e2fb11026` observe faster
+loading, but 213.38 → 227.16 s total and 1.139 → 1.155 GiB worker peak RSS.
+This records a scoped performance limit; see [the protocol and results](../BENCHMARKING.md).
+The 13 new harness tests pass. Core runtime source remains unchanged in this package.
+
 ## Remaining work, in order
 
-1. Run a controlled complete raw-neuron benchmark and build an executed release
-   notebook with checksummed input, configuration, stage timings and peak memory.
-   Separate cold/JIT setup from repeated processing and compare identical dependency
-   profiles, native providers, thread limits and outputs without concurrent gates.
+1. Profile construction under the recorded benchmark protocol to locate the
+   observed time difference before selecting another optimization. Validate any
+   proposed change with exact ordered outputs, then measure another whole-neuron
+   input before making broader performance claims. Keep first-use/JIT observations
+   separate from repeated processing.
 2. Provide portable fixtures/data acquisition and a required native CI job. The fresh
    installation covers the populated local checkout on Linux/Python 3.12; other
    interpreters/platforms and dormant upstream helpers remain outside that check.

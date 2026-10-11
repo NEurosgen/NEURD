@@ -23,6 +23,50 @@ thread settings when comparing historical measurements. The production fidelity 
 
 ---
 
+## Controlled whole H01 comparison, 2026-10-12
+
+The complete 507,737-face H01 anchor was processed with spines, refinement off,
+12 rays and seed 0. Baseline `e2fb11026` and runtime candidate `4b7fa78d9` use the
+same constrained scientific installation and native binaries. This comparison
+covers changes after the integration candidate; earlier fork optimizations and
+the buffered native writer are already present in both versions.
+
+One excluded setup run per version precedes three alternating fresh-process
+pairs, with separate persistent Numba caches, one numerical thread and affinity
+to CPU 2 of an Intel Core Ultra 9 285H. No benchmark runs overlap. Import/setup
+and post-processing QC are outside the processing total; kernel peak RSS is
+captured through export before QC. The dynamic CPU governor is unchanged.
+
+| Median over three runs | Baseline | Candidate |
+|---|---:|---:|
+| Input load | 2.135 s | 1.397 s |
+| Complete construction | 210.153 s | 224.298 s |
+| Export | 1.203 s | 1.434 s |
+| Load + construction + export | 213.383 s | 227.159 s |
+| Processing range | 207.306–221.653 s | 219.456–228.367 s |
+| Python worker peak RSS | 1.139 GiB | 1.155 GiB |
+| Sampled worker + descendants peak RSS | 1.302 GiB | 1.331 GiB |
+
+Loading is **34.6% faster**, while the whole workflow is **6.5% slower** and median
+worker peak RSS is **1.4% higher** on this case. The candidate exports 218 files
+instead of 134, adding 84 provenance records; that explains different export
+obligations but does not isolate the larger construction-time difference.
+The timing ranges overlap. These three pairs establish the observations for this
+neuron and machine, without a general speed or memory gain.
+
+All eight setup/measured runs retain one soma, five limbs, 28 branches and
+18 spines / 8,145 faces. Exact ordered meshes, skeletons, masks, widths and volumes
+match. Independent export reload also checks original dtype/shape/bytes, NPZ
+order and all new provenance maps. The raw case exercises MP; native MAP remains
+a separate generated-mesh check.
+
+See [the protocol and reproduction commands](docs/BENCHMARKING.md) and the
+[portable raw-trial summary](examples/h01_benchmark_summary.json). Local full
+receipts are frozen under `artifacts/controlled_pipeline_benchmark_20261012/v1/`.
+The next performance task is to profile construction using this same protocol,
+then test another whole-neuron input before choosing a new optimization or
+making broader claims.
+
 ## Current defaults
 
 | node | default | switch |
