@@ -5,6 +5,11 @@ The convex-hull fallback is a geometric approximation, not recovered anatomy.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+import hashlib
+import json
+from types import MappingProxyType
+
 import numpy as np
 
 VOLUME_ALGORITHM = "centered_strict_closure_v1"
@@ -95,3 +100,63 @@ def mesh_volume(mesh):
     """Scalar adapter for whole-spine and compartment descriptor code."""
     report = estimate_mesh_volume(mesh)
     return report["volume_nm3"] if report["valid"] else float("nan")
+
+
+@dataclass(frozen=True)
+class VolumeQualityRecord:
+    """Process-local handoff for the same ordered in-memory accepted geometry.
+
+    The retained mesh reference proves identity; the digest detects mutation.
+    This record cannot replace an independent validation of rounded OFF data.
+    """
+    mesh: object
+    geometry_sha256: str
+    quality: object
+    scope: str = "in_memory_before_off_rounding"
+
+
+def mesh_geometry_digest(mesh):
+    """Hash ordered vertices/faces with dtype/shape using bounded scratch."""
+    digest = hashlib.sha256()
+    if mesh is None:
+        digest.update(b"missing_mesh")
+        return digest.hexdigest()
+    for name in ("vertices", "faces"):
+        array = np.asarray(getattr(mesh, name))
+        if array.dtype.hasobject:
+            raise ValueError("Geometry digest requires numerical arrays")
+        digest.update(json.dumps(dict(name=name, dtype=array.dtype.str,
+                                      shape=list(array.shape)), sort_keys=True).encode())
+        if array.size == 0:
+            continue
+        if array.flags.c_contiguous:
+            view = memoryview(array).cast("B")
+            for offset in range(0, len(view), 1024 * 1024):
+                digest.update(view[offset:offset + 1024 * 1024])
+        else:
+            # Trimesh arrays are normally contiguous. This fallback preserves
+            # the same C-order bytes, copying at most 8192 rows per chunk.
+            for offset in range(0, len(array), 8192):
+                digest.update(memoryview(np.ascontiguousarray(array[offset:offset + 8192])).cast("B"))
+    return digest.hexdigest()
+
+
+def mesh_volume_with_quality(mesh):
+    """Run the identical estimator once and retain its exact scalar/report."""
+    report = estimate_mesh_volume(mesh)
+    scalar = report["volume_nm3"] if report["valid"] else float("nan")
+    record = VolumeQualityRecord(mesh, mesh_geometry_digest(mesh), MappingProxyType(dict(report)))
+    return scalar, record
+
+
+def reuse_volume_quality(record, mesh):
+    """Reject unavailable, different-object or stale-geometry handoffs."""
+    if not isinstance(record, VolumeQualityRecord) or record.mesh is not mesh:
+        raise ValueError("Volume quality record does not reference the accepted mesh")
+    if mesh_geometry_digest(mesh) != record.geometry_sha256:
+        raise ValueError("Accepted mesh geometry changed since volume validation")
+    if record.scope != "in_memory_before_off_rounding":
+        raise ValueError("Volume quality record does not describe the accepted in-memory geometry")
+    if record.quality.get("algorithm") != VOLUME_ALGORITHM:
+        raise ValueError("Volume quality algorithm differs from the current estimator")
+    return dict(record.quality)

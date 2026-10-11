@@ -457,6 +457,8 @@ def branch_worker(output, key, staging):
     from neurd.mesh_io import load_mesh
     from neurd.run_config import RunConfig, runtime_environment
     from neurd import parameters, spine_utils as spu
+    from neurd.cgal_labels import phase as cgal_phase
+    from neurd.spine_volume import reuse_volume_quality
     import cgal_Segmentation_Module as csm
     np.random.seed(0)
     if Path(csm.__file__).suffix != '.so':
@@ -487,7 +489,7 @@ def branch_worker(output, key, staging):
     os.environ['NEURD_SDF_RAYS'] = str(manifest['sdf_rays'])
     soma = source_inputs.get('soma')
     soma_vertices = load_mesh(soma['path']).vertices if soma else None
-    diagnostics, masks = {}, []
+    diagnostics, masks, volume_quality = {}, [], []
     eligibility = dict(eligible=True,reason='previously_spine_positive')
     if row['archived_spines'] == 0:
         if len(parent.faces) <= 100:
@@ -517,6 +519,7 @@ def branch_worker(output, key, staging):
             SimpleNamespace(mesh=parent,skeleton=original),geometric_refinement=True,
             geometric_refinement_config=manifest['refinement_config'],
             geometric_refinement_diagnostics=diagnostics,geometric_refinement_face_indices=masks,
+            spine_volume_quality=volume_quality,
             geometric_refinement_head_skeleton=(auxiliary if manifest['skeleton']['use_auxiliary_for_heads'] else None),
             soma_verts=soma_vertices,soma_vertex_nullification=soma_vertices is not None,
             cgal_folder=staging/'cgal',print_flag=False)
@@ -524,62 +527,72 @@ def branch_worker(output, key, staging):
         meshes,volumes = [],np.empty(0)
         diagnostics = dict(candidates=[],counts={},branch_eligibility=eligibility)
     elapsed = time.perf_counter()-started
-    if len(meshes)!=len(masks) or len(meshes)!=len(volumes) or not np.isfinite(volumes).all() or (np.asarray(volumes)<=0).any():
-        raise ValueError('Invalid final mesh/mask/volume alignment')
-    _, canonical = np.unique(np.sort(parent.faces,axis=1),axis=0,return_inverse=True)
-    occupied = np.concatenate([np.unique(canonical[g]) for g in masks]) if masks else np.empty(0,int)
-    if len(occupied) != len(np.unique(occupied)):
-        raise ValueError('Final spine masks overlap on parent surface')
-    identities = {}
-    for candidate in diagnostics['candidates']:
-        for mapping in candidate['final_output_mapping']:
-            i = mapping['final_output_index']
-            if i is not None:
-                identities[i] = dict(raw_id=candidate['raw_input_index'],part_id=mapping['part_index'],action=candidate['action'])
-    if set(identities) != set(range(len(meshes))):
-        raise ValueError('Incomplete raw-owner provenance')
+    with cgal_phase("h01_surface_provenance_check", input_meshes=lambda: len(meshes),
+                    input_faces=lambda: sum(len(g) for g in masks)):
+        if len(meshes)!=len(volume_quality):
+            raise ValueError("Invalid final volume quality alignment")
+        if len(meshes)!=len(masks) or len(meshes)!=len(volumes) or not np.isfinite(volumes).all() or (np.asarray(volumes)<=0).any():
+            raise ValueError('Invalid final mesh/mask/volume alignment')
+        _, canonical = np.unique(np.sort(parent.faces,axis=1),axis=0,return_inverse=True)
+        occupied = np.concatenate([np.unique(canonical[g]) for g in masks]) if masks else np.empty(0,int)
+        if len(occupied) != len(np.unique(occupied)):
+            raise ValueError('Final spine masks overlap on parent surface')
+        identities = {}
+        for candidate in diagnostics['candidates']:
+            for mapping in candidate['final_output_mapping']:
+                i = mapping['final_output_index']
+                if i is not None:
+                    identities[i] = dict(raw_id=candidate['raw_input_index'],part_id=mapping['part_index'],action=candidate['action'])
+        if set(identities) != set(range(len(meshes))):
+            raise ValueError('Incomplete raw-owner provenance')
     (staging/'spines').mkdir()
     spine_records = []
     for i,(mesh,mask,volume) in enumerate(zip(meshes,masks,volumes)):
-        if not np.array_equal(triangle_keys(mesh),triangle_keys(parent.submesh([mask],append=True))):
-            raise ValueError('Final mesh does not match parent face mask')
+        with cgal_phase("h01_mesh_mask_validation", spine_index=i, input_faces=lambda: len(mask)):
+            if not np.array_equal(triangle_keys(mesh),triangle_keys(parent.submesh([mask],append=True))):
+                raise ValueError('Final mesh does not match parent face mask')
         relative = f'spines/spine_{i:05d}.off'
-        mesh.export(staging/relative)
-        quality = spu.estimate_mesh_volume(mesh)
-        if not quality['valid'] or not np.isclose(quality['volume_nm3'],volume,rtol=1e-6):
-            raise ValueError('Exported volume provenance differs from the final filter')
+        with cgal_phase("h01_output_write", output_role="spine_mesh", spine_index=i,
+                        input_faces=lambda: len(mask)):
+            mesh.export(staging/relative)
+        with cgal_phase("h01_volume_quality", spine_index=i, input_faces=lambda: len(mask)):
+            quality = reuse_volume_quality(volume_quality[i], mesh)
+            if not quality['valid'] or not np.isclose(quality['volume_nm3'],volume,rtol=1e-6):
+                raise ValueError('Exported volume provenance differs from the final filter')
         spine_records.append(dict(index=i,file=relative,faces=len(mask),volume_nm3=float(volume),volume_quality=quality,**identities[i]))
-    np.savez_compressed(staging/'spine_faces.npz',faces=np.concatenate(masks) if masks else np.empty(0,int),
-                        offsets=np.r_[0,np.cumsum([len(g) for g in masks])],
-                        raw_ids=[identities[i]['raw_id'] for i in range(len(meshes))],
-                        part_ids=[identities[i]['part_id'] for i in range(len(meshes))])
-    np.save(staging/'branch_skeleton.npy',skeleton)
-    np.save(staging/'branch_skeleton_original.npy',original)
-    if auxiliary is not None:
-        np.save(staging/'segmentation_axis.npy',auxiliary)
-    (staging/'branch_mesh.off').symlink_to(Path(row['source']))
-    save(staging/'refinement.json',diagnostics)
-    if inputs(row) != source_inputs:
-        raise ValueError('Input changed during processing')
-    # Intermediate CGAL/length files have no consumer-facing role.
-    for path in list(staging.iterdir()):
-        if path.is_dir() and path.name != 'spines':
-            shutil.rmtree(path)
-        elif path.suffix in ('.off','.csv') and path.name != 'branch_mesh.off':
-            path.unlink()
-    output_files = [p for p in staging.rglob('*') if p.is_file() and p.name not in ('run.log','result.json')]
-    record = dict(status='complete',key=key,run_hash=manifest['run_hash'],inputs=source_inputs,
-                  archived_spines=row['archived_spines'],spine_count=len(meshes),spines=spine_records,
-                  skeleton=skeleton_qc,segmentation_seconds=elapsed,units='nm',
-                  branch_eligibility=eligibility,
-                  endpoint_filter_axis='original_skeleton',
-                  head_completion_axis='auxiliary' if auxiliary is not None and manifest['skeleton']['use_auxiliary_for_heads'] else 'original',
-                  compiled_cgal=dict(path=csm.__file__,sha256=sha(csm.__file__)),
-                  outputs_sha256={str(p.relative_to(staging)):sha(p) for p in output_files},
-                  context_mesh='reference_to_source',
-                  checks=dict(real_cgal=eligibility['eligible'],real_neurd_filters=True,positive_finite_volumes=True,
-                              masks_match_meshes=True,no_surface_overlap=True,source_unmodified=True))
-    save(staging/'result.json',record)
+    with cgal_phase("h01_output_write", output_role="branch_finalize", input_meshes=lambda: len(meshes),
+                    input_faces=lambda: sum(len(g) for g in masks)):
+        np.savez_compressed(staging/'spine_faces.npz',faces=np.concatenate(masks) if masks else np.empty(0,int),
+                            offsets=np.r_[0,np.cumsum([len(g) for g in masks])],
+                            raw_ids=[identities[i]['raw_id'] for i in range(len(meshes))],
+                            part_ids=[identities[i]['part_id'] for i in range(len(meshes))])
+        np.save(staging/'branch_skeleton.npy',skeleton)
+        np.save(staging/'branch_skeleton_original.npy',original)
+        if auxiliary is not None:
+            np.save(staging/'segmentation_axis.npy',auxiliary)
+        (staging/'branch_mesh.off').symlink_to(Path(row['source']))
+        save(staging/'refinement.json',diagnostics)
+        if inputs(row) != source_inputs:
+            raise ValueError('Input changed during processing')
+        # Intermediate CGAL/length files have no consumer-facing role.
+        for path in list(staging.iterdir()):
+            if path.is_dir() and path.name != 'spines':
+                shutil.rmtree(path)
+            elif path.suffix in ('.off','.csv') and path.name != 'branch_mesh.off':
+                path.unlink()
+        output_files = [p for p in staging.rglob('*') if p.is_file() and p.name not in ('run.log','result.json')]
+        record = dict(status='complete',key=key,run_hash=manifest['run_hash'],inputs=source_inputs,
+                      archived_spines=row['archived_spines'],spine_count=len(meshes),spines=spine_records,
+                      skeleton=skeleton_qc,segmentation_seconds=elapsed,units='nm',
+                      branch_eligibility=eligibility,
+                      endpoint_filter_axis='original_skeleton',
+                      head_completion_axis='auxiliary' if auxiliary is not None and manifest['skeleton']['use_auxiliary_for_heads'] else 'original',
+                      compiled_cgal=dict(path=csm.__file__,sha256=sha(csm.__file__)),
+                      outputs_sha256={str(p.relative_to(staging)):sha(p) for p in output_files},
+                      context_mesh='reference_to_source',
+                      checks=dict(real_cgal=eligibility['eligible'],real_neurd_filters=True,positive_finite_volumes=True,
+                                  masks_match_meshes=True,no_surface_overlap=True,source_unmodified=True))
+        save(staging/'result.json',record)
 
 
 def update_limb_axes(source, output, processed):

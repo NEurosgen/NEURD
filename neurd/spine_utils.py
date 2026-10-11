@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
 from pathlib import Path
-from .spine_volume import mesh_volume as validated_spine_volume, estimate_mesh_volume
+from .spine_volume import (mesh_volume as validated_spine_volume, estimate_mesh_volume,
+                           mesh_volume_with_quality)
 from .cgal_labels import mesh_segmentation_labels, assemble_face_groups, phase as cgal_phase
 from scipy.spatial import KDTree
 try:
@@ -1094,11 +1095,13 @@ def get_spine_meshes_unfiltered_from_mesh(
         # adjacency among the spine/shaft segments (edge = shared vertex). One vectorized
         # submesh_ops pass replaces the O(N^2) tu.mesh_pieces_connectivity loop (~36k calls/neuron);
         # identical edge set -> identical spine_graph. See submesh_ops.pieces_adjacency.
-        adj = submesh_ops.pieces_adjacency(current_mesh, total_meshes_idx,
-                                           connectivity=connectivity_type_for_shaft)
-        total_edges = [[total_names[i], total_names[j]] for i, j in adj]
+        with cgal_phase("spine_group_adjacency", input_groups=lambda: len(total_meshes_idx),
+                        input_faces=lambda: sum(len(g) for g in total_meshes_idx)):
+            adj = submesh_ops.pieces_adjacency(current_mesh, total_meshes_idx,
+                                               connectivity=connectivity_type_for_shaft)
+            total_edges = [[total_names[i], total_names[j]] for i, j in adj]
 
-        spine_graph = xu.remove_selfloops(nx.from_edgelist(total_edges))
+            spine_graph = xu.remove_selfloops(nx.from_edgelist(total_edges))
         #nx.draw(spine_graph,with_labels=True)
 
 
@@ -1111,107 +1114,148 @@ def get_spine_meshes_unfiltered_from_mesh(
 
         #find the biggest shaft
         
-        biggest_shaft = f"b{np.argmax([len(k.faces) for k in shaft_meshes])}"
-        non_biggest_shaft = [k for k in shaft_mesh_names if k != biggest_shaft]
+        with cgal_phase("shaft_path_expansion", shaft_groups=lambda: len(shaft_meshes),
+                        spine_groups=lambda: len(spine_meshes)) as path_timing:
+            biggest_shaft = f"b{np.argmax([len(k.faces) for k in shaft_meshes])}"
+            non_biggest_shaft = [k for k in shaft_mesh_names if k != biggest_shaft]
 
-        final_shaft_mesh_names = shaft_mesh_names.copy()
-        if len(non_biggest_shaft) > 0:
-            #find all shortest paths from biggest shaft to non_biggest_shaft
-            
-            #shaft_shortest_paths = [nx.shortest_path(spine_graph,
-            #source=biggest_shaft,target=curr_shaft) for curr_shaft in non_biggest_shaft]
-            
-            shaft_shortest_paths = []
-            if shaft_expansion_method == "path_to_largest_shaft_mesh":
-                for curr_shaft in non_biggest_shaft:
-                    try:
-                        c_path = nx.shortest_path(spine_graph,
-                                                         source=biggest_shaft,target=curr_shaft) 
-                    except Exception:
-                        #print(f"Mesh {curr_shaft} Seems to be not connected to mesh")
-                        shaft_shortest_paths.append([curr_shaft])
-                    else:
-                        shaft_shortest_paths.append(c_path)
-            elif shaft_expansion_method == "path_to_all_shaft_mesh":
-                for shaft_1 in shaft_mesh_names:
-                    for shaft_2 in shaft_mesh_names:
-                        if shaft_1 != shaft_2:
-                            try:
-                                c_path = nx.shortest_path(spine_graph,
-                                        source=shaft_1,target=shaft_2) 
-                            except Exception:
-                                #print(f"{shaft_1} and {shaft_2} not connected on the same mesh")
-                                shaft_shortest_paths.append([shaft_1,shaft_2])
-                            else:
-                                shaft_shortest_paths.append(c_path)
+            # Keep NetworkX for small batches and unverified search semantics.
+            # The CSR snapshot is used only before nodes are removed below.
+            import os
+            path_query_count = (
+                len(shaft_mesh_names) * (len(shaft_mesh_names) - 1)
+                if shaft_expansion_method == "path_to_all_shaft_mesh"
+                else len(non_biggest_shaft)
+                if shaft_expansion_method == "path_to_largest_shaft_mesh" else 0
+            )
+            shortest_path = lambda source, target: nx.shortest_path(
+                spine_graph, source=source, target=target)
+            path_backend = "networkx"
+            if os.environ.get("NEURD_LEGACY_SHAFT_PATHS") == "1":
+                path_backend_reason = "legacy_requested"
+            elif getattr(nx, "__version__", None) != "3.6.1":
+                path_backend_reason = "unverified_networkx_version"
+            elif type(spine_graph) is not nx.Graph:
+                path_backend_reason = "unsupported_graph"
+            elif path_query_count < 1024:
+                path_backend_reason = "small_query_batch"
             else:
-                raise Exception("")
+                try:
+                    from .shaft_paths import ExactBidirectionalPaths
+                    shortest_path = ExactBidirectionalPaths(spine_graph).shortest_path
+                except ImportError:
+                    path_backend_reason = "optional_numba_unavailable"
+                except TypeError:
+                    path_backend_reason = "unsupported_graph"
+                else:
+                    path_backend = "numba_csr"
+                    path_backend_reason = None
+            if path_timing is not None:
+                path_timing.update(path_backend=path_backend,
+                                   path_backend_reason=path_backend_reason,
+                                   path_queries=path_query_count)
+
+            final_shaft_mesh_names = shaft_mesh_names.copy()
+            if len(non_biggest_shaft) > 0:
+                #find all shortest paths from biggest shaft to non_biggest_shaft
+            
+                #shaft_shortest_paths = [nx.shortest_path(spine_graph,
+                #source=biggest_shaft,target=curr_shaft) for curr_shaft in non_biggest_shaft]
+            
+                shaft_shortest_paths = []
+                if shaft_expansion_method == "path_to_largest_shaft_mesh":
+                    for curr_shaft in non_biggest_shaft:
+                        try:
+                            c_path = shortest_path(source=biggest_shaft,target=curr_shaft)
+                        except Exception:
+                            #print(f"Mesh {curr_shaft} Seems to be not connected to mesh")
+                            shaft_shortest_paths.append([curr_shaft])
+                        else:
+                            shaft_shortest_paths.append(c_path)
+                elif shaft_expansion_method == "path_to_all_shaft_mesh":
+                    for shaft_1 in shaft_mesh_names:
+                        for shaft_2 in shaft_mesh_names:
+                            if shaft_1 != shaft_2:
+                                try:
+                                    c_path = shortest_path(source=shaft_1,target=shaft_2)
+                                except Exception:
+                                    #print(f"{shaft_1} and {shaft_2} not connected on the same mesh")
+                                    shaft_shortest_paths.append([shaft_1,shaft_2])
+                                else:
+                                    shaft_shortest_paths.append(c_path)
+                else:
+                    raise Exception("")
                             
             
 
-            new_shaft_meshes = [int(k[1:]) for k in np.unique(np.concatenate(shaft_shortest_paths)) if "s" in k]
-            #print(f"new_shaft_meshes = {new_shaft_meshes}")
-            final_shaft_mesh_names += [k for k in np.unique(np.concatenate(shaft_shortest_paths)) if "s" in k]
-            final_shaft_meshes = shaft_meshes + [spine_meshes[k] for k in new_shaft_meshes]
-            final_shaft_meshes_idx = np.unique(np.concatenate(shaft_meshes_idx + [spine_meshes_idx[k] for k in new_shaft_meshes]))
-        else:
-            final_shaft_meshes = shaft_meshes
-            final_shaft_meshes_idx = np.unique(np.concatenate(shaft_meshes_idx))
+                new_shaft_meshes = [int(k[1:]) for k in np.unique(np.concatenate(shaft_shortest_paths)) if "s" in k]
+                #print(f"new_shaft_meshes = {new_shaft_meshes}")
+                final_shaft_mesh_names += [k for k in np.unique(np.concatenate(shaft_shortest_paths)) if "s" in k]
+                final_shaft_meshes = shaft_meshes + [spine_meshes[k] for k in new_shaft_meshes]
+                final_shaft_meshes_idx = np.unique(np.concatenate(shaft_meshes_idx + [spine_meshes_idx[k] for k in new_shaft_meshes]))
+            else:
+                final_shaft_meshes = shaft_meshes
+                final_shaft_meshes_idx = np.unique(np.concatenate(shaft_meshes_idx))
 
-        final_shaft_mesh_names = np.unique(final_shaft_mesh_names)
+            final_shaft_mesh_names = np.unique(final_shaft_mesh_names)
 
-        final_spine_faces_idx = np.delete(np.arange(0,len(current_mesh.faces)), np.array(final_shaft_meshes_idx).astype('int'))
+            final_spine_faces_idx = np.delete(np.arange(0,len(current_mesh.faces)), np.array(final_shaft_meshes_idx).astype('int'))
 
-        # Extract the spines graphically (rather than by subtracting the shaft mesh and
-        # splitting into disconnected components):
-        # 1) remove the shaft meshes from the graph
-        # 2) get the connected components
-        # 3) assemble the connected components' total face_idx:
-        #    a. get the sdf values that correspond to those
-        #    b. get the submesh that corresponds to those
-        spine_graph.remove_nodes_from(final_shaft_mesh_names)
+            # Extract the spines graphically (rather than by subtracting the shaft mesh and
+            # splitting into disconnected components):
+            # 1) remove the shaft meshes from the graph
+            # 2) get the connected components
+            # 3) assemble the connected components' total face_idx:
+            #    a. get the sdf values that correspond to those
+            #    b. get the submesh that corresponds to those
+            spine_graph.remove_nodes_from(final_shaft_mesh_names)
 
-        spine_submesh_split=[]
-        spine_submesh_split_idx = []
-        spine_submesh_split_sdf = []
-        for sp_list in list(nx.connected_components(spine_graph)):
-            curr_spine_face_idx_split = np.concatenate([spine_meshes_idx[int(sp[1:])] for sp in sp_list ])
-            spine_submesh_split_sdf.append(cgal_sdf_data[curr_spine_face_idx_split])
-            spine_submesh_split_idx.append(curr_spine_face_idx_split)
-            spine_submesh_split.append(current_mesh.submesh([curr_spine_face_idx_split],append=True))
-
-
-        if print_flag or plot:
-            print(f"\n\nTotal Number of Spines Found = {len(spine_submesh_split)}")
+        with cgal_phase("spine_group_assembly", input_groups=lambda: spine_graph.number_of_nodes()) as timing:
+            spine_submesh_split=[]
+            spine_submesh_split_idx = []
+            spine_submesh_split_sdf = []
+            for sp_list in list(nx.connected_components(spine_graph)):
+                curr_spine_face_idx_split = np.concatenate([spine_meshes_idx[int(sp[1:])] for sp in sp_list ])
+                spine_submesh_split_sdf.append(cgal_sdf_data[curr_spine_face_idx_split])
+                spine_submesh_split_idx.append(curr_spine_face_idx_split)
+                spine_submesh_split.append(current_mesh.submesh([curr_spine_face_idx_split],append=True))
 
 
-        #sort the list by size
-        spine_length_orders = [len(k.faces) for k in spine_submesh_split]
-        greatest_to_least = np.flip(np.argsort(spine_length_orders))
-        spines_greatest_to_least =  np.array(spine_submesh_split)[greatest_to_least]
-        spines_sdf_greatest_to_least = np.array(spine_submesh_split_sdf)[greatest_to_least]
-        spine_submesh_split_idx = np.array(spine_submesh_split_idx)[greatest_to_least]
-        
-        
-        if ensure_mesh_conn_comp:
-            spines_greatest_to_least_new = []
-            spine_submesh_split_idx_new = []
-            sdf_new = []
-            for k,k_idx,k_sdf in zip(
-                spines_greatest_to_least,
-                spine_submesh_split_idx,
-                spines_sdf_greatest_to_least):
-                sp_mesh,sp_idx = tu.largest_conn_comp(k,return_face_indices=True)
-                spines_greatest_to_least_new.append(sp_mesh)
-                spine_submesh_split_idx_new.append(k_idx[sp_idx])
-                sdf_new.append(k_sdf[sp_idx])
+            if print_flag or plot:
+                print(f"\n\nTotal Number of Spines Found = {len(spine_submesh_split)}")
+
+
+            #sort the list by size
+            spine_length_orders = [len(k.faces) for k in spine_submesh_split]
+            greatest_to_least = np.flip(np.argsort(spine_length_orders))
+            spines_greatest_to_least =  np.array(spine_submesh_split)[greatest_to_least]
+            spines_sdf_greatest_to_least = np.array(spine_submesh_split_sdf)[greatest_to_least]
+            spine_submesh_split_idx = np.array(spine_submesh_split_idx)[greatest_to_least]
+
+
+            if ensure_mesh_conn_comp:
+                spines_greatest_to_least_new = []
+                spine_submesh_split_idx_new = []
+                sdf_new = []
+                for k,k_idx,k_sdf in zip(
+                    spines_greatest_to_least,
+                    spine_submesh_split_idx,
+                    spines_sdf_greatest_to_least):
+                    sp_mesh,sp_idx = tu.largest_conn_comp(k,return_face_indices=True)
+                    spines_greatest_to_least_new.append(sp_mesh)
+                    spine_submesh_split_idx_new.append(k_idx[sp_idx])
+                    sdf_new.append(k_sdf[sp_idx])
                 
-            spines_greatest_to_least = np.array(spines_greatest_to_least_new)
-            spine_submesh_split_idx = np.array(spine_submesh_split_idx_new)
-            spines_sdf_greatest_to_least = np.array(sdf_new)
+                spines_greatest_to_least = np.array(spines_greatest_to_least_new)
+                spine_submesh_split_idx = np.array(spine_submesh_split_idx_new)
+                spines_sdf_greatest_to_least = np.array(sdf_new)
             
                 
             
+            if timing is not None:
+                timing.update(output_meshes=len(spines_greatest_to_least),
+                              output_faces=sum(len(m.faces) for m in spines_greatest_to_least))
+
         if not return_sdf and not return_mesh_idx:
             return spines_greatest_to_least
         return_value = [spines_greatest_to_least]
@@ -1242,7 +1286,11 @@ def filter_spine_meshes(spine_meshes,
         if verbose:
             print(f"After face threshold {spine_n_face_threshold}, keep_idx = {keep_idx}")
     if spine_sk_length_threshold is not None:
-        spine_lens = np.array([spu.spine_length(k) for k in spine_meshes])
+        with cgal_phase("spine_length_calculation", input_meshes=lambda: len(spine_meshes),
+                        input_faces=lambda: sum(len(m.faces) for m in spine_meshes),
+                        vertices_at_most_1000=lambda: sum(len(m.vertices) <= 1000 for m in spine_meshes),
+                        vertices_above_1000=lambda: sum(len(m.vertices) > 1000 for m in spine_meshes)):
+            spine_lens = np.array([spu.spine_length(k) for k in spine_meshes])
         keep_idx = np.intersect1d(keep_idx,np.where(spine_lens >= spine_sk_length_threshold)[0])
         if verbose:
             print(f"After sk length threshold {spine_sk_length_threshold}, keep_idx = {keep_idx}")
@@ -1659,6 +1707,7 @@ def calculate_spines_on_branch(
     geometric_refinement_face_indices = None,
     geometric_refinement_head_skeleton = None,
     spine_face_indices = None,
+    spine_volume_quality = None,
     **kwargs,
     ):
     """
@@ -1678,6 +1727,12 @@ def calculate_spines_on_branch(
     in either mode. These retain actual parent face occurrences even when
     different parent faces have identical geometry. The list is replaced with
     masks aligned with the final returned meshes; no detected spines gives [].
+    Each mask contains one parent index per child face row, in child-mesh order;
+    geometric_refinement_face_indices follows the same ordered contract.
+    spine_volume_quality optionally receives process-local records aligned with
+    returned meshes, for reuse only on the identical unchanged in-memory mesh.
+    None preserves the scalar adapter. If volumes are not computed, entries
+    are None; the collector is replaced only after a successful calculation.
     geometric_refinement_head_skeleton supplies an optional repaired axis for
     head completion only; the branch skeleton still controls endpoint filters.
     
@@ -1856,9 +1911,15 @@ def calculate_spines_on_branch(
     # Step 2: Filter Spines by Face length
     if spine_n_face_threshold > 0 or spine_sk_length_threshold > 0:
         print(f"Filtering away by face and skeletal length")
-        spine_submesh_split_filtered = spu.filter_spine_meshes(spine_submesh_split,
-                                                            spine_n_face_threshold=spine_n_face_threshold,
-                                                          spine_sk_length_threshold=spine_sk_length_threshold)
+        with cgal_phase("spine_size_length_filter", call_role="initial",
+                        input_meshes=lambda: len(spine_submesh_split),
+                        input_faces=lambda: sum(len(m.faces) for m in spine_submesh_split)) as timing:
+            spine_submesh_split_filtered = spu.filter_spine_meshes(spine_submesh_split,
+                                                                spine_n_face_threshold=spine_n_face_threshold,
+                                                              spine_sk_length_threshold=spine_sk_length_threshold)
+            if timing is not None:
+                timing.update(output_meshes=len(spine_submesh_split_filtered),
+                              output_faces=sum(len(m.faces) for m in spine_submesh_split_filtered))
     else:
         spine_submesh_split_filtered = spine_submesh_split
     
@@ -1876,39 +1937,56 @@ def calculate_spines_on_branch(
         selected_indices = [original_indices[i] for i in selected_raw_ids]
         pre_trim_indices = {}
         pre_growth_indices = {}
-        refined_indices, refinement = refine_spine_face_indices(
-            branch.mesh, branch.skeleton, selected_indices,
-            config=geometric_refinement_config,
-            protected_face_groups=original_indices,
-            pre_trim_face_groups=pre_trim_indices,
-            pre_growth_face_groups=pre_growth_indices)
-        original_filtered = spine_submesh_split_filtered
-        spine_submesh_split_filtered = []
-        for record in refinement["candidates"]:
-            input_index = record["input_index"]
-            record["raw_input_index"] = selected_raw_ids[input_index]
-            for output_index in record.get("output_indices", [record["output_index"]]):
-                if output_index is None:
-                    continue
-                indices = refined_indices[output_index]
-                if np.array_equal(np.sort(selected_indices[input_index]), indices):
-                    mesh = original_filtered[input_index]
-                else:
-                    mesh = branch.mesh.submesh([indices], append=True)
-                spine_submesh_split_filtered.append(mesh)
-        refinement_mesh_ids = {id(mesh): i for i, mesh in enumerate(spine_submesh_split_filtered)}
-        trimmed_meshes = [spine_submesh_split_filtered[i]
-                          for r in refinement["candidates"]
-                          if r.get("shaft_trim", {}).get("action") in ("trim", "split")
-                          for i in r["output_indices"]]
+        with cgal_phase("refinement_primary", call_role="initial",
+                        input_meshes=lambda: len(selected_indices),
+                        input_faces=lambda: sum(len(g) for g in selected_indices)):
+            refined_indices, refinement = refine_spine_face_indices(
+                branch.mesh, branch.skeleton, selected_indices,
+                config=geometric_refinement_config,
+                protected_face_groups=original_indices,
+                pre_trim_face_groups=pre_trim_indices,
+                pre_growth_face_groups=pre_growth_indices)
+        with cgal_phase("refinement_mesh_assembly", call_role="initial",
+                        input_meshes=lambda: len(refined_indices),
+                        input_faces=lambda: sum(len(g) for g in refined_indices)) as timing:
+            original_filtered = spine_submesh_split_filtered
+            spine_submesh_split_filtered = []
+            for record in refinement["candidates"]:
+                input_index = record["input_index"]
+                record["raw_input_index"] = selected_raw_ids[input_index]
+                for output_index in record.get("output_indices", [record["output_index"]]):
+                    if output_index is None:
+                        continue
+                    indices = refined_indices[output_index]
+                    if np.array_equal(np.sort(selected_indices[input_index]), indices):
+                        mesh = original_filtered[input_index]
+                        # This mesh retains its original triangle row order.
+                        refined_indices[output_index] = selected_indices[input_index].copy()
+                    else:
+                        mesh = branch.mesh.submesh([indices], append=True)
+                    spine_submesh_split_filtered.append(mesh)
+            refinement_mesh_ids = {id(mesh): i for i, mesh in enumerate(spine_submesh_split_filtered)}
+            trimmed_meshes = [spine_submesh_split_filtered[i]
+                              for r in refinement["candidates"]
+                              if r.get("shaft_trim", {}).get("action") in ("trim", "split")
+                              for i in r["output_indices"]]
+            if timing is not None:
+                timing.update(output_meshes=len(spine_submesh_split_filtered),
+                              output_faces=sum(len(m.faces) for m in spine_submesh_split_filtered))
         if trimmed_meshes and (spine_n_face_threshold > 0 or spine_sk_length_threshold > 0):
-            passed_trimmed = spu.filter_spine_meshes(
-                trimmed_meshes, spine_n_face_threshold=spine_n_face_threshold,
-                spine_sk_length_threshold=spine_sk_length_threshold)
-            passed_ids = {id(mesh) for mesh in passed_trimmed}
-            trim_ids = {id(mesh) for mesh in trimmed_meshes}
-            spine_submesh_split_filtered = [mesh for mesh in spine_submesh_split_filtered
-                                           if id(mesh) not in trim_ids or id(mesh) in passed_ids]
+            with cgal_phase("refinement_trim_size_length_filter", call_role="trim_recheck",
+                            input_meshes=lambda: len(trimmed_meshes),
+                            input_faces=lambda: sum(len(m.faces) for m in trimmed_meshes)) as timing:
+                passed_trimmed = spu.filter_spine_meshes(
+                    trimmed_meshes, spine_n_face_threshold=spine_n_face_threshold,
+                    spine_sk_length_threshold=spine_sk_length_threshold)
+                passed_ids = {id(mesh) for mesh in passed_trimmed}
+                trim_ids = {id(mesh) for mesh in trimmed_meshes}
+                spine_submesh_split_filtered = [mesh for mesh in spine_submesh_split_filtered
+                                               if id(mesh) not in trim_ids or id(mesh) in passed_ids]
+                if timing is not None:
+                    timing.update(output_meshes=len(passed_trimmed),
+                                  output_faces=sum(len(m.faces) for m in passed_trimmed))
         if geometric_refinement_diagnostics is not None:
             geometric_refinement_diagnostics.clear()
             geometric_refinement_diagnostics.update(refinement)
@@ -1916,105 +1994,134 @@ def calculate_spines_on_branch(
             print(f"Geometry refinement: {refinement['counts']}, "
                   f"{refinement['seconds']:.3f}s")
 
-    def apply_final_filters(meshes):
-        nonlocal soma_kdtree
-        spine_submesh_split_filtered = meshes
-        spine_volumes = np.zeros(len(meshes))
-        # Step 3: Filter Spines by Bounding Box
-        if filter_by_bounding_box_longest_side_length:
-            old_length = len(spine_submesh_split_filtered)
-            spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
-                                                                                     side_length_threshold=side_length_threshold)
+    def apply_final_filters(meshes, *, call_role="initial"):
+        with cgal_phase("final_filters", call_role=call_role, input_meshes=lambda: len(meshes),
+                        input_faces=lambda: sum(len(m.faces) for m in meshes)) as timing:
+            nonlocal soma_kdtree
+            spine_submesh_split_filtered = meshes
+            spine_volumes = np.zeros(len(meshes))
+            volume_quality = None
+            # Step 3: Filter Spines by Bounding Box
+            if filter_by_bounding_box_longest_side_length:
+                with cgal_phase("final_filter_bbox", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    old_length = len(spine_submesh_split_filtered)
+                    spine_submesh_split_filtered = tu.filter_meshes_by_bounding_box_longest_side(spine_submesh_split_filtered,
+                                                                                             side_length_threshold=side_length_threshold)
+
+
+
+            if filter_out_border_spines:
+                with cgal_phase("final_filter_border", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    if print_flag:
+                        print("Using the filter_out_border_spines option")
+                    spine_submesh_split_filtered = spu.filter_out_border_spines(branch.mesh,
+                                                                                spine_submesh_split_filtered,
+                                                                                border_percentage_threshold=border_percentage_threshold,
+                                                                                check_spine_border_perc=check_spine_border_perc,
+                                                                                verbose=print_flag
+                                                                               )
+        
+            
+            if skeleton_endpoint_nullification:
+                with cgal_phase("final_filter_endpoint", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    if print_flag:
+                        print("Using the skeleton_endpoint_nullification option")
+
+
+                    curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(branch.skeleton)
+                    spine_submesh_split_filtered = tu.filter_meshes_by_containing_coordinates(spine_submesh_split_filtered,
+                                                                curr_branch_end_coords,
+                                                                distance_threshold=skeleton_endpoint_nullification_distance)
+        
+            
     
-        
-        
-        if filter_out_border_spines:
-            if print_flag:
-                print("Using the filter_out_border_spines option")
-            spine_submesh_split_filtered = spu.filter_out_border_spines(branch.mesh,
-                                                                        spine_submesh_split_filtered,
-                                                                        border_percentage_threshold=border_percentage_threshold,
-                                                                        check_spine_border_perc=check_spine_border_perc,
-                                                                        verbose=print_flag
-                                                                       )
-        
-            
-        if skeleton_endpoint_nullification:
-            if print_flag:
-                print("Using the skeleton_endpoint_nullification option")
-
-
-            curr_branch_end_coords = sk.find_skeleton_endpoint_coordinates(branch.skeleton)
-            spine_submesh_split_filtered = tu.filter_meshes_by_containing_coordinates(spine_submesh_split_filtered,
-                                                        curr_branch_end_coords,
-                                                        distance_threshold=skeleton_endpoint_nullification_distance)
-        
-            
     
-    
-        if soma_vertex_nullification:
-            if soma_verts is not None:
-                soma_kdtree = KDTree(soma_verts)
-            if soma_kdtree is None:
-                raise Exception("Requested endpoint nullification but no soma information given")
+            if soma_vertex_nullification:
+                with cgal_phase("final_filter_soma", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    if soma_verts is not None:
+                        soma_kdtree = KDTree(soma_verts)
+                    if soma_kdtree is None:
+                        raise Exception("Requested endpoint nullification but no soma information given")
             
-            if print_flag:
-                print("Using the soma_vertex_nullification option")
+                    if print_flag:
+                        print("Using the soma_vertex_nullification option")
 
-            spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
-                                                        soma_kdtree=soma_kdtree)
+                    spine_submesh_split_filtered = spu.filter_out_soma_touching_spines(spine_submesh_split_filtered,
+                                                                soma_kdtree=soma_kdtree)
         
             
             
-        if calculate_spine_volume or filter_by_volume:
-            spine_volumes = np.array([validated_spine_volume(k) for k in spine_submesh_split_filtered])
+            if calculate_spine_volume or filter_by_volume:
+                with cgal_phase("final_filter_volume", input_meshes=lambda: len(spine_submesh_split_filtered),
+                                input_faces=lambda: sum(len(m.faces) for m in spine_submesh_split_filtered)):
+                    if spine_volume_quality is None:
+                        spine_volumes = np.array([validated_spine_volume(k) for k in spine_submesh_split_filtered])
+                        volume_quality = None
+                    else:
+                        measured = [mesh_volume_with_quality(k) for k in spine_submesh_split_filtered]
+                        spine_volumes = np.array([item[0] for item in measured])
+                        volume_quality = [item[1] for item in measured]
 
-        if filter_by_volume:
-            """
-            Pseudocode:
-            1) Calculate the volumes of all the spines
-            2) Filter those spines for only those above the volume
+            if filter_by_volume:
+                with cgal_phase("final_filter_volume_threshold", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    """
+                    Pseudocode:
+                    1) Calculate the volumes of all the spines
+                    2) Filter those spines for only those above the volume
 
-            """
-            if len(spine_submesh_split_filtered) > 0:
-                volume_kept_idx = np.where(spine_volumes > filter_by_volume_threshold)[0]
-                if print_flag:
-                    print(f"Number of spines filtered away by volume = {len(spine_volumes) - len(volume_kept_idx)}")
-                #spine_submesh_split_filtered_not = [spine_submesh_split_filtered[k] for k in range(len(spine_volumes)) if k not in volume_kept_idx]
-                spine_submesh_split_filtered = [spine_submesh_split_filtered[k] for k in volume_kept_idx]
+                    """
+                    if len(spine_submesh_split_filtered) > 0:
+                        volume_kept_idx = np.where(spine_volumes > filter_by_volume_threshold)[0]
+                        if print_flag:
+                            print(f"Number of spines filtered away by volume = {len(spine_volumes) - len(volume_kept_idx)}")
+                        #spine_submesh_split_filtered_not = [spine_submesh_split_filtered[k] for k in range(len(spine_volumes)) if k not in volume_kept_idx]
+                        spine_submesh_split_filtered = [spine_submesh_split_filtered[k] for k in volume_kept_idx]
             
-                spine_volumes = spine_volumes[volume_kept_idx]
+                        spine_volumes = spine_volumes[volume_kept_idx]
+                        if volume_quality is not None:
+                            volume_quality = [volume_quality[k] for k in volume_kept_idx]
             
         
-        # --- 4/14/25 addition --
-        if filter_by_face_area_mean:
-            kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.face_area_mean(k)>=filter_by_face_area_mean_min]
+            # --- 4/14/25 addition --
+            if filter_by_face_area_mean:
+                with cgal_phase("final_filter_face_area", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.face_area_mean(k)>=filter_by_face_area_mean_min]
         
-            if print_flag:
-                print(f"Number of spines filtered away by face_area_mean = {len(spine_submesh_split_filtered) - len(kept_idx)}")
+                    if print_flag:
+                        print(f"Number of spines filtered away by face_area_mean = {len(spine_submesh_split_filtered) - len(kept_idx)}")
         
         
-            spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
-            spine_volumes = [spine_volumes[k] for k in kept_idx]
+                    spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
+                    spine_volumes = [spine_volumes[k] for k in kept_idx]
+                    if volume_quality is not None:
+                        volume_quality = [volume_quality[k] for k in kept_idx]
         
             
-        # --- 4/14/25 addition --
-        if filter_by_boundary_to_area_ratio:
-            kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.area_to_boundary_length_ratio(k)>=filter_by_boundary_to_area_ratio_min]
+            # --- 4/14/25 addition --
+            if filter_by_boundary_to_area_ratio:
+                with cgal_phase("final_filter_boundary_area", input_meshes=lambda: len(spine_submesh_split_filtered)):
+                    kept_idx = [i for i,k in enumerate(spine_submesh_split_filtered) if tu.area_to_boundary_length_ratio(k)>=filter_by_boundary_to_area_ratio_min]
         
-            if print_flag:
-                print(f"Number of spines filtered away by boundary_to_area_ratio = {len(spine_submesh_split_filtered) - len(kept_idx)}")
+                    if print_flag:
+                        print(f"Number of spines filtered away by boundary_to_area_ratio = {len(spine_submesh_split_filtered) - len(kept_idx)}")
         
         
-            spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
-            spine_volumes = [spine_volumes[k] for k in kept_idx]
+                    spine_submesh_split_filtered =[spine_submesh_split_filtered[k] for k in kept_idx]
+                    spine_volumes = [spine_volumes[k] for k in kept_idx]
+                    if volume_quality is not None:
+                        volume_quality = [volume_quality[k] for k in kept_idx]
         
                          
     
         
-        return spine_submesh_split_filtered, spine_volumes
+            if timing is not None:
+                timing.update(output_meshes=len(spine_submesh_split_filtered),
+                              output_faces=sum(len(m.faces) for m in spine_submesh_split_filtered))
+            if spine_volume_quality is not None and volume_quality is None:
+                volume_quality = [None] * len(spine_submesh_split_filtered)
+            return spine_submesh_split_filtered, spine_volumes, volume_quality
 
-    spine_submesh_split_filtered, spine_volumes = apply_final_filters(spine_submesh_split_filtered)
+    spine_submesh_split_filtered, spine_volumes, spine_quality = apply_final_filters(spine_submesh_split_filtered)
 
     if geometric_refinement:
         reverted = 0
@@ -2032,12 +2139,16 @@ def calculate_spines_on_branch(
             # A smaller real part can fail the original object's volume/length
             # threshold. Treat the whole proposal as uncertain and replay the
             # identical final filters on its intact pre-cut surface.
-            intact_indices = pre_trim_indices[record["input_index"]]
-            intact = branch.mesh.submesh([intact_indices], append=True)
-            restored, restored_volumes = apply_final_filters([intact])
+            with cgal_phase("trim_fallback_validation", call_role="trim_fallback",
+                            input_faces=lambda: len(pre_trim_indices[record["input_index"]])):
+                intact_indices = pre_trim_indices[record["input_index"]]
+                intact = branch.mesh.submesh([intact_indices], append=True)
+                restored, restored_volumes, restored_quality = apply_final_filters([intact], call_role="trim_fallback")
             keep = [i for i in range(len(spine_submesh_split_filtered)) if i not in surviving]
             spine_submesh_split_filtered = [spine_submesh_split_filtered[i] for i in keep] + restored
             spine_volumes = np.r_[np.asarray(spine_volumes)[keep], restored_volumes]
+            if spine_quality is not None:
+                spine_quality = [spine_quality[i] for i in keep] + restored_quality
             restored_output = len(refined_indices)
             refined_indices.append(intact_indices)
             if restored:
@@ -2080,12 +2191,16 @@ def calculate_spines_on_branch(
                 continue
             if any(refinement_mesh_ids[id(mesh)] in proposed for mesh in spine_submesh_split_filtered):
                 continue
-            original = pre_growth_indices[input_index]
-            restored, restored_volumes = apply_final_filters([branch.mesh.submesh([original], append=True)])
+            with cgal_phase("growth_fallback_validation", call_role="growth_fallback",
+                            input_faces=lambda: len(pre_growth_indices[input_index])):
+                original = pre_growth_indices[input_index]
+                restored, restored_volumes, restored_quality = apply_final_filters([branch.mesh.submesh([original], append=True)], call_role="growth_fallback")
             output_index = len(refined_indices)
             refined_indices.append(original)
             spine_submesh_split_filtered += restored
             spine_volumes = np.r_[np.asarray(spine_volumes), restored_volumes]
+            if spine_quality is not None:
+                spine_quality += restored_quality
             if restored:
                 refinement_mesh_ids[id(restored[0])] = output_index
             record["head_growth"].update(action="unknown_keep", proposed_action="grow",
@@ -2114,27 +2229,32 @@ def calculate_spines_on_branch(
             pending = {}
 
             def validate_remaining_head(index, indices):
-                mesh = branch.mesh.submesh([indices], append=True)
-                meshes = [mesh]
-                if spine_n_face_threshold > 0 or spine_sk_length_threshold > 0:
-                    meshes = spu.filter_spine_meshes(meshes,
-                        spine_n_face_threshold=spine_n_face_threshold,
-                        spine_sk_length_threshold=spine_sk_length_threshold)
-                if not meshes:
-                    return False
-                passed, volumes = apply_final_filters(meshes)
-                if not passed:
-                    return False
-                pending[index] = (passed[0], np.asarray(volumes)[0])
-                return True
+                with cgal_phase("remaining_head_proposal_validation", call_role="remaining_head",
+                                input_faces=lambda: len(indices)):
+                    mesh = branch.mesh.submesh([indices], append=True)
+                    meshes = [mesh]
+                    if spine_n_face_threshold > 0 or spine_sk_length_threshold > 0:
+                        meshes = spu.filter_spine_meshes(meshes,
+                            spine_n_face_threshold=spine_n_face_threshold,
+                            spine_sk_length_threshold=spine_sk_length_threshold)
+                    if not meshes:
+                        return False
+                    passed, volumes, qualities = apply_final_filters(meshes, call_role="remaining_head")
+                    if not passed:
+                        return False
+                    pending[index] = (passed[0], np.asarray(volumes)[0], qualities[0] if qualities is not None else None)
+                    return True
 
-            repaired, head_diagnostics = refine_remaining_spine_heads(
-                branch.mesh, (branch.skeleton if geometric_refinement_head_skeleton is None
-                              else geometric_refinement_head_skeleton),
-                [refined_indices[i] for i in current_indices],
-                original_indices, [owners[i]['raw_input_index'] for i in current_indices],
-                head_config, validate_proposal=validate_remaining_head)
-            spine_submesh_split_filtered, new_volumes = [], []
+            with cgal_phase("remaining_head_refinement", call_role="remaining_head",
+                            input_meshes=lambda: len(current_indices),
+                            input_faces=lambda: sum(len(refined_indices[i]) for i in current_indices)):
+                repaired, head_diagnostics = refine_remaining_spine_heads(
+                    branch.mesh, (branch.skeleton if geometric_refinement_head_skeleton is None
+                                  else geometric_refinement_head_skeleton),
+                    [refined_indices[i] for i in current_indices],
+                    original_indices, [owners[i]['raw_input_index'] for i in current_indices],
+                    head_config, validate_proposal=validate_remaining_head)
+            spine_submesh_split_filtered, new_volumes, new_quality = [], [], []
             changed_owners = {}
             for decision in head_diagnostics['candidates']:
                 index = decision['input_index']
@@ -2148,7 +2268,7 @@ def calculate_spines_on_branch(
                 if decision['output_index'] is None:
                     continue
                 if decision['action'] == 'grow_remaining_head':
-                    mesh, volume = pending[index]
+                    mesh, volume, quality = pending[index]
                     new_output = len(refined_indices)
                     refined_indices.append(repaired[decision['output_index']])
                     record['output_indices'] = [new_output if i == output else i
@@ -2157,9 +2277,14 @@ def calculate_spines_on_branch(
                     refinement_mesh_ids[id(mesh)] = new_output
                 else:
                     mesh, volume = current_meshes[index], current_volumes[index]
+                    quality = spine_quality[index] if spine_quality is not None else None
                 spine_submesh_split_filtered.append(mesh)
                 new_volumes.append(volume)
+                if spine_quality is not None:
+                    new_quality.append(quality)
             spine_volumes = np.asarray(new_volumes)
+            if spine_quality is not None:
+                spine_quality = new_quality
             surviving_outputs = {refinement_mesh_ids[id(mesh)] for mesh in spine_submesh_split_filtered}
             for record in changed_owners.values():
                 masks = [refined_indices[i] for i in record['output_indices'] if i in surviving_outputs]
@@ -2203,6 +2328,8 @@ def calculate_spines_on_branch(
                                                   final_output_index=final_indices.get(i))
                                                for part, i in enumerate(outputs)]
 
+    if spine_volume_quality is not None:
+        spine_volume_quality[:] = spine_quality
     if calculate_spine_volume:
         return spine_submesh_split_filtered,spine_volumes
     else:

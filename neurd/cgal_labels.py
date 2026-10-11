@@ -10,11 +10,15 @@ import json
 import os
 from pathlib import Path
 import time
+from threading import local
 
 from datasci_tools import numpy_dep as np
 from mesh_tools import trimesh_utils as tu
 
 from .submesh_ops import face_groups_by_label
+
+
+_phase_state = local()
 
 
 def legacy_assembly_enabled():
@@ -23,22 +27,37 @@ def legacy_assembly_enabled():
 
 @contextmanager
 def phase(name, **fields):
-    """Emit opt-in, flushed begin/end records, including an unfinished phase."""
+    """Emit opt-in, flushed, inclusive begin/end timings, also on exceptions.
+
+    Callable fields are evaluated only when tracing is enabled. The yielded
+    dict accepts end-only metadata; it is None on the silent default path.
+    Parent/depth describe nesting: inclusive parent and child durations must
+    not be added together. Phase state is local to the calling thread.
+    """
     if os.environ.get("NEURD_CGAL_TIMINGS") != "1":
-        yield
+        yield None
         return
+    fields = {key: value() if callable(value) else value for key, value in fields.items()}
+    parent = getattr(_phase_state, "parent", None)
+    if parent is not None and parent[2] is not None:
+        fields.setdefault("call_role", parent[2])
+    depth = 0 if parent is None else parent[1] + 1
     started = time.perf_counter()
-    record = dict(event="neurd_cgal_phase", phase=name, **fields)
+    record = dict(event="neurd_cgal_phase", phase=name, parent_phase=parent[0] if parent else None,
+                  depth=depth, duration_scope="inclusive", **fields)
     print(json.dumps(dict(record, state="begin"), sort_keys=True), flush=True)
+    _phase_state.parent = (name, depth, record.get("call_role"))
+    completed_fields = {}
     status = "complete"
     try:
-        yield
+        yield completed_fields
     except BaseException:
         status = "error"
         raise
     finally:
-        print(json.dumps(dict(record, state="end", status=status,
-                              seconds=time.perf_counter() - started), sort_keys=True), flush=True)
+        _phase_state.parent = parent
+        print(json.dumps({**record, **completed_fields, "state": "end", "status": status,
+                          "seconds": time.perf_counter() - started}, sort_keys=True), flush=True)
 
 
 def mesh_segmentation_labels(mesh, *, clusters=2, smoothness=0.2,

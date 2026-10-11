@@ -1,6 +1,7 @@
 """Geometry regressions without importing NEURD's unrelated optional stack."""
 import importlib.util
 from pathlib import Path
+import sys
 
 import numpy as np
 import pytest
@@ -9,6 +10,7 @@ import trimesh
 path = Path(__file__).resolve().parents[2] / "neurd" / "spine_volume.py"
 spec = importlib.util.spec_from_file_location("spine_volume_under_test", path)
 volume = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = volume
 spec.loader.exec_module(volume)
 
 
