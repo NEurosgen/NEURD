@@ -67,6 +67,7 @@ class Branch:
             self.labels=[self.labels]
 
         self.spines = None
+        self.spines_face_idx = None
         self.boutons = None
         self.spines_volume = None
         self.boutons_volume = None
@@ -1194,7 +1195,7 @@ def _attach_limbs(concept_network, preprocessed_data):
                          curr_data_label="data")
 
 
-def _refine_neuron(neuron_obj, calculate_spines=False):
+def _refine_neuron(neuron_obj, calculate_spines=False, spine_kwargs=None):
     """Everything after the objects exist: correspondence, spines, widths, cleanup."""
     print(f"--- 5) Doing the adaptive mesh correspondence on the meshparty preprocessing ---")
     nru.apply_adaptive_mesh_correspondence_to_neuron(neuron_obj)
@@ -1203,7 +1204,7 @@ def _refine_neuron(neuron_obj, calculate_spines=False):
     if neuron_obj.n_limbs > 0:
         if calculate_spines and not neuron_obj.spines_already_computed():
             print("7a) calculating spines because didn't exist")
-            spu.calculate_spines_on_neuron(neuron_obj)
+            spu.calculate_spines_on_neuron(neuron_obj, **(spine_kwargs or {}))
 
         for w in ["no_spine_median_mesh_center"]:
             print(w)
@@ -1258,7 +1259,7 @@ class Neuron:
 
     """
     def __init__(self,mesh,segment_id = None, calculate_spines = False,
-                 max_somas = None, verbose = True):
+                 max_somas = None, verbose = True, *, spine_kwargs=None):
         """Decompose `mesh` into somas and limbs of branches.
 
         The heavy lifting is `preprocess_neuron`; this turns its output into the
@@ -1271,6 +1272,9 @@ class Neuron:
                 on a genuine single-neuron mesh.
             verbose: forwarded to `preprocess_neuron` for its timing line. Stage progress
                 is printed unconditionally either way.
+            spine_kwargs: optional branch-spine settings forwarded during refinement,
+                before no-spine width calculation and graph cleanup. The public
+                segmentation API supplies these from RunConfig.
         """
         neuron_start_time = time.time()
 
@@ -1308,7 +1312,7 @@ class Neuron:
         for _stale_key in ("limb_meshes", "limb_concept_networks", "soma_meshes"):
             preprocessed_data.pop(_stale_key, None)
 
-        _refine_neuron(self, calculate_spines=calculate_spines)
+        _refine_neuron(self, calculate_spines=calculate_spines, spine_kwargs=spine_kwargs)
         self._clear_mesh_caches()
 
     def _clear_mesh_caches(self):

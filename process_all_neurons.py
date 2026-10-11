@@ -10,15 +10,19 @@
 # (parent_branch_idx -> child_branch_idx) from the soma-attached root branch outward,
 # plus a parent map for each branch.
 #
-# The dataset parameter set is chosen by DATA_TYPE below -- set it to "h01" for H01
-# meshes, "microns" for MICrONS.
+# Dataset, spine mode and SDF profile are explicit shared RunConfig settings.
 
 import os
-import gc
 import json
 import time
 import traceback
 import multiprocessing as mp
+import signal
+import shutil
+import tempfile
+import importlib.util
+import importlib.metadata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Set, Any, Dict, List, Optional, Tuple
 
@@ -28,25 +32,21 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
-# CGAL SDF ray count. mesh_segmentation is the largest wall-time lever (~38% on big
-# meshes) and its cost is ~linear in the ray count; 12 gives ~2x on the CGAL part while
-# leaving the structure intact (soma/branches invariant, spines preserved, SDF corr ~0.99).
-# setdefault => an external NEURD_SDF_RAYS wins; 25 is CGAL's own default.
-# NOTE: only the compiled cgal_Segmentation_Module reads this. On the pure-Python
-# fallback (neurd/_cgal_segmentation.py) it has no effect -- see cgal/README.md.
-os.environ.setdefault("NEURD_SDF_RAYS", "12")
-
 import numpy as np
 
-from neurd import neuron
 from neurd import parameters
 from mesh_tools import trimesh_utils as tu
+from neurd.segmentation_pipeline import segmentation_pipeline
+from neurd.run_config import RunConfig, add_run_arguments, config_from_args, require_compiled_cgal, runtime_environment
+from neurd.h01_batch import sha, digest_json, save, complete_valid, separate_roots, dependency_signature, triangle_keys
+
+# Start a fresh interpreter rather than inheriting numerical-library threads.
+mp = mp.get_context("spawn")
 
 # ---------------------- PARAMETERS ----------------------
 
-DECIMATION_PARAMETERS = dict(decimation_ratio=0)
 EXPORT_EXT = ".off"
-DATA_TYPE = "microns"  # <-- the dataset parameter set: "microns" or "h01"
+DATA_TYPE = "microns"  # Legacy default; use --dataset or RunConfig for new callers.
 
 
 # ---------------------- MEMORY / PROCESS UTILITIES ----------------------
@@ -61,72 +61,86 @@ def _try_import_psutil():
 _PSUTIL = _try_import_psutil()
 
 def _rss_mb(pid=None):
+    """Observed RSS in MiB, including a worker's external subprocesses."""
     if _PSUTIL is None:
         return None
     try:
-        p = _PSUTIL.Process(pid or os.getpid())
-        return int(p.memory_info().rss / (1024 * 1024))
-    except Exception:
+        process = _PSUTIL.Process(pid or os.getpid())
+        processes = [process] + (process.children(recursive=True) if pid else [])
+        total = 0
+        for item in processes:
+            try:
+                total += item.memory_info().rss
+            except _PSUTIL.NoSuchProcess:
+                pass
+        return total / (1024 * 1024)
+    except (_PSUTIL.NoSuchProcess, _PSUTIL.AccessDenied):
         return None
 
 
-def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn):
-    """
-    Process one mesh in its own process, so an OOM kill cannot take down the batch.
-    """
-    import tempfile, shutil
-    _orig_cwd = os.getcwd()
-    _work_dir = None
+def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn, *,
+                    config=None, no_save=False, decimation_ratio=0.0,
+                    run_hash=None, input_record=None, max_somas=None,
+                    private_work_dir=None, staging_dir=None):
+    """Process one mesh in a private CWD and publish only completed exports."""
+    original_cwd = os.getcwd()
+    work_dir = staging = None
     try:
-        from pathlib import Path
-        from mesh_tools import trimesh_utils as tu
-        from neurd import neuron
-        import gc
-
-        # the parent process already applied these, but repeat it in the worker because
-        # spawned processes do not inherit the parameter state
-        ensure_neurd_defaults()
-
-        # Resolve to ABSOLUTE before chdir, then run this worker in a private temp CWD. NEURD's soma
-        # extraction creates CWD-relative temp dirs named by segment_id (./{segment_id}, plus
-        # ./Poisson_temp, ./temp). Under parallel workers segment_id collides (np.random inherited via
-        # fork) so those dirs are shared and workers rmtree each other's -> FileNotFoundError. A
-        # private CWD isolates ALL of them per worker (also CGAL temp files); cleaned up in finally.
+        # The process group also contains MeshLab/Xvfb children for limit cleanup.
+        if hasattr(os, "setsid"):
+            os.setsid()
         off_path = Path(off_path_str).resolve()
         out_dir = Path(out_dir_str).resolve()
-        _work_dir = tempfile.mkdtemp(prefix="neurd_work_")
-        os.chdir(_work_dir)
-
-        basename = off_path.stem
-        neuron_base = out_dir / basename
-
+        config = config or RunConfig(dataset=DATA_TYPE, calculate_spines=True)
+        if input_record is not None and sha(off_path) != input_record["mesh"]["sha256"]:
+            raise ValueError("Input mesh changed after batch planning")
+        if run_hash is not None and _run_hash(config, decimation_ratio, max_somas) != run_hash:
+            raise ValueError("Runtime changed after batch planning")
+        work_dir = private_work_dir or tempfile.mkdtemp(prefix="neurd_work_")
+        os.chdir(work_dir)
         mesh = tu.load_mesh_no_processing(str(off_path))
-        mesh_proc = mesh  # decimation is off by default (DECIMATION_PARAMETERS ratio=0)
-
-        # Spines are ON: the real CGAL SDF segmenter (cgal_Segmentation_Module, built from
-        # cgal/cgal_segmentation/) produces the fine over-segmentation spine detection needs
-        # (the KMeans stand-in yielded 0 spines). Costs ~+100 s/neuron. Spine meshes are
-        # written to branch_*/spines/spine_*.off by save_segmentation.
-        neuron_obj = neuron.Neuron(mesh=mesh_proc, calculate_spines=True)
-        save_segmentation(neuron_obj, neuron_base)
-
-        del neuron_obj, mesh_proc, mesh
-        gc.collect()
-        conn.send((True, f"ok:{basename}"))
-    except Exception as e:
-        tb = traceback.format_exc()
-        conn.send((False, f"{type(e).__name__}: {e}\n{tb}"))
+        if do_decimate and decimation_ratio:
+            from neurd import _mesh_ops
+            mesh = _mesh_ops.decimate(mesh, decimation_ratio=decimation_ratio)
+        neuron_obj = segmentation_pipeline(mesh, config=config, max_somas=max_somas)
+        if input_record is not None and sha(off_path) != input_record["mesh"]["sha256"]:
+            raise ValueError("Input mesh changed during processing")
+        if run_hash is not None and _run_hash(config, decimation_ratio, max_somas) != run_hash:
+            raise ValueError("Runtime changed during processing")
+        if not no_save:
+            destination = out_dir / off_path.stem
+            if destination.exists():
+                raise ValueError(f"Refusing to overwrite an unverified output: {destination}")
+            if staging_dir is None:
+                scratch = out_dir / ".work"
+                scratch.mkdir(parents=True, exist_ok=True)
+                staging = Path(tempfile.mkdtemp(prefix=off_path.stem + "_", dir=scratch))
+            else:
+                staging = Path(staging_dir)
+            save_segmentation(neuron_obj, staging, export_ext=export_ext)
+            outputs = {str(path.relative_to(staging)): sha(path)
+                       for path in sorted(staging.rglob("*")) if path.is_file()}
+            provenance = _run_signature(config, decimation_ratio, max_somas)
+            if run_hash is not None and digest_json(provenance) != run_hash:
+                raise ValueError("Runtime changed while exporting results")
+            save(staging / "result.json", dict(
+                schema_version=1, status="complete", run_hash=run_hash,
+                inputs=input_record, run_config=config.as_dict(),
+                provenance=provenance,
+                outputs_sha256=outputs,
+            ))
+            os.replace(staging, destination)
+            staging = None
+        conn.send((True, f"ok:{off_path.stem}"))
+    except Exception as exc:
+        conn.send((False, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
     finally:
-        try:
-            os.chdir(_orig_cwd)
-        except Exception:
-            pass
-        if _work_dir is not None:
-            shutil.rmtree(_work_dir, ignore_errors=True)
-        try:
-            conn.close()
-        except Exception:
-            pass
+        os.chdir(original_cwd)
+        if work_dir is not None:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        conn.close()
 
 
 # ---------------------- ACCESS TO A LIMB'S CONCEPT NETWORK ----------------------
@@ -425,6 +439,7 @@ def _get_soma_mesh(neuron_obj):
     return None
 
 def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
+    run_config = getattr(neuron_obj, "run_config", None)
     limbs_sum = []
     for limb in getattr(neuron_obj, "limbs", []):
         branches = getattr(limb, "branches", [])
@@ -444,13 +459,18 @@ def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
         limbs_sum.append({
             "n_branches": len(branches),
             "spines_per_branch": spines_per_branch,
+            "spine_face_provenance_per_branch": [
+                "available" if getattr(branch, "spines_face_idx", None) is not None else "unavailable"
+                for branch in branches
+            ],
             "total_spines": int(sum(spines_per_branch)),
             "graph_n_nodes": int(n_nodes),
             "graph_n_edges": int(n_edges),
             "root_branch": root,
         })
     return {
-        "data_type": DATA_TYPE,
+        "data_type": (run_config or {}).get("dataset", parameters.params.data_type),
+        "run_config": run_config,
         "n_limbs": len(limbs_sum),
         "total_spines": int(sum(l["total_spines"] for l in limbs_sum)),
         "limbs": limbs_sum,
@@ -458,7 +478,50 @@ def _summarize_neuron(neuron_obj) -> Dict[str, Any]:
     }
 
 
-def save_segmentation(neuron_obj, base_dir: Path) -> None:
+def _save_spine_masks(branch, spines, path, *, export_ext=EXPORT_EXT):
+    """Save supplied parent indices; never infer ownership from duplicate triangles."""
+    from types import SimpleNamespace
+
+    masks = getattr(branch, "spines_face_idx", None)
+    if masks is None:
+        return
+    if len(masks) != len(spines):
+        raise ValueError("Spine parent masks and exported meshes have different lengths")
+    parent = getattr(branch, "mesh", None)
+    if parent is None:
+        raise ValueError("Spine face provenance requires the parent branch mesh")
+    indices = []
+    used_surface = set()
+    for mask, mesh in zip(masks, spines):
+        mask = np.asarray(mask)
+        if mask.ndim != 1 or mask.dtype.kind not in "iu":
+            raise ValueError("Spine parent masks must be one-dimensional integer indices")
+        if (mask < 0).any() or (mask >= len(parent.faces)).any():
+            raise ValueError("Spine parent mask index is outside the branch mesh")
+        mask = mask.astype(np.int64, copy=False)
+        if len(np.unique(mask)) != len(mask):
+            raise ValueError("Spine parent mask contains a repeated face index")
+        if not hasattr(mesh, "faces") or len(mask) != len(mesh.faces):
+            raise ValueError("Spine parent mask does not match the exported face count")
+        parent_part = SimpleNamespace(triangles=np.asarray(parent.vertices)[np.asarray(parent.faces)[mask]])
+        spine_triangles = triangle_keys(mesh)
+        if not np.array_equal(triangle_keys(parent_part), spine_triangles):
+            raise ValueError("Spine parent mask does not match the exact exported triangle geometry")
+        surface = {key.tobytes() for key in spine_triangles}
+        if used_surface & surface:
+            raise ValueError("Spine meshes overlap on the same triangle geometry")
+        used_surface.update(surface)
+        indices.append(mask)
+    faces = np.concatenate(indices) if indices else np.empty(0, dtype=np.int64)
+    if len(np.unique(faces)) != len(faces):
+        raise ValueError("Spine parent masks overlap on the same face index")
+    offsets = np.concatenate(([0], np.cumsum([len(mask) for mask in indices], dtype=np.int64)))
+    np.savez(path, faces=faces, offsets=offsets, schema_version=np.int64(1),
+             scope=np.array("branch_mesh.face_index"), parent_face_count=np.int64(len(parent.faces)),
+             spine_files=np.asarray([f"spines/spine_{i:03d}{export_ext}" for i in range(len(spines))], dtype=str))
+
+
+def save_segmentation(neuron_obj, base_dir: Path, *, export_ext=EXPORT_EXT) -> None:
     """
     Layout:
       base_dir/
@@ -473,6 +536,7 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
           branch_000/
             branch_mesh.off
             branch_skeleton.npy
+            spine_faces.npz       -- supplied branch-local masks, when available
           ...
     """
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -482,7 +546,7 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
     if soma_mesh is not None:
         soma_dir = base_dir / "soma"
         soma_dir.mkdir(parents=True, exist_ok=True)
-        _safe_export_mesh(soma_mesh, soma_dir / f"soma_mesh{EXPORT_EXT}")
+        _safe_export_mesh(soma_mesh, soma_dir / f"soma_mesh{export_ext}")
 
     # Summary
     summary = _summarize_neuron(neuron_obj)
@@ -496,7 +560,7 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
 
         mesh_limb = getattr(limb, "mesh", None)
         if mesh_limb is not None:
-            _safe_export_mesh(mesh_limb, limb_dir / f"limb_mesh{EXPORT_EXT}")
+            _safe_export_mesh(mesh_limb, limb_dir / f"limb_mesh{export_ext}")
 
         skeleton_limb = getattr(limb, "skeleton", None)
         if skeleton_limb is not None:
@@ -510,7 +574,7 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
 
             mesh_branch = getattr(branch, "mesh", None)
             if mesh_branch is not None:
-                _safe_export_mesh(mesh_branch, br_dir / f"branch_mesh{EXPORT_EXT}")
+                _safe_export_mesh(mesh_branch, br_dir / f"branch_mesh{export_ext}")
 
             skeleton_branch = getattr(branch, "skeleton", None)
             if skeleton_branch is not None:
@@ -519,30 +583,142 @@ def save_segmentation(neuron_obj, base_dir: Path) -> None:
             # branch.spines is the list of the branch's trimesh submeshes. Each is saved as
             # spines/spine_<i>.off; branches without spines get no spines/ directory.
             spines = list(_iter_spines(branch))
+            _save_spine_masks(branch, spines, br_dir / "spine_faces.npz", export_ext=export_ext)
             if spines:
                 spines_dir = br_dir / "spines"
                 spines_dir.mkdir(parents=True, exist_ok=True)
                 for spine_ind, spine_mesh in enumerate(spines):
                     if spine_mesh is not None and hasattr(spine_mesh, "faces"):
-                        _safe_export_mesh(spine_mesh, spines_dir / f"spine_{spine_ind:03d}{EXPORT_EXT}")
+                        _safe_export_mesh(spine_mesh, spines_dir / f"spine_{spine_ind:03d}{export_ext}")
 
 
-# ---------------------- PROCESS ONE MESH (in-process) ----------------------
+# ---------------------- PROCESSING / SHARED SCHEDULER ----------------------
 
-def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True) -> Path:
-    basename = off_path.stem
-    neuron_base = out_dir / basename
-
+def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True, *,
+                     config=None, no_save=False, decimation_ratio=0.0,
+                     max_somas=None) -> Path:
+    """Compatibility in-process entry; use the batch driver for isolated workers."""
+    _validate_decimation(decimation_ratio, not do_decimate)
+    config = config or RunConfig(dataset=DATA_TYPE, calculate_spines=True)
     mesh = tu.load_mesh_no_processing(str(off_path))
-    neuron_obj = neuron.Neuron(mesh=mesh, calculate_spines=True)  # spines on (CGAL segmentation)
-    save_segmentation(neuron_obj, neuron_base)
+    if do_decimate and decimation_ratio:
+        from neurd import _mesh_ops
+        mesh = _mesh_ops.decimate(mesh, decimation_ratio=decimation_ratio)
+    neuron_obj = segmentation_pipeline(mesh, config=config, max_somas=max_somas)
+    destination = Path(out_dir) / off_path.stem
+    if not no_save:
+        save_segmentation(neuron_obj, destination)
+    return destination
 
-    del neuron_obj, mesh
-    gc.collect()
-    return neuron_base
+
+@dataclass(frozen=True)
+class BatchResult:
+    processed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    skipped_failed: int = 0
+
+    @property
+    def exit_code(self):
+        return 1 if self.failed or self.skipped_failed else 0
 
 
-# ---------------------- PROCESS A DIRECTORY, TRACKED BY MANIFEST ----------------------
+def _validate_decimation(ratio, no_decimate):
+    if not np.isfinite(ratio) or not 0 <= ratio <= 1:
+        raise ValueError("decimation_ratio must be between 0 and 1 (0 means disabled)")
+    if no_decimate and ratio:
+        raise ValueError("--no-decimate cannot be combined with a positive decimation ratio")
+
+
+def _stop_process(process):
+    """Terminate the worker and its external helpers, then reap it."""
+    owns_group = False
+    if hasattr(os, "killpg"):
+        try:
+            owns_group = os.getpgid(process.pid) == process.pid
+            if owns_group:
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except ProcessLookupError:
+            pass
+    else:
+        process.terminate()
+    process.join(5)
+    if owns_group:
+        # A helper may outlive the terminated Python worker. Reap the whole
+        # process group before removing its scratch files.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if process.is_alive():
+        if not owns_group:
+            process.kill()
+        process.join()
+
+
+def _cleanup_job(job):
+    for key in ("private_work_dir", "staging_dir"):
+        if job.get(key) is not None:
+            shutil.rmtree(job[key], ignore_errors=True)
+
+
+def _drain_result(job):
+    # Drain while the child is alive: send() of a large traceback can fill a Pipe.
+    if "result" not in job:
+        try:
+            if job["conn"].poll(0):
+                job["result"] = job["conn"].recv()
+        except (EOFError, OSError):
+            pass
+
+
+def _run_signature(config, decimation_ratio, max_somas):
+    root = Path(__file__).resolve().parent
+    code = [root / "process_all_neurons.py", root / "process_all_neurons_parallel.py"]
+    code.extend(sorted((root / "neurd").glob("*.py")))
+    dependencies = dependency_signature()
+    versions = dependencies.setdefault("versions", {})
+    for name in ("open3d", "numba", "pymeshfix", "pykdtree", "embreex", "pyembree", "rtree"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    # Raw decomposition uses a separate native skeletonizer; H01 branch
+    # resegmentation may retain stored skeletons and need only segmentation.
+    skeletonizer = importlib.util.find_spec("calcification_param_Module")
+    dependencies["skeletonizer"] = (
+        dict(path=skeletonizer.origin, sha256=sha(skeletonizer.origin))
+        if skeletonizer is not None and skeletonizer.origin else None
+    )
+    return dict(
+        schema_version=1, config=config.as_dict(), decimation_ratio=decimation_ratio,
+        max_somas=max_somas, code_sha256={str(path.relative_to(root)): sha(path) for path in code},
+        dependencies=dependencies, runtime_environment=runtime_environment(config),
+    )
+
+
+def _run_hash(config, decimation_ratio, max_somas):
+    return digest_json(_run_signature(config, decimation_ratio, max_somas))
+
+
+def _validate_manifest_path(manifest, source, output, files):
+    path = Path(manifest)
+    path = (path if path.is_absolute() else output / path).resolve()
+    if path == source or source in path.parents:
+        raise ValueError("Manifest must not be inside the raw input directory")
+    if any(path == mesh.resolve() for mesh in files):
+        raise ValueError("Manifest must not overwrite a raw input mesh")
+    reserved = [output / "failed.txt", output / ".work"]
+    reserved.extend(output / mesh.stem for mesh in files)
+    if output.is_dir():
+        reserved.extend(child for child in output.iterdir() if child.is_dir()
+                        and ((child / "result.json").is_file() or (child / "summary.json").is_file()))
+    if path == output or any(path == root.resolve() or root.resolve() in path.parents for root in reserved):
+        raise ValueError("Manifest conflicts with a reserved output path")
+    return path
+
 
 def process_folder_with_manifest(
     input_dir: str,
@@ -551,115 +727,204 @@ def process_folder_with_manifest(
     pattern: str = "*.off",
     no_save: bool = False,
     no_decimate: bool = False,
-) -> None:
-    in_dir = Path(input_dir)
-    out_dir = Path(output_dir)
-    manifest_path = Path(manifest) if os.path.isabs(manifest) else (out_dir / manifest)
+    *,
+    config=None,
+    retry_failed=False,
+    decimation_ratio=0.0,
+    max_somas=None,
+    max_workers=1,
+    input_size_budget_mb=1024,
+    poll_interval=0.2,
+) -> BatchResult:
+    """Run raw-neuron decomposition with verified resume and isolated processes.
 
-    ensure_neurd_defaults()
-
-    files = sorted(in_dir.glob(pattern))
-    if not files:
-        print(f"[!] no files matched: {in_dir}/{pattern}")
-        return
-
-    done = read_manifest(manifest_path)
-    done_failed = read_manifest(out_dir / Path("failed.txt"))
-    print(f"[i] data_type={DATA_TYPE}")
-    print(f"[i] manifest: {manifest_path} (loaded {len(done)} ids)")
-    print(f"[i] found {len(files)} mesh(es) in: {in_dir}")
-
+    The input-size budget limits concurrent *file bytes*, not RAM. Set
+    SEG_RSS_LIMIT_MB for observed per-worker RSS enforcement (requires psutil).
+    --no-save computes without creating exports, manifests or failure logs.
+    Legacy outputs without result.json must be handled in a new output directory.
+    """
+    config = config or RunConfig(dataset=DATA_TYPE, calculate_spines=True)
+    if not isinstance(config, RunConfig):
+        raise TypeError("config must be a RunConfig")
+    _validate_decimation(decimation_ratio, no_decimate)
+    if max_somas is not None and (isinstance(max_somas, bool) or not isinstance(max_somas, int) or max_somas < 1):
+        raise ValueError("max_somas must be a positive integer")
+    if max_workers is None or max_workers == 0:
+        max_workers = os.cpu_count() or 1
+    if max_workers < 1 or input_size_budget_mb <= 0 or poll_interval <= 0:
+        raise ValueError("Worker count, input-size budget and poll interval must be positive")
     rss_limit_mb = int(os.environ.get("SEG_RSS_LIMIT_MB", "0"))
-    per_item_timeout = int(os.environ.get("SEG_TIMEOUT_SEC", "0"))
+    timeout = int(os.environ.get("SEG_TIMEOUT_SEC", "0"))
+    if rss_limit_mb < 0 or timeout < 0:
+        raise ValueError("RSS and timeout limits must be nonnegative")
+    if rss_limit_mb and _PSUTIL is None:
+        raise RuntimeError("SEG_RSS_LIMIT_MB requires psutil; install it or unset the RSS limit")
+    if config.calculate_spines:
+        require_compiled_cgal()
+    in_dir, out_dir = separate_roots(input_dir, output_dir)
+    if not in_dir.is_dir():
+        raise ValueError(f"Missing input directory: {in_dir}")
+    files = sorted(path for path in in_dir.glob(pattern) if path.is_file())
+    if len({path.stem for path in files}) != len(files):
+        raise ValueError("Input mesh basenames must be unique")
+    if not files:
+        raise ValueError(f"No files matched: {in_dir}/{pattern}")
+    manifest_path = _validate_manifest_path(manifest, in_dir, out_dir, files)
+    if not no_save:
+        out_dir.mkdir(parents=True, exist_ok=True)
     failed_log = out_dir / "failed.txt"
-
-    processed = skipped = failed = 0
-    total = len(files)
-
-    for i, mesh_path in enumerate(files, 1):
-        spine_id = mesh_path.stem
-        if spine_id in done:
-            print(f"[{i}/{total}] [=] skip by manifest: {spine_id}")
+    previously_failed = set() if no_save else read_manifest(failed_log)
+    run_hash = _run_hash(config, decimation_ratio, max_somas)
+    pending = []
+    skipped = skipped_failed = 0
+    for mesh in files:
+        inputs = {"mesh": {"path": str(mesh), "sha256": sha(mesh)}}
+        destination = out_dir / mesh.stem
+        if not no_save and complete_valid(destination, run_hash, inputs):
             skipped += 1
             continue
-        if spine_id in done_failed:
-            print(f"[{i}/{total}] [=] skip by failed_manifest: {spine_id}")
-            skipped += 1
+        if not no_save and destination.exists():
+            raise ValueError(f"Existing output lacks verified completion: {destination}; use a new output directory")
+        if mesh.stem in previously_failed and not retry_failed:
+            skipped_failed += 1
+            print(f"[=] previous failure: {mesh.stem}; use --retry-failed")
             continue
-
-        print(f"[{i}/{total}] processing: {mesh_path.name} (write={not no_save})")
-
-        parent_conn, child_conn = mp.Pipe(duplex=False)
-        p = mp.Process(
-            target=_worker_process,
-            args=(str(mesh_path), str(out_dir), (not no_decimate), EXPORT_EXT, child_conn),
-            daemon=False,
-        )
-        p.start()
-        start = time.time()
-        ok = None
-        msg = ""
-
-        while p.is_alive():
-            if per_item_timeout and (time.time() - start > per_item_timeout):
-                p.terminate(); p.join(5)
-                ok, msg = False, f"Timeout after {per_item_timeout}s"
-                break
-            if rss_limit_mb:
-                r = _rss_mb(p.pid)
-                if r is not None and r > rss_limit_mb:
-                    p.terminate(); p.join(5)
-                    ok, msg = False, f"RSS limit exceeded: {r} MB > {rss_limit_mb} MB"
+        pending.append(dict(path=mesh, size=mesh.stat().st_size, inputs=inputs))
+    pending.sort(key=lambda item: item["size"])
+    budget = int(input_size_budget_mb * 1024 * 1024)
+    print(f"[i] dataset={config.dataset} spines={config.calculate_spines} "
+          f"refinement={config.refinement} sdf_rays={config.sdf_rays}")
+    print(f"[i] workers={max_workers}, concurrent input-size budget={input_size_budget_mb} MiB (file bytes)")
+    running = []
+    processed = failed = 0
+    try:
+        while pending or running:
+            while pending and len(running) < max_workers:
+                inflight = sum(job["size"] for job in running)
+                pick = next((i for i, item in enumerate(pending)
+                             if not running or inflight + item["size"] <= budget), None)
+                if pick is None:
                     break
-            time.sleep(0.2)
-
-        if ok is None:
-            if parent_conn.poll(1.0):
-                ok, msg = parent_conn.recv()
-            else:
-                ok, msg = (p.exitcode == 0), f"exitcode={p.exitcode}"
-
-        parent_conn.close()
-
-        if ok:
-            if not no_save:
-                append_manifest_atomic(manifest_path, spine_id)
-            processed += 1
-        else:
-            failed += 1
-            with open(failed_log, "a", encoding="utf-8") as f:
-                f.write(f"{spine_id}\t{msg}\n")
-            print(f"    [x] failed: {msg}")
-
-        gc.collect()
-
-    print(f"\nDone. processed={processed}, skipped={skipped}, failed={failed}")
-    print(f"[i] manifest now has {len(read_manifest(manifest_path))} ids at {manifest_path}")
+                job = pending.pop(pick)
+                parent, child = mp.Pipe(duplex=False)
+                process = None
+                try:
+                    job["private_work_dir"] = tempfile.mkdtemp(prefix="neurd_work_")
+                    job["staging_dir"] = None
+                    if not no_save:
+                        scratch = out_dir / ".work"
+                        scratch.mkdir(parents=True, exist_ok=True)
+                        job["staging_dir"] = tempfile.mkdtemp(prefix=job["path"].stem + "_", dir=scratch)
+                    process = mp.Process(target=_worker_process, args=(
+                        str(job["path"]), str(out_dir), not no_decimate, EXPORT_EXT, child,
+                    ), kwargs=dict(config=config, no_save=no_save, decimation_ratio=decimation_ratio,
+                                   run_hash=run_hash, input_record=job["inputs"], max_somas=max_somas,
+                                   private_work_dir=job["private_work_dir"], staging_dir=job["staging_dir"]))
+                    process.start()
+                except BaseException:
+                    if process is not None and process.pid is not None and process.is_alive():
+                        _stop_process(process)
+                    parent.close()
+                    child.close()
+                    _cleanup_job(job)
+                    raise
+                child.close()
+                job.update(proc=process, conn=parent, start=time.monotonic())
+                running.append(job)
+                print(f"[start] {job['path'].name}")
+            finished = []
+            for job in running:
+                process = job["proc"]
+                _drain_result(job)
+                if process.is_alive():
+                    reason = None
+                    if timeout and time.monotonic() - job["start"] > timeout:
+                        reason = f"Timeout after {timeout}s"
+                    if rss_limit_mb and reason is None:
+                        observed = _rss_mb(process.pid)
+                        if observed is None:
+                            if process.is_alive():
+                                reason = "Unable to observe RSS while SEG_RSS_LIMIT_MB is required"
+                        elif observed > rss_limit_mb:
+                            reason = f"RSS limit exceeded: {observed:.0f} MiB > {rss_limit_mb} MiB"
+                    if reason:
+                        _stop_process(process)
+                        job["result"] = False, reason
+                if not process.is_alive():
+                    finished.append(job)
+            for job in finished:
+                running.remove(job)
+                process = job["proc"]
+                process.join()
+                _drain_result(job)
+                ok, message = job.get("result", (False, f"No worker result; exitcode={process.exitcode}"))
+                job["conn"].close()
+                _cleanup_job(job)
+                ok = bool(ok) and process.exitcode == 0
+                if ok:
+                    if not no_save:
+                        # Completion is independently validated before a manifest entry.
+                        try:
+                            if not complete_valid(out_dir / job["path"].stem, run_hash, job["inputs"]):
+                                ok, message = False, "Worker did not publish a verified result"
+                        except (ValueError, OSError) as exc:
+                            ok, message = False, f"Worker completion validation failed: {exc}"
+                if ok:
+                    processed += 1
+                    if not no_save:
+                        append_manifest_atomic(manifest_path, job["path"].stem)
+                else:
+                    failed += 1
+                    if not no_save:
+                        with failed_log.open("a", encoding="utf-8") as stream:
+                            stream.write(job["path"].stem + "\t" + json.dumps(message) + "\n")
+                    print(f"[x] {job['path'].stem}: {message}")
+            if running and not finished:
+                time.sleep(poll_interval)
+    finally:
+        for job in running:
+            if job["proc"].is_alive():
+                _stop_process(job["proc"])
+            job["conn"].close()
+            _cleanup_job(job)
+    result = BatchResult(processed, skipped, failed, skipped_failed)
+    print(f"Done. processed={processed}, skipped={skipped}, failed={failed}, skipped_failed={skipped_failed}")
+    return result
 
 
 # ---------------------- CLI ----------------------
 
-if __name__ == "__main__":
+def add_batch_arguments(parser):
+    parser.add_argument("input_dir", help="directory of raw neuron meshes")
+    parser.add_argument("output_dir", help="separate output directory")
+    parser.add_argument("--pattern", default="*.off")
+    parser.add_argument("--manifest", default="processed.txt")
+    parser.add_argument("--no-save", action="store_true", help="compute without exports, manifests or failure logs")
+    parser.add_argument("--no-decimate", action="store_true", help="disable input decimation (already the default)")
+    parser.add_argument("--decimation-ratio", type=float, default=0.0,
+                        help="optional retained input-face fraction, 0 disables decimation")
+    parser.add_argument("--max-somas", type=int, help="positive cap for the soma search")
+    parser.add_argument("--retry-failed", action="store_true", help="retry inputs recorded in failed.txt")
+    add_run_arguments(parser)
+
+
+def main(argv=None):
     import argparse
+    parser = argparse.ArgumentParser(description="Raw-neuron NEURD segmentation with verified resume.")
+    add_batch_arguments(parser)
+    args = parser.parse_args(argv)
+    try:
+        result = process_folder_with_manifest(
+            args.input_dir, args.output_dir, manifest=args.manifest, pattern=args.pattern,
+            no_save=args.no_save, no_decimate=args.no_decimate, config=config_from_args(args),
+            retry_failed=args.retry_failed, decimation_ratio=args.decimation_ratio,
+            max_somas=args.max_somas,
+        )
+        return result.exit_code
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"[x] {exc}")
+        return 2
 
-    ap = argparse.ArgumentParser(description="NEURD segmentation of neuron meshes.")
-    ap.add_argument("input_dir", type=str, help="directory of meshes (.off/.ply/...)")
-    ap.add_argument("output_dir", type=str, help="output directory (one subdir per input basename)")
-    ap.add_argument("--pattern", type=str, default="*.off", help="glob for the input files")
-    ap.add_argument("--manifest", type=str, default="processed.txt",
-                    help="manifest path (default: <output_dir>/processed.txt)")
-    ap.add_argument("--no-save", action="store_true", help="dry run: do not write to disk")
-    ap.add_argument("--no-decimate", action="store_true", help="disable decimation")
-    args = ap.parse_args()
 
-    process_folder_with_manifest(
-        input_dir=args.input_dir,
-        output_dir=args.output_dir,
-        manifest=args.manifest,
-        pattern=args.pattern,
-        no_save=args.no_save,
-        no_decimate=args.no_decimate,
-    )
-
-# Example:
-#   python process_all_neurons.py path/to/meshes path/to/output_segmentations
+if __name__ == "__main__":
+    raise SystemExit(main())

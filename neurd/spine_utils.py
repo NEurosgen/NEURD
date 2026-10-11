@@ -1657,6 +1657,7 @@ def calculate_spines_on_branch(
     geometric_refinement_diagnostics = None,
     geometric_refinement_face_indices = None,
     geometric_refinement_head_skeleton = None,
+    spine_face_indices = None,
     **kwargs,
     ):
     """
@@ -1672,6 +1673,10 @@ def calculate_spines_on_branch(
     Pass an empty list as geometric_refinement_face_indices to receive parent
     face masks in returned mesh order, after all filters and fallbacks. This
     output requires geometric_refinement=True.
+    Pass an empty list as spine_face_indices for branch-local int64 face masks
+    in either mode. These retain actual parent face occurrences even when
+    different parent faces have identical geometry. The list is replaced with
+    masks aligned with the final returned meshes; no detected spines gives [].
     geometric_refinement_head_skeleton supplies an optional repaired axis for
     head completion only; the branch skeleton still controls endpoint filters.
     
@@ -1828,13 +1833,13 @@ def calculate_spines_on_branch(
         cgal_folder = cgal_path,
         delete_temp_file=True,
         return_sdf=False,
-        return_mesh_idx=bool(geometric_refinement),
+        return_mesh_idx=bool(geometric_refinement or spine_face_indices is not None),
         print_flag=False,
         shaft_threshold=shaft_threshold,
         plot_segmentation=plot_segmentation
     )
 
-    if geometric_refinement:
+    if geometric_refinement or spine_face_indices is not None:
         original_meshes, original_indices = extraction
         spine_submesh_split = original_meshes
         raw_mesh_indices = {id(mesh): i for i, mesh in enumerate(original_meshes)}
@@ -2169,12 +2174,19 @@ def calculate_spines_on_branch(
                 action = record['action']
                 refinement['counts'][action] = refinement['counts'].get(action,0)+1
 
-    if geometric_refinement_face_indices is not None:
-        if not geometric_refinement:
-            raise ValueError('Parent face masks require geometric_refinement=True')
-        geometric_refinement_face_indices[:] = [
-            refined_indices[refinement_mesh_ids[id(mesh)]].copy()
-            for mesh in spine_submesh_split_filtered]
+    if geometric_refinement_face_indices is not None and not geometric_refinement:
+        raise ValueError('Parent face masks require geometric_refinement=True')
+    if spine_face_indices is not None or geometric_refinement_face_indices is not None:
+        if geometric_refinement:
+            final_masks = [refined_indices[refinement_mesh_ids[id(mesh)]]
+                           for mesh in spine_submesh_split_filtered]
+        else:
+            final_masks = [original_indices[raw_mesh_indices[id(mesh)]]
+                           for mesh in spine_submesh_split_filtered]
+        if spine_face_indices is not None:
+            spine_face_indices[:] = [np.asarray(mask, dtype=np.int64).copy() for mask in final_masks]
+        if geometric_refinement_face_indices is not None:
+            geometric_refinement_face_indices[:] = [mask.copy() for mask in final_masks]
 
     if geometric_refinement and geometric_refinement_diagnostics is not None:
         geometric_refinement_diagnostics.clear()
@@ -2217,6 +2229,10 @@ def calculate_spines_on_neuron(
     **kwargs):
     """
     Purpose: Will calculate spines over a neuron object
+
+    Selected branches receive spines_face_idx, a list of branch-local int64
+    masks aligned with spines. An empty list means detection ran with no final
+    spines; unselected branches retain unavailable provenance (None).
     
     Pseudocode
     ----------------
@@ -2313,6 +2329,8 @@ def calculate_spines_on_neuron(
             if print_flag:
                 print(f"Working on limb {limb_idx} branch {branch_idx}")
                 
+            branch_spine_faces = []
+            branch_kwargs = dict(kwargs, spine_face_indices=branch_spine_faces)
                 
             if calculate_spine_volume:
                 branch_spines,branch_spines_vol  = calculate_spines_on_branch(
@@ -2320,7 +2338,7 @@ def calculate_spines_on_neuron(
                     soma_kdtree = soma_kdtree,
                     print_flag=print_flag,
                     calculate_spine_volume =calculate_spine_volume,
-                    **kwargs
+                    **branch_kwargs
                 )
                 curr_branch.spines_volume = list(branch_spines_vol)
                 already_calculated_volumes = True
@@ -2330,11 +2348,12 @@ def calculate_spines_on_neuron(
                     soma_kdtree = soma_kdtree,
                     print_flag=print_flag,
                     calculate_spine_volume =calculate_spine_volume,
-                    **kwargs
+                    **branch_kwargs
                 )
                 already_calculated_volumes = False
             
             curr_branch.spines = list(branch_spines)
+            curr_branch.spines_face_idx = branch_spine_faces
             
             
             if calculate_spine_volume and not already_calculated_volumes:
