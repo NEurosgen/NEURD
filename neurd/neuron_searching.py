@@ -19,21 +19,16 @@ def convert_neuron_to_branches_dataframe(current_neuron,
         limb_idxs = nru.get_limb_names_from_concept_network(curr_concept_network)
     else:
         limb_idxs = [nru.get_limb_string_name(k) for k in limbs_to_process]
-    
-    
     limb_node_idx_dicts = []
-
     for l in limb_idxs:
         if limb_branch_dict_restriction is None:
-            limb_node_idx_dicts += [dict(limb=l,node=int(k)) for k in 
-                                curr_concept_network.nodes[l]["data"].concept_network.nodes()]
+            branches = curr_concept_network.nodes[l]["data"].concept_network.nodes()
+        elif l in limb_branch_dict_restriction:
+            branches = limb_branch_dict_restriction[l]
         else:
-            if l in limb_branch_dict_restriction.keys():
-                limb_node_idx_dicts += [dict(limb=l,node=int(k)) for k in 
-                                    limb_branch_dict_restriction[l]]
-
-    df = pd.DataFrame(limb_node_idx_dicts)
-    return df
+            continue
+        limb_node_idx_dicts.extend(dict(limb=l, node=int(k)) for k in branches)
+    return pd.DataFrame(limb_node_idx_dicts, columns=["limb", "node"])
 
 #wrapper to help with classifying funciton uses
 class run_options:
@@ -429,110 +424,61 @@ def flip_dendrite_to_axon(curr_limb,limb_branch_dict,limb_name=None,
 
 #------------------------------- Creating the Data tables from the neuron and functions------------------------------
 def get_run_type(f):
-    """
-    Purpose: To decide whether a function is a limb or branch
-    function
-
-    Pseudocode: 
-    1) Try and get the runtype
-    2) Extract the name of the first parameter of the function
-    3a) if "branch" in then branch, elif "limb" in then limb
-    """
+    """Use a feature's declared run type, then its first argument's name."""
     try:
-        curr_run_type = getattr(f,"run_type",)
+        return getattr(f, "run_type")
     except Exception:
         try:
             first_arg_name = fcu.arg_names(f)[0].lower()
             if "branch" in first_arg_name:
-                curr_run_type = "Branch"
+                return "Branch"
             elif "limb" in first_arg_name:
-                curr_run_type = "Limb"
-            else:
-                raise Exception("No branch argument")
+                return "Limb"
         except Exception:
-            curr_run_type = "Branch"
-    else:
-        pass
-    
-    return curr_run_type
+            pass
+    return "Branch"
     
     
 def apply_function_to_neuron(current_neuron,current_function,function_kwargs=None,verbose=False
                             ):
-    """
-    Purpose: To retrieve a dictionary mapping every branch on every node
-    to a certain value as defined by the function passed
-    
-    Example: 
-    curr_function = width
-    curr_function_mapping = apply_function_to_neuron(recovered_neuron,curr_function)
-    
-    """
+    """Evaluate a branch feature or broadcast a limb feature to its branches."""
     if function_kwargs is None:
         function_kwargs = dict()
-    
     curr_neuron_concept_network = nru.return_concept_network(current_neuron)
-    
     if "limbs_to_process" in function_kwargs.keys():
         curr_limb_names = [nru.get_limb_string_name(k) for k in function_kwargs["limbs_to_process"]]
     else:
         curr_limb_names = nru.get_limb_names_from_concept_network(curr_neuron_concept_network)
-        
-    limb_branch_dict_restriction =  function_kwargs.get("limb_branch_dict_restriction",None)
-    
+    limb_branch_dict_restriction = function_kwargs.get("limb_branch_dict_restriction", None)
     if limb_branch_dict_restriction is None:
         limb_branch_dict_restriction = nru.neuron_limb_branch_dict(current_neuron)
-    else:
-        if verbose:
-            print(f"Using the limb_branch_dict_restriction = {limb_branch_dict_restriction}")
-        
-    
-    function_mapping = dict([(limb_name,dict()) for limb_name in curr_limb_names if limb_name in limb_branch_dict_restriction.keys()])
-
-    #curr_run_type = getattr(current_function,"run_type","Branch")
+    elif verbose:
+        print(f"Using the limb_branch_dict_restriction = {limb_branch_dict_restriction}")
+    function_mapping = {name: {} for name in curr_limb_names
+                        if name in limb_branch_dict_restriction.keys()}
     curr_run_type = get_run_type(current_function)
-    #if it was a branch function that was passed
-    if curr_run_type=="Branch":
+    if curr_run_type == "Branch":
         for limb_name in function_mapping.keys():
             curr_limb_concept_network = curr_neuron_concept_network.nodes[limb_name]["data"].concept_network
             for branch_idx in curr_limb_concept_network.nodes():
-                
-                # -- 1/29 Addition: Will only look at nodes in the limb branch dict restriction -- #
                 if branch_idx not in limb_branch_dict_restriction[limb_name]:
                     continue
-                    
-#                 if limb_name == "L0" and branch_idx == 73:
-#                     print(f"Computing {current_function} for !!!!!")
-                    
+                curr_branch = curr_limb_concept_network.nodes[branch_idx]["data"]
                 if "str" in str(type(current_function)):
-                    function_mapping[limb_name][branch_idx] = getattr(curr_limb_concept_network.nodes[branch_idx]["data"],
-                                                                     current_function)
+                    value = getattr(curr_branch, current_function)
                 else:
-                    function_mapping[limb_name][branch_idx] = current_function(curr_limb_concept_network.nodes[branch_idx]["data"],limb_name=limb_name,branch_name=branch_idx,**function_kwargs)
-                
-    elif curr_run_type=="Limb":
-        #if it was a limb function that was passed
-        """
-        - for each limb:
-          i) run the function and recieve the returned result
-          2) If only a single value is returned --> make dict[limb_idx][node_idx] = value all with the same value
-          3) if dictionary of values: 
-             a. check that keys match the node_names
-             b. make dict[limb_idx][node_idx] = value for all nodes using the dictionary
-        
-        """
+                    value = current_function(curr_branch, limb_name=limb_name,
+                                             branch_name=branch_idx, **function_kwargs)
+                function_mapping[limb_name][branch_idx] = value
+    elif curr_run_type == "Limb":
         for limb_name in function_mapping.keys():
-            function_return = current_function(curr_neuron_concept_network.nodes[limb_name]["data"],limb_name=limb_name,
-                                               **function_kwargs)
+            curr_limb = curr_neuron_concept_network.nodes[limb_name]["data"]
+            function_return = current_function(curr_limb, limb_name=limb_name, **function_kwargs)
             curr_limb_concept_network = curr_neuron_concept_network.nodes[limb_name]["data"].concept_network
-            
-            function_mapping[limb_name] =  convert_limb_function_return_to_dict(function_return,
-                                                        curr_limb_concept_network)
-            
-
+            function_mapping[limb_name] = convert_limb_function_return_to_dict(
+                function_return, curr_limb_concept_network)
     else:
         raise Exception("Function recieved was neither a Branch nor a Limb")
-        
     return function_mapping
 
 
@@ -551,42 +497,22 @@ def generate_neuron_dataframe(current_neuron,
     Feature names become columns; ``function_kwargs`` can restrict limbs and
     branches. With ``check_nans=True``, incomplete feature values raise.
     """
-    
     if not nu.is_array_like(functions_list):
         functions_list = [functions_list]
-        
-    #print(f"functions_list = {functions_list}")
-    
-    
-    limbs_to_process = function_kwargs.get("limbs_to_process",None)
-    limb_branch_dict_restriction=function_kwargs.get("limb_branch_dict_restriction",None)
-    
-    #2) Create a dataframe for the neuron
     curr_df = convert_neuron_to_branches_dataframe(current_neuron,
-                                                  limbs_to_process=limbs_to_process,
-                                                  limb_branch_dict_restriction=limb_branch_dict_restriction)
-    
-    """
-    3) For each function:
-    a. get the dictionary mapping of limbs/branches to values
-    b. apply the values to the dataframe
-    
-    """
-    
+        limbs_to_process=function_kwargs.get("limbs_to_process", None),
+        limb_branch_dict_restriction=function_kwargs.get("limb_branch_dict_restriction", None))
     for curr_function in functions_list:
         curr_function_mapping = apply_function_to_neuron(current_neuron,curr_function,function_kwargs)
         curr_function_name = getattr(curr_function,"__name__",curr_function)
         if curr_function_name[-len(limb_function_append_name):] == limb_function_append_name:
             curr_function_name = curr_function_name[:-(len(limb_function_append_name)+1)]
         map_new_limb_node_value(curr_df,curr_function_mapping,value_name=curr_function_name)
-        
     if check_nans:
-        if pu.n_nans_total(curr_df) > 0:
+        nans_per_column = curr_df.isnull().sum()
+        if nans_per_column.sum() > 0:
             raise Exception("Some of the data in the dataframe were incomplete; "
-                            f"nans per column = {pu.n_nans_per_column(curr_df)}")
-            
-    
-    #4) return the dataframe
+                            f"nans per column = {nans_per_column}")
     return curr_df
 
 
@@ -655,7 +581,11 @@ def query_neuron(
 
     Returns a ``{limb: branch_indices}`` mapping by default. The dataframe flags
     return feature rows before or after filtering; ``return_limbs`` returns
-    the matching limb names.
+    the matching limb names. With ``return_limb_grouped_branches=False``, return
+    an ordered ``(limb, node)`` array, including an array of shape ``(0, 2)``
+    when no rows match. Pair and dataframe results keep selected row order and
+    duplicates; grouped results sort branches, and an explicit restriction
+    intersects them with its branch indices.
 
     Example::
 
@@ -664,95 +594,52 @@ def query_neuron(
     """
     if functions_list is None:
         functions_list = functions_list_from_query(query)
-        
     if function_kwargs is None:
         function_kwargs=dict()
-        
     if query_variables_dict is None:
         query_variables_dict=dict()
-    
     if limbs_to_process is not None:
-        limbs_to_process = [nru.get_limb_string_name(k) for k in limbs_to_process]
-        function_kwargs["limbs_to_process"] = limbs_to_process
-    
-    local_dict = query_variables_dict
-    concept_network_old = concept_network
-    #any preprocessing work
+        function_kwargs["limbs_to_process"] = [nru.get_limb_string_name(k) for k in limbs_to_process]
     if concept_network.__class__.__name__ == "Neuron":
         if print_flag:
             print("Extracting concept network from neuron object")
         concept_network = concept_network.concept_network
-        
     if print_flag:
         print(f"functions_list = {functions_list}")
-        
     final_feature_functions = []
     for f in functions_list:
         if "str" in str(type(f)):
             try:
                 curr_feature = getattr(current_module, f,f)
-                #curr_feature = 0
             except Exception:
                 raise Exception(f"The funciton {f} specified by string was not a pre-made funciton in neuron_searching module")
         elif callable(f):
             curr_feature = f
         else:
             raise Exception(f"Function item {f} was not a string or callable function")
-        
         final_feature_functions.append(curr_feature)
-    
     if print_flag:
         print(f"final_feature_functions = {final_feature_functions}")
-        
-        
     if limb_branch_dict_restriction is not None:
         function_kwargs["limb_branch_dict_restriction"] = limb_branch_dict_restriction
-        
-    #0) Generate a pandas table that originally has the limb index and node index
     returned_df = generate_neuron_dataframe(concept_network,functions_list=final_feature_functions,
                                            function_kwargs=function_kwargs,
                                            check_nans=check_nans)
-    
     if return_dataframe_before_filtering:
         return returned_df
-    
-    if len(returned_df)>0:
-        filtered_returned_df = returned_df.query(query,
-                      local_dict=local_dict)
-    else:
-        filtered_returned_df = returned_df
-    
-    """
-    Preparing output for returning
-    """
-
+    filtered_returned_df = (returned_df.query(query, local_dict=query_variables_dict)
+                            if len(returned_df) > 0 else returned_df)
     if return_dataframe:
         return filtered_returned_df
-    
-    
-    if len(filtered_returned_df)>0:
-        limb_to_branch = limb_branch_from_stats_df(filtered_returned_df)
-        
-        
-        if limb_branch_dict_restriction is not None:
+    if len(filtered_returned_df) == 0 and plot_limb_branch_dict:
+        print("No limb branch to plot")
+    if return_limbs or return_limb_grouped_branches:
+        limb_to_branch = (limb_branch_from_stats_df(filtered_returned_df)
+                          if len(filtered_returned_df) > 0 else {})
+        if len(filtered_returned_df) > 0 and limb_branch_dict_restriction is not None:
             limb_to_branch = nru.limb_branch_intersection([limb_branch_dict_restriction,limb_to_branch])
-        
-        if return_limbs:
-            return list(limb_to_branch.keys())
-
-        if return_limb_grouped_branches:
-            return limb_to_branch
-
-        return limb_branch_pairings
-    else:
-        if plot_limb_branch_dict:
-            print(f"No limb branch to plot")
-        if return_limbs:
-            return []
-        if return_limb_grouped_branches:
-            return dict()
-        if return_limb_grouped_branches:
-            return np.array([]).reshape(-1,2)
+        return list(limb_to_branch.keys()) if return_limbs else limb_to_branch
+    return filtered_returned_df[["limb", "node"]].to_numpy()
         
         
 @run_options(run_type="Limb")
@@ -806,5 +693,4 @@ from mesh_tools import skeleton_utils as sk
 
 #--- from datasci_tools ---
 from datasci_tools import numpy_utils as nu
-from datasci_tools import pandas_utils as pu
 
