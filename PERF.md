@@ -27,6 +27,7 @@ thread settings when comparing historical measurements. The production fidelity 
 
 | node | default | switch |
 |---|---|---|
+| Input mesh loading at supported entry points | bounded triangular ASCII OFF reader; other formats/variants delegate | `NEURD_LEGACY_MESH_LOADER=1` |
 | **Spines** | API **off**; raw batch CLI **on**, using compiled `cgal_Segmentation_Module` | `RunConfig(calculate_spines=True)`; CLI `--no-spines` |
 | CGAL SDF rays | Public API/CLI **25**, reference profile; low-level compatibility **12** | `sdf_profile="fast"` / `--sdf-profile fast` selects 12; explicit `sdf_rays` / `--sdf-rays` |
 | Geometric spine refinement | off; named H01 policies are experimental | `refinement="h01_current"` or `"h01_smooth_heads"`; CLI `--refinement` |
@@ -118,15 +119,15 @@ to skip — it is a correctness guardrail, not a speed lever). Spine paralleliza
 shelved: fork-after-threads deadlocks on the native BLAS/CGAL pools, and `forkserver`/`spawn` triples
 RAM.
 
-**RAM, post-reclaim ranking** — the remaining floors, largest first:
+**Historical RAM ranking after reclaim**, before the owned OFF loader:
 
 1. **⭐ The `load_mesh` ASCII-OFF transient, 2571 MB.** `tu.load_mesh_no_processing` is
    `trimesh.load_mesh(off, process=False)` (in `mesh_tools`, locked); the ASCII OFF parser balloons to
    ~2.57 GB on the 166 MB file, then releases. Everything in construction is now squeezed to within
-   +655 MB of it, so this is the dominant remaining floor. Next: stream/chunk the OFF parse, or
-   cache float64 vertices and ordered integer faces under a source checksum. Ordinary float32
-   PLY is unsuitable for an exact geometry cache. It matters most in the
-   parallel runner, where N workers all load at once.
+   +655 MB of it. The owned chunked reader now removes this transient at the raw-neuron,
+   descriptor and gate entry points; see the measurements below. Internal upstream/MeshLab
+   reads still use their existing reader. Re-profile the whole construction before claiming
+   its new peak. Ordinary float32 PLY would not be an exact geometry cache.
 2. **`connected_face_components` residual, +636 MB** — `edges_unique` plus coo/union-find transients
    on 3 M faces.
 3. **The `non_soma_mesh` full copy, +551 MB** — `main_mesh.submesh([non_soma_faces])` exists only to
@@ -190,6 +191,49 @@ and peak RSS. Local receipts are retained under
 a portable public fixture recipe. The measured `tests/990_mesh.off` is an existing
 local fixture and is not tracked in Git; supply your own checksummed OFF input.
 
+## Bounded ASCII OFF loading, 2026-10-11
+
+`neurd.mesh_io.load_mesh` allocates the final float64 vertex and int64 triangle arrays
+once, then parses at most roughly 1 MiB of text per conversion. It preserves vertex
+and face order, winding, duplicate/unused vertices and duplicate triangles. It performs
+no geometry cleaning, persistent caching or source conversion. The raw runners,
+descriptor extractor and geometry gates call it explicitly.
+
+Three fresh-process trials per reader, interleaved with identical imports and one
+numerical thread, used H01 `neuron_1830470325.off`: 166,526,436 bytes,
+1,628,854 vertices and 3,267,142 faces.
+
+| Reader | Median reading time | Maximum kernel peak RSS |
+|---|---:|---:|
+| Previous `tu.load_mesh_no_processing` | 11.838 s | 2,723,964 KiB (2.60 GiB) |
+| Owned reader | 6.251 s | 587,304 KiB (0.56 GiB) |
+
+Reading was **47.2% faster**, with **78.4% lower peak RSS**. These peaks include the
+same NEURD/mesh_tools imports; they are lifetime process peaks, not allocation deltas.
+All six outputs had byte-identical float64 vertices, int64 faces, metadata and visual
+state. Input hashes/stat metadata and benchmark/loader source hashes were unchanged.
+This establishes a load-stage improvement; it does not establish the same reduction
+for the complete soma/limb/spine pipeline. Initial reader trials cut memory but were
+slower; compiled checks for ordinary records removed that parser overhead before the
+final measurements.
+
+```bash
+python tests/tools/benchmark_mesh_load.py \
+    --mesh /path/to/neuron.off --repeat 3 --out /tmp/mesh-load-ab.json
+```
+
+Other formats, polygon/color/binary OFF variants, oversized records and unusual
+comment/separator layouts delegate to trimesh after temporary fast-reader arrays
+have been released. Later first comments delegate because the tested trimesh reader
+has legacy prefix handling that must be preserved. Malformed counts, nonfinite
+coordinates and out-of-range triangular indices fail clearly on the fast path.
+MeshLab's index-repair path intentionally reads invalid intermediate indices and
+retains its previous loader. `NEURD_LEGACY_MESH_LOADER=1` restores legacy loading at
+supported entry points; the flag is included in raw, branch and descriptor fingerprints.
+
+Receipts and logs are retained in the ignored local directory
+`artifacts/off_loader_validation_20261011/v1/`; source data stays outside Git.
+
 ---
 
 ## Principle: never edit `mesh_tools` directly
@@ -199,11 +243,11 @@ next `pip install` — which has already happened here, to the C++ CGAL `.so` an
 patches. It is 116 functions / 16.7k lines of core algorithms; replacing it means rewriting NEURD and
 losing fidelity.
 
-**Instead**, intercept the expensive nodes in-process with a monkeypatch in `neurd/__init__.py`:
-durable, reversible through an env flag, and fidelity-neutral. That is how Poisson, FillHoles,
-Decimator, `vertex_components` and `get_matching_vertices` are handled. Touching a `mesh_tools`
-function is acceptable **only** if the change is trivial *and* it is expressed as a patch in our
-`__init__.py`, never as an edit to site-packages.
+Use an owned wrapper at explicit call sites when the contract can be isolated, as
+with `mesh_io.load_mesh`. Shared upstream seams can be intercepted in-process through
+`neurd/__init__.py`, with a reversible flag and an equivalence gate. That is how
+Poisson, FillHoles, Decimator, `vertex_components` and `get_matching_vertices` are
+handled. Keep durable changes in this repository rather than editing site-packages.
 
 ---
 

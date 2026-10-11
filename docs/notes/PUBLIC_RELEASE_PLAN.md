@@ -5,8 +5,8 @@ and improve runtime and the public interface through separately validated change
 the existing experimental continuation, establish the supported processing paths and their
 checks, then optimize and reduce code. No additional large rewrite is required for a first release.
 
-This plan records the repository state inspected on **2026-10-11** and the first implementation
-package completed that day. Branch counts below describe the initial audit and use local Git
+This plan records the repository state inspected on **2026-10-11**, the first implementation
+package and subsequent mesh-loading and H01 diagnosis work. Branch counts below describe the initial audit and use local Git
 refs, including the locally recorded `origin/*` refs; they do not assert the current live state
 of GitHub. The implementation uses a new local branch; nothing has been published.
 
@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **22 Python files / 18,118 physical lines**, compared with 21 / 17,859
+The candidate core has **23 Python files / 18,350 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -28,9 +28,11 @@ still requires the production reachability work in Stage 7.
 | Public API and raw batch | Validated `RunConfig`; explicit dataset/spines/refinement/rays; shared isolated spawn workers; working no-save/decimation/retry; nonzero failure status; source/backend/environment/output fingerprints; RSS enforcement and termination cleanup | Installed console commands and packaging cleanup |
 | Face and descriptor provenance | Actual ordered parent-face masks for ordinary and refined spines, exported with filename alignment; strict volume QC; descriptor resume validates input/runtime/algorithm/output hashes and publishes completion last | Versioned migration of existing descriptor collections; fallback-rate quality review |
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
-| Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent wall-time gain established; mesh-load transient is the next performance target |
+| Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
+| OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
+| Historical H01 failures | Separate read-only diagnosis of all 47 keys, frozen-source and provider checks, explicit lineage limits | Recover mesh/skeleton correspondence and reliable eligibility support; instrument the timeout before retry |
 
-Validation on the local Python 3.12 environment:
+First-package validation on the local Python 3.12 environment:
 
 | Check | Result and scope |
 |---|---|
@@ -58,12 +60,64 @@ The recorded raw worker/resume used the source snapshot in its receipt. The subs
 export and completion checks were validated against those saved results and regression tests;
 their source changes correctly require a new run signature for future processing.
 
+The follow-up package measured plain triangular ASCII OFF loading on the large H01
+anchor with three fresh, interleaved trials per reader. Median reading time fell from
+**11.838 to 6.251 s**, and lifetime peak RSS, including common imports, from
+**2,723,964 to 587,304 KiB**. Float64 vertices, int64 faces, metadata and visual state
+matched exactly in every trial; input and measured source hashes were unchanged.
+The 63 reader tests cover precision, ordering, unsupported variants, strict invalid-input
+checks, bounded conversions and temporary-array release before fallback. A separate
+one-trial small-anchor check also matched exactly. These results establish load-stage
+improvement, not a whole-pipeline speed or peak-memory reduction.
+
+The final common unit suite passed **492 tests with 1 expected skip** in 47.08 s.
+A recorded optional NumPy seed is applied after loading, before decomposition, and
+included in the gate fingerprint. Source and runtime receipts are retained under
+`artifacts/off_loader_validation_20261011/v1/`.
+
+| Follow-up integration check | Result |
+|---|---|
+| Paired full H01 gate, fast/12 rays, seed=0 | Legacy and owned readers produced **exactly identical complete metrics**, including 1 soma, 5 limbs, 28 branches, 18 spines / 8,145 faces and the same actual-mask digest; all surface/volume checks passed |
+| Unseeded comparison | 24 versus earlier 20 spines exceeded the unchanged 10% count tolerance; it remains recorded as a failed comparison, motivating the controlled pair |
+| Minnie65 positive branch | 9 spines; all metrics, including actual-mask digest, exactly equal to the previous validated branch run |
+| H01 branch batch and resume | 5 and 0 outputs; effective child thread fingerprint works despite different parent limits; both branches reused, with 19 branch-file hashes and mtimes unchanged |
+| Descriptor extraction and resume | Real 35-column float64 vector, centroid and positive volume QC; repeat skips processing and preserves all three output hashes/mtimes |
+
+The controlled full-neuron pair does not establish a whole-pipeline speed improvement:
+the recorded post-load gate times were about 191 and 200 s in these single runs. The
+load-stage improvement remains the three-trial measurement above.
+
+The independent [H01 diagnosis](../H01_FAILURE_DIAGNOSTICS.md) leaves all 47 historical
+failures unresolved. Current exported-original-axis probes produce zero width in 46 cases:
+38 have no supported slices and separated axis/surface samples, 5 have empty axial slices,
+and 3 select a single triangle whose centroid width is zero. The remaining attempt timed out
+after reporting 22,167 CGAL segments. Missing historical input hashes and failed-attempt
+repaired axes prevent an exact historical replay claim. Zero width supplies no eligibility
+decision; the strict **width > 115 nm** criterion and original graph remain intact.
+
+The user confirmed that original H01 Neuron pickles are unavailable; complete raw OFF
+meshes remain available. The five diagnostic pilot parents contain about **6.9–12.1 million
+faces each**. Begin with a bounded audit of old branch/limb correspondence before a full
+parent rerun. Any reconstructed branches require validated surface matching to old exports;
+their numeric branch labels are not a provenance map. Future exports should persist
+validated, ordered branch-to-limb and limb/soma-to-pipeline-input face maps with parent
+hashes, index scopes and unavailable/generated-face status. Compose maps to raw OFF
+indices only when undecimated input identity and exact per-face geometry are verified.
+Existing geometric set maps must not be presented as ordered source ownership.
+
 Next work should be bounded as follows:
 
-1. Measure the ASCII-OFF load on the large H01 anchor, implement a float64/order-preserving
-   loader or checksum-keyed cache, and validate loader equality before another whole-neuron A/B.
-2. Diagnose the 47 unresolved historical H01 branches in a separate versioned patch run, preserving
-   their original source/runtime lineage. Do not change eligibility thresholds to complete counts.
+1. Continue the five-case H01 correspondence audit from branch/limb surfaces to skeleton
+   labels and raw-parent membership. The first bounded surface audit is complete:
+   all five branch surfaces occur exactly within their old limb, with zero unmatched
+   faces; two cases retain 16 and 114 ambiguous faces. It validates geometric inclusion,
+   not ordered face ownership or skeleton alignment. Use 32,768-face chunks, a 1.5 GiB
+   RSS guard and a 180-second diagnostic budget; preserve ambiguity and old keys.
+   Persist axis/width-support diagnostics before eligibility failures in a new versioned run.
+   Profile the one timeout's post-CGAL stages before a separate one-worker retry.
+2. Profile whole-neuron RSS after bounded loading, then evaluate connected-component transients
+   and the full non-soma copy. Preserve source-face maps and use matching seeded configurations
+   for loader comparisons; do not relax gates to accommodate an unexplained spine-count change.
 3. Freeze independent anatomical review cases before further refinement tuning. Keep both H01
    policies opt-in while removals, head repairs and auxiliary-axis cases remain unaudited.
 4. Add a portable fixture recipe and native CI, then test a clean supported installation.

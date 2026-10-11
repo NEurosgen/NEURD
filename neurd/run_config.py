@@ -16,11 +16,11 @@ RAY_PROFILES = {"reference": 25, "fast": 12}
 REFINEMENT_POLICIES = ("off", "h01_current", "h01_smooth_heads")
 
 
-def runtime_environment(config):
+def runtime_environment(config, *, environment=None):
     """Record behavior flags, effective import patches and numeric thread limits."""
     import neurd
     names = (
-        "NEURD_OWNED_SKELETAL_DISTANCE", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
+        "NEURD_LEGACY_MESH_LOADER", "NEURD_OWNED_SKELETAL_DISTANCE", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
         "NEURD_POISSON_BACKEND", "NEURD_POISSON_ITERS", "NEURD_SKIP_SOMA_END_SPLIT",
         "NEURD_SOMA_OUTER_DECIM", "NEURD_SOMA_INNER_DECIM", "NEURD_DECIMATE_SINGLE_STAGE",
         "NEURD_MESHLAB_DECIMATE", "NEURD_LEGACY_VERTEX_COMPONENTS",
@@ -28,7 +28,8 @@ def runtime_environment(config):
         "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
         "NUMEXPR_NUM_THREADS", "NUMBA_NUM_THREADS", "PYTHONHASHSEED",
     )
-    values = {name: os.environ.get(name) for name in names}
+    environment = os.environ if environment is None else environment
+    values = {name: environment.get(name) for name in names}
     # apply() changes this variable in the worker, so fingerprint its configured
     # effective value rather than an unrelated ambient value in the supervisor.
     values["NEURD_SDF_RAYS"] = str(config.sdf_rays)

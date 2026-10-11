@@ -161,7 +161,7 @@ def _descriptor_configuration(data_type):
         "parameters": dict(params._data),
         "feature_names": list(FEATURE_NAMES),
         "environment": {name: os.environ.get(name) for name in (
-            "NEURD_SDF_RAYS", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
+            "NEURD_SDF_RAYS", "NEURD_LEGACY_MESH_LOADER", "NEURD_REAL_POISSON", "NEURD_POISSON_DEPTH",
             "NEURD_POISSON_BACKEND", "NEURD_POISSON_ITERS", "NEURD_OWNED_SKELETAL_DISTANCE",
             "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_NUM_THREADS")},
         "python": sys.version,
@@ -288,10 +288,10 @@ def _compute_descriptors(path: str, *, with_quality=False):
     """
     from neurd import spine_utils as spu      # MUST BE FIRST
     from neurd import parameters              # noqa: F401 (mode is set by the caller)
-    from mesh_tools import trimesh_utils as tu
+    from neurd.mesh_io import load_mesh
     import numpy as np
 
-    mesh = tu.load_mesh_no_processing(path)
+    mesh = load_mesh(path)
 
     # Centroid in absolute coordinates -- taken from the RAW mesh, before any processing
     # that could recompute or shift it.

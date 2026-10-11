@@ -54,7 +54,8 @@ def run_branch_fixture(manifest_path, workdir):
     import neurd
     from neurd import h01_batch, parameters, spine_utils as spu
     import cgal_Segmentation_Module as csm
-    from mesh_tools import trimesh_utils as tu
+    from neurd.mesh_io import load_mesh
+    from neurd.run_config import RunConfig, runtime_environment
     from tests.tools.neuron_metrics import extract_spine_metrics
 
     manifest_path = Path(manifest_path).resolve()
@@ -67,13 +68,13 @@ def run_branch_fixture(manifest_path, workdir):
     if not getattr(csm, "__file__", "").endswith(".so"):
         raise RuntimeError("The branch spine gate requires compiled CGAL segmentation")
     paths = fixture_inputs(manifest_path, manifest)
-    parent = tu.load_mesh_no_processing(str(paths["mesh"]))
+    parent = load_mesh(paths["mesh"])
     skeleton = np.load(paths["skeleton"], allow_pickle=False)
     assert 0 < len(parent.faces) <= manifest.get("maximum_parent_faces", 50000)
     assert np.isfinite(parent.vertices).all()
     assert skeleton.ndim == 3 and skeleton.shape[1:] == (2, 3) and len(skeleton)
     assert np.isfinite(skeleton).all()
-    soma = tu.load_mesh_no_processing(str(paths["soma"])) if "soma" in paths else None
+    soma = load_mesh(paths["soma"]) if "soma" in paths else None
     branch = SimpleNamespace(mesh=parent, skeleton=skeleton)
     root = Path(neurd.__file__).resolve().parent.parent
     code_paths = [*sorted((root / "neurd").glob("*.py")), Path(__file__).resolve(),
@@ -140,6 +141,8 @@ def run_branch_fixture(manifest_path, workdir):
         git_sha=git_sha, tracked_git_status=git_status,
         compiled_cgal=dict(path=csm.__file__, sha256=sha256(csm.__file__)),
         dependencies=h01_batch.dependency_signature(),
+        runtime_environment=runtime_environment(
+            RunConfig(dataset=data_type, calculate_spines=True, sdf_rays=25)),
         environment={name: os.environ.get(name) for name in (
             "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_NUM_THREADS")},
         python=sys.version, platform=platform.platform(),

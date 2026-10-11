@@ -40,7 +40,7 @@ sys.path.insert(0, str(REPO / "tests" / "tools"))
 import neurd  # noqa: F401,E402  activates the numpy-2 / cgal / meshlab shims
 from neurd.segmentation_pipeline import segmentation_pipeline  # noqa: E402
 from neurd.run_config import add_run_arguments, config_from_args  # noqa: E402
-from mesh_tools import trimesh_utils as tu  # noqa: E402
+from neurd.mesh_io import load_mesh  # noqa: E402
 
 from neuron_metrics import extract_metrics  # noqa: E402
 
@@ -104,16 +104,18 @@ def _spine_problems(metrics, require_spines=False):
     return problems
 
 
-def _provenance(mesh_path, config, elapsed):
+def _provenance(mesh_path, config, elapsed, *, seed=None):
     import cgal_Segmentation_Module as provider
     from neurd.h01_batch import digest_json, sha
     from process_all_neurons import _run_signature
 
     signature = _run_signature(config, 0.0, None)
+    signature["gate_random_seed"] = seed
     for path in (Path(__file__).resolve(), REPO / "tests/tools/neuron_metrics.py"):
         signature["code_sha256"][str(path.relative_to(REPO))] = sha(path)
     result = dict(input=dict(path=str(mesh_path), sha256=sha(mesh_path)),
                   configuration=config.as_dict(), elapsed_seconds=elapsed,
+                  random_seed=seed,
                   platform=platform.platform(), cpu=platform.processor(),
                   dependencies=signature["dependencies"],
                   provider=getattr(provider, "__file__", None),
@@ -142,6 +144,7 @@ def main():
                     default=argparse.SUPPRESS, help="alias for --spines")
     ap.add_argument("--require-spines", action="store_true", help="fail if a spine-positive fixture produces none")
     ap.add_argument("--segment-id", type=int, default=2530864375)
+    ap.add_argument("--seed", type=int, help="optional NumPy seed, applied after loading and before decomposition")
     ap.add_argument("--out", help="write the metrics JSON here")
     ap.add_argument("--baseline", help="compare against this JSON; exit 1 on any diff")
     ap.add_argument("--tolerance", action="store_true",
@@ -154,6 +157,8 @@ def main():
         ap.error(str(exc))
     if args.require_spines and not config.calculate_spines:
         ap.error("--require-spines requires --spines")
+    if args.seed is not None and not 0 <= args.seed <= 4_294_967_295:
+        ap.error("--seed must be an unsigned 32-bit integer")
 
     mesh_path = Path(args.neuron).expanduser().resolve()
     if not mesh_path.exists():
@@ -162,9 +167,12 @@ def main():
     # the pipeline shells out to meshlab, which litters ./<segment_id>/ and ./temp/
     os.chdir(tempfile.mkdtemp(prefix="neuron_gate_"))
     print(f"[gate] mesh={mesh_path.name} config={config.as_dict()}")
-    mesh = tu.load_mesh_no_processing(str(mesh_path))
+    mesh = load_mesh(mesh_path)
     print(f"[gate] faces={len(mesh.faces)} verts={len(mesh.vertices)}; decomposing ...")
 
+    if args.seed is not None:
+        import numpy as np
+        np.random.seed(args.seed)
     started = time.perf_counter()
     neuron_obj = segmentation_pipeline(mesh, segment_id=args.segment_id,
                                        verbose=args.verbose, config=config)
@@ -178,7 +186,8 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(metrics, indent=2))
         out.with_suffix(out.suffix + ".run.json").write_text(
-            json.dumps(_provenance(mesh_path, config, time.perf_counter() - started), indent=2) + "\n")
+            json.dumps(_provenance(mesh_path, config, time.perf_counter() - started,
+                                   seed=args.seed), indent=2) + "\n")
         print(f"\n[gate] written -> {out}")
 
     problems = _spine_problems(metrics, args.require_spines) if config.calculate_spines else []

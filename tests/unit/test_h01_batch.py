@@ -1,7 +1,11 @@
 """Protect source ownership, resumability and skeleton graph connections."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -257,3 +261,81 @@ def test_truncated_hash_map_cannot_hide_existing_unverified_output(tmp_path):
     batch.save(tmp_path/'result.json', record)
     with pytest.raises(ValueError, match='inventory is incomplete'):
         batch.complete_valid(tmp_path, 'version', source)
+
+
+def test_fresh_worker_imports_pinned_package_before_external_package(tmp_path):
+    output = tmp_path/'out'
+    pinned = output/'runtime/neurd'
+    pinned.mkdir(parents=True)
+    worker = pinned/'h01_batch.py'
+    shutil.copyfile(batch.__file__, worker)
+    (pinned/'__init__.py').write_text(
+        "print('PINNED_RUNTIME_IMPORTED', flush=True)\nraise SystemExit(37)\n")
+    external = tmp_path/'external/neurd'
+    external.mkdir(parents=True)
+    (external/'__init__.py').write_text(
+        "print('EXTERNAL_PACKAGE_IMPORTED', flush=True)\nraise SystemExit(38)\n")
+    staging = output/'.work/branch'
+    staging.mkdir(parents=True)
+    result = subprocess.run(
+        [sys.executable, str(worker), '--output', str(output), '--worker', 'branch',
+         '--staging', str(staging)], cwd=staging,
+        env=dict(os.environ, PYTHONPATH=str(external.parent), PYTHONDONTWRITEBYTECODE='1'),
+        capture_output=True, text=True, timeout=30)
+    assert result.returncode == 37, result.stdout + result.stderr
+    assert 'PINNED_RUNTIME_IMPORTED' in result.stdout
+    assert 'EXTERNAL_PACKAGE_IMPORTED' not in result.stdout
+
+
+def _plan_for_runtime_test(tmp_path, monkeypatch):
+    source = tmp_path/'source'
+    branch = source/'neuron_1/limb_000/branch_000'
+    branch.mkdir(parents=True)
+    (branch/'branch_mesh.off').write_text('OFF\n0 0 0\n')
+    np.save(branch/'branch_skeleton.npy', np.zeros((1,2,3)))
+    config = tmp_path/'config.json'
+    config.write_text('{}\n')
+    output = tmp_path/'out'
+    # Planning does not need native dependencies to verify the runtime contract.
+    monkeypatch.setattr(batch, 'dependency_signature', lambda: {'test': 'dependencies'})
+    argv = ['--source', str(source), '--output', str(output), '--config', str(config),
+            '--plan-only', '--rays', '12']
+    batch.main(argv)
+    return output, argv
+
+
+def test_plan_fingerprints_effective_threads_and_matches_fresh_child(tmp_path, monkeypatch):
+    parent_threads = dict(OMP_NUM_THREADS='7', OPENBLAS_NUM_THREADS='3',
+                          MKL_NUM_THREADS='2', NUMBA_NUM_THREADS='2')
+    for name, value in parent_threads.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv('NEURD_LEGACY_MESH_LOADER', raising=False)
+    output, _ = _plan_for_runtime_test(tmp_path, monkeypatch)
+    expected = json.loads((output/'manifest.json').read_text())['runtime_environment']
+    assert {name: expected['environment'][name] for name in parent_threads} == dict(
+        OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1',
+        NUMBA_NUM_THREADS='4')
+    assert {name: os.environ[name] for name in parent_threads} == parent_threads
+    child = """
+import json
+from neurd.run_config import RunConfig, runtime_environment
+print('RUNTIME_RESULT ' + json.dumps(runtime_environment(
+    RunConfig(dataset='h01', calculate_spines=True, sdf_rays=12)), sort_keys=True))
+"""
+    env = batch.worker_environment(output)
+    env['PYTHONPATH'] = str(output/'runtime')
+    result = subprocess.run([sys.executable, '-c', child], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, timeout=45, check=True)
+    marker = 'RUNTIME_RESULT '
+    line = next(line for line in result.stdout.splitlines() if line.startswith(marker))
+    assert json.loads(line[len(marker):]) == expected
+
+
+def test_changing_loader_behavior_flag_prevents_h01_resume(tmp_path, monkeypatch):
+    monkeypatch.delenv('NEURD_LEGACY_MESH_LOADER', raising=False)
+    output, argv = _plan_for_runtime_test(tmp_path, monkeypatch)
+    manifest = json.loads((output/'manifest.json').read_text())
+    assert manifest['runtime_environment']['environment']['NEURD_LEGACY_MESH_LOADER'] is None
+    monkeypatch.setenv('NEURD_LEGACY_MESH_LOADER', '1')
+    with pytest.raises(ValueError, match='Settings or code changed'):
+        batch.main(argv)

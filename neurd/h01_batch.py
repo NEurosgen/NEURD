@@ -23,7 +23,6 @@ import time
 from threading import Event, Lock
 import uuid
 
-
 def sha(path):
     digest = hashlib.sha256()
     with Path(path).open('rb') as stream:
@@ -363,11 +362,12 @@ def dispatch(rows,job,workers,stop,on_result):
 
 def branch_worker(output, key, staging):
     import numpy as np
-    import trimesh
     from types import SimpleNamespace
     # This script is launched from the pinned package snapshot.
     sys.path.insert(0, str(Path(output)/'runtime'))
     import neurd
+    from neurd.mesh_io import load_mesh
+    from neurd.run_config import RunConfig, runtime_environment
     from neurd import parameters, spine_utils as spu
     import cgal_Segmentation_Module as csm
     np.random.seed(0)
@@ -385,7 +385,10 @@ def branch_worker(output, key, staging):
     if (Path(output).resolve()/'.work') not in staging.parents:
         raise ValueError('Worker staging must be inside this run output directory')
     os.chdir(staging)
-    parent = trimesh.load(row['source'],process=False,force='mesh')
+    runtime = runtime_environment(RunConfig(dataset='h01',calculate_spines=True,sdf_rays=manifest['sdf_rays']))
+    if manifest.get('runtime_environment') is not None and runtime != manifest['runtime_environment']:
+        raise ValueError('Worker behavior flags or numerical thread environment changed')
+    parent = load_mesh(row['source'])
     if len(parent.faces) > manifest['maximum_parent_faces']:
         raise ValueError('Branch exceeds configured face budget; explicit larger budget required')
     if not len(parent.faces) or not np.isfinite(parent.vertices).all():
@@ -395,7 +398,7 @@ def branch_worker(output, key, staging):
     parameters.params.use('h01')
     os.environ['NEURD_SDF_RAYS'] = str(manifest['sdf_rays'])
     soma = source_inputs.get('soma')
-    soma_vertices = trimesh.load(soma['path'],process=False,force='mesh').vertices if soma else None
+    soma_vertices = load_mesh(soma['path']).vertices if soma else None
     diagnostics, masks = {}, []
     eligibility = dict(eligible=True,reason='previously_spine_positive')
     if row['archived_spines'] == 0:
@@ -566,7 +569,16 @@ def main(argv=None):
         return run(args,source,output)
 
 
+def worker_environment(output):
+    """Apply the same numerical thread limits to planning and child execution."""
+    return dict(os.environ,PYTHONDONTWRITEBYTECODE='1',OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',
+                MKL_NUM_THREADS='1',NUMBA_NUM_THREADS='4',MPLCONFIGDIR=str(output/'.cache/matplotlib'),
+                NUMBA_CACHE_DIR=str(output/'.cache/numba'),TF_CPP_MIN_LOG_LEVEL='2')
+
+
 def run(args,source,output):
+    from neurd.run_config import RunConfig, runtime_environment
+
     config = json.loads(args.config.read_text())
     repo = Path(__file__).resolve().parents[1]
     code = {str(p.relative_to(repo)):sha(p) for p in (repo/'neurd').rglob('*') if p.is_file() and p.suffix in ('.py','.json')}
@@ -575,7 +587,10 @@ def run(args,source,output):
                                   allow_topological_replacement=args.experimental_skeleton_replacement,coverage_q95_nm=10000,
                                   invalidation_d_nm=12000,maximum_connector_nm=2000,
                                   use_auxiliary_for_heads=args.auxiliary_heads),code_sha256=code,
-                    dependencies=dependency_signature())
+                    dependencies=dependency_signature(),
+                    runtime_environment=runtime_environment(
+                        RunConfig(dataset='h01',calculate_spines=True,sdf_rays=args.rays),
+                        environment=worker_environment(output)))
     run_hash = digest_json(settings)
     manifest_path = output/'manifest.json'
     if manifest_path.exists():
@@ -634,9 +649,7 @@ def run(args,source,output):
                 raise ValueError('Incomplete destination exists; refusing overwrite')
             staging = output/'.work'/f"{row['key']}_{uuid.uuid4().hex}"
             staging.mkdir()
-            env = dict(os.environ,PYTHONDONTWRITEBYTECODE='1',OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',
-                       MKL_NUM_THREADS='1',NUMBA_NUM_THREADS='4',MPLCONFIGDIR=str(output/'.cache/matplotlib'),
-                       NUMBA_CACHE_DIR=str(output/'.cache/numba'),TF_CPP_MIN_LOG_LEVEL='2')
+            env = worker_environment(output)
             with (staging/'run.log').open('w') as log:
                 try:
                     proc = subprocess.Popen([sys.executable,str(output/'runtime/neurd/h01_batch.py'),

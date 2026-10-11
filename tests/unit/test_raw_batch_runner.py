@@ -29,7 +29,7 @@ def raw_case(tmp_path, monkeypatch):
     output = tmp_path / 'output'
     config = RunConfig(dataset='h01', calculate_spines=False, sdf_profile='fast')
     monkeypatch.setattr(batch, '_run_signature', lambda config, ratio, max_somas: dict(config=config.as_dict()))
-    monkeypatch.setattr(batch.tu, 'load_mesh_no_processing', lambda path: 'loaded_mesh')
+    monkeypatch.setattr(batch, 'load_mesh', lambda path: 'loaded_mesh')
     def build(mesh, *, config, max_somas):
         assert mesh in ('loaded_mesh', 'decimated_mesh')
         assert config.dataset == 'h01' and config.sdf_rays == 12
@@ -206,15 +206,16 @@ def test_timeout_removes_supervised_scratch_and_staging(raw_case, monkeypatch, n
         assert not raw_case[1].exists()
 
 
-def test_behavior_flags_change_resume_hash_but_ambient_sdf_rays_do_not(monkeypatch):
+@pytest.mark.parametrize('flag', ['NEURD_OWNED_SKELETAL_DISTANCE', 'NEURD_LEGACY_MESH_LOADER'])
+def test_behavior_flags_change_resume_hash_but_ambient_sdf_rays_do_not(monkeypatch, flag):
     monkeypatch.setattr(batch, 'dependency_signature', lambda: {})
-    monkeypatch.delenv('NEURD_OWNED_SKELETAL_DISTANCE', raising=False)
+    monkeypatch.delenv(flag, raising=False)
     config = RunConfig(sdf_profile='fast')
     monkeypatch.setenv('NEURD_SDF_RAYS', '999')
     original = batch._run_hash(config, 0.0, None)
     monkeypatch.setenv('NEURD_SDF_RAYS', '12')
     assert batch._run_hash(config, 0.0, None) == original
-    monkeypatch.setenv('NEURD_OWNED_SKELETAL_DISTANCE', '1')
+    monkeypatch.setenv(flag, '1')
     assert batch._run_hash(config, 0.0, None) != original
 
 

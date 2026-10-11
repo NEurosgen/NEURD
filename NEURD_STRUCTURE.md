@@ -10,14 +10,16 @@ investigations + open plans).
 mesh + skeleton + raw spines). Everything downstream — autoproofreading, cell typing, synapses, axon,
 connectome/motif/proximity, GNN, visualization, cloud/dataset adapters — is deleted.
 
-**Size:** `neurd/` is **18 files, 15.4k LOC** (from ~55k at the start). The internal import graph is a
-**DAG with 0 cycles**.
+**Size:** the current integration candidate has **23 Python files / 18,350 physical lines**
+(2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
+about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
+behavior. Counts include comments and blank lines.
 
 ## Environment and tests
 
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate neurd   # Python 3.12, numpy 2
-pytest                                                   # fast gate (tests/unit, 180 tests, ~25 s)
+pytest                                                   # unit suite; about one minute locally
 python tests/tools/neuron_gate.py \
     --baseline tests/fixtures/neuron_baseline_2530864375.json --tolerance   # ~3.5 min
 pytest tests/integration/test_segmentation_pipeline.py -s                   # ~11 min
@@ -37,29 +39,38 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   `tests/integration/_seg_output/<stem>/` for visual inspection (`SEG_OUTPUT_DIR=` to relocate;
   gitignored, ~30 MB of .off). It shells out to `xvfb-run meshlabserver`, so it **skips silently**
   without both binaries.
-- **CGAL oracle** (`tests/integration/test_cgal_segmentation_oracle.py`) pins the Python CGAL stub
-  against a reference (SDF correlation ≥0.85). Skips without a provider.
+- **CGAL oracle** (`tests/integration/test_cgal_segmentation_oracle.py`) checks provider CSV
+  contracts and reference SDF correlation. Release validation requires the compiled provider;
+  the local OFF oracle fixture is not tracked. See [README.md](README.md) for fixture limits.
+- **Spine-positive branch gate** (`tests/integration/test_spine_branch_gate.py`) uses a checksummed
+  H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
+  Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (18 files)
+## Module map (23 files)
 
 | module | LOC | purpose |
 |---|---|---|
 | [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3174 | mesh → limbs/branches. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
-| [spine_utils.py](neurd/spine_utils.py) | 3136 | spine detection (off the `segmentation_pipeline` path; ~51 `tu.*` calls, the largest holdout) |
+| [spine_utils.py](neurd/spine_utils.py) | 3424 | ordinary spine detection and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
 | [neuron_utils.py](neurd/neuron_utils.py) | 2599 | neuron queries/utilities. Most-imported module; an intra-package **sink** |
-| [neuron.py](neurd/neuron.py) | 1825 | the `Neuron`, `Limb`, `Branch`, `Soma` classes |
+| [neuron.py](neurd/neuron.py) | 1829 | the `Neuron`, `Limb`, `Branch`, `Soma` classes |
+| [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
 | [neuron_searching.py](neurd/neuron_searching.py) | 1081 | branch query system (strings → `ns.<fn>` via `@run_options`). Reached by exactly one call, from `spine_utils` |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 903 | soma identification |
 | [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
+| [h01_batch.py](neurd/h01_batch.py) | 710 | isolated exported-branch resegmentation, pinned runtime, topology safeguards and verified resume |
 | [submesh_ops.py](neurd/submesh_ops.py) | 446 | **owned** partition/provenance layer (`SubMesh`) — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
 | [neuron_statistics.py](neurd/neuron_statistics.py) | 347 | skeleton statistics/distances. Reachable only via `Neuron.neuron_stats` → `calculate_decomposition_products`, which the slim path does not call |
 | [skeletal_distance_ops.py](neurd/skeletal_distance_ops.py) | 281 | owned correspondence/width kernel, behind `NEURD_OWNED_SKELETAL_DISTANCE` (off by default) |
-| [width_utils.py](neurd/width_utils.py) | 183 | branch widths from SDF |
+| [mesh_io.py](neurd/mesh_io.py) | 218 | bounded triangular ASCII OFF loading; exact coordinates and ordered faces |
+| [width_utils.py](neurd/width_utils.py) | 183 | branch surface-to-skeleton width measurements |
 | [_mesh_ops.py](neurd/_mesh_ops.py) | 158 | L6 mesh primitives (decimate/poisson/fill_holes, in-process open3d) |
-| [parameters.py](neurd/parameters.py) | 155 | the explicit microns/h01 parameter object (replaced global-config monkey-patching) |
+| [parameters.py](neurd/parameters.py) | 156 | the explicit microns/h01 parameter object (replaced global-config monkey-patching) |
+| [run_config.py](neurd/run_config.py) | 146 | shared dataset/spines/refinement/ray configuration and runtime environment receipts |
 | [_correspondence_backend.py](neurd/_correspondence_backend.py) | 113 | **seam** for the fragile `cu`/`m_sk` calls + the pipeline's only nondeterminism |
 | [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 66 | pure-Python CGAL-segmentation fallback |
+| [spine_volume.py](neurd/spine_volume.py) | 97 | strict centered volume closure, fallback and quality records |
 | [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 60 | the slim orchestrator |
 | version.py | 3 | — |
 
@@ -69,15 +80,17 @@ surface. Details in [MESH_OPS.md](MESH_OPS.md). Note that `neurd/__init__.py` is
 practice — most of its lines are cross-library surgery — and it is the one a reader will not think to
 look in.
 
-**Entry points** (nothing in core imports them): `segmentation_pipeline.py`,
-`process_all_neurons.py` (the real user entry — `neuron.Neuron(mesh=)` per worker process),
-`process_all_neurons_parallel.py` (a scheduler reusing the sequential script's internals),
-`scripts/extract_spine_descriptors.py` (standalone; descriptors from pre-cut spine meshes).
+**Entry points:** `segmentation_pipeline.py` is the public raw-neuron API.
+`process_all_neurons.py` supervises isolated spawn workers using that API;
+`process_all_neurons_parallel.py` is a small adapter to the same executor.
+`scripts/resegment_h01.py` launches the separate exported-branch batch, and
+`scripts/extract_spine_descriptors.py` extracts descriptors from pre-cut spine meshes.
 
-### The import graph is a DAG
+### Import-cycle cleanup
 
 It used to be a god-hub (`neuron_utils`) plus 6 two-way cycles, band-aided with bottom-of-file
-imports. Now there are **0 cycles of any length**: `neuron_utils` was made an intra-package sink (its
+imports. The stable geometry refactor removed the audited eager import cycles:
+`neuron_utils` was made an intra-package sink (its
 references to `neuron` / `neuron_statistics` are local imports at the call sites), the self-imports
 were removed, and dead or one-shot cross-imports were dropped or made lazy. Bottom-of-file imports
 still exist in five modules (`spine_utils` has ~20 in its last 25 lines) as circular-import
@@ -87,8 +100,9 @@ workarounds — hoisting them is open work, see [docs/notes/REFACTOR_PLAN.md](do
 
 - **Don't change behaviour without a gate.** The fast gate only catches syntax/import; the backstop
   for core changes is `tests/tools/neuron_gate.py --tolerance` (~3.5 min).
-- **Never gate on spine count** — it is nondeterministic run to run (22/16/20 observed on unchanged
-  code). Gate spine work on pure-function equivalence instead.
+- **Compare spine counts with controlled sampling and explicit tolerances.** Use the same seed,
+  configuration and thread limits for paired whole-neuron gates. Count alone cannot establish
+  equivalence; also check branch-local face masks, surface/volume invariants and pure functions.
 - **Self-import (`from . import X as X`) is an antipattern** — replace with direct calls, or
   `sys.modules[__name__]` if the module object itself is needed.
 - **Logic changes and cosmetics go in separate commits.** Commit messages say *why*.

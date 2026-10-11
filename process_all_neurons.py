@@ -35,8 +35,8 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 import numpy as np
 
 from neurd import parameters
-from mesh_tools import trimesh_utils as tu
 from neurd.segmentation_pipeline import segmentation_pipeline
+from neurd.mesh_io import load_mesh
 from neurd.run_config import RunConfig, add_run_arguments, config_from_args, require_compiled_cgal, runtime_environment
 from neurd.h01_batch import sha, digest_json, save, complete_valid, separate_roots, dependency_signature, triangle_keys
 
@@ -98,7 +98,7 @@ def _worker_process(off_path_str, out_dir_str, do_decimate, export_ext, conn, *,
             raise ValueError("Runtime changed after batch planning")
         work_dir = private_work_dir or tempfile.mkdtemp(prefix="neurd_work_")
         os.chdir(work_dir)
-        mesh = tu.load_mesh_no_processing(str(off_path))
+        mesh = load_mesh(off_path)
         if do_decimate and decimation_ratio:
             from neurd import _mesh_ops
             mesh = _mesh_ops.decimate(mesh, decimation_ratio=decimation_ratio)
@@ -600,7 +600,7 @@ def process_one_mesh(off_path: Path, out_dir: Path, do_decimate: bool = True, *,
     """Compatibility in-process entry; use the batch driver for isolated workers."""
     _validate_decimation(decimation_ratio, not do_decimate)
     config = config or RunConfig(dataset=DATA_TYPE, calculate_spines=True)
-    mesh = tu.load_mesh_no_processing(str(off_path))
+    mesh = load_mesh(off_path)
     if do_decimate and decimation_ratio:
         from neurd import _mesh_ops
         mesh = _mesh_ops.decimate(mesh, decimation_ratio=decimation_ratio)

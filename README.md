@@ -19,8 +19,9 @@ Everything downstream of that — automated proofreading, multi-soma splitting, 
 cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GNN, the cloud and
 dataset adapters — **is removed**. The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
-validated run configuration and branch-batch tools. The candidate contains **18.1k physical
-Python lines across 22 core files**; the earlier count describes the pre-refinement baseline.
+validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
+**18,350 physical Python lines across 23 core files**; the earlier count describes the
+pre-refinement baseline.
 
 ## Why a fork
 
@@ -96,9 +97,9 @@ Programmatically, use the same configuration:
 import neurd                                     # activates the compat + perf patches
 from neurd.run_config import RunConfig
 from neurd.segmentation_pipeline import segmentation_pipeline
-from mesh_tools import trimesh_utils as tu
+from neurd.mesh_io import load_mesh
 
-mesh = tu.load_mesh_no_processing("neuron.off")
+mesh = load_mesh("neuron.off")
 config = RunConfig(dataset="h01", calculate_spines=True, sdf_profile="reference")
 neuron = segmentation_pipeline(mesh, segment_id=123, max_somas=1, config=config)
 
@@ -113,6 +114,14 @@ and `mesh_tools` need, plus the perf patches.
 The API defaults to `calculate_spines=False`; request spines explicitly as above.
 Without an explicit dataset it retains the selected parameter dataset. Dataset parameters
 and SDF rays are process globals, so concurrent runs use separate processes.
+
+The raw runners, descriptor extractor and geometry gates use `neurd.mesh_io.load_mesh`.
+It reads plain triangular ASCII OFF files in bounded chunks, preserving float64
+coordinates, duplicate/unused vertices and ordered integer faces. Other mesh formats
+and unsupported OFF variants use trimesh's existing loader. Pass the actual filename;
+the API does not append `.off`. `NEURD_LEGACY_MESH_LOADER=1` selects the previous reader
+and is included in processing and resume fingerprints. Internal MeshLab index repair
+continues to use its existing reader.
 
 For optional H01 geometric refinement, exported-branch resegmentation, skeleton policies
 and spine-quality checks, see [SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md).
@@ -129,6 +138,7 @@ slow original. Nothing needs to be set for normal use.
 
 | flag | default | effect when set |
 |---|---|---|
+| `NEURD_LEGACY_MESH_LOADER` | bounded triangular ASCII OFF reader at supported entry points | `1` restores the previous reader |
 | `NEURD_LEGACY_VERTEX_COMPONENTS` | scipy | restore the networkx vertex graph (+~205 s) |
 | `NEURD_LEGACY_MATCHING_VERTICES` | cKDTree | restore the O(N²) distance matrix |
 | `NEURD_MESHLAB_DECIMATE` | open3d, in-process | restore the meshlab subprocess (+~184 s) |
@@ -160,7 +170,7 @@ python tests/tools/neuron_gate.py \
     --sdf-profile fast --baseline tests/fixtures/neuron_baseline_2530864375.json --tolerance
 # exercise spine detection and record surface/volume checks and runtime provenance
 python tests/tools/neuron_gate.py --dataset h01 --spines --sdf-profile fast \
-    --out /tmp/h01_spine_metrics.json
+    --seed 0 --out /tmp/h01_spine_metrics.json
 # a checksummed small branch containing spines (manifest schema in the refinement guide)
 NEURD_SPINE_BRANCH_MANIFEST=/path/to/fixture.json \
     pytest tests/integration/test_spine_branch_gate.py
@@ -171,6 +181,11 @@ The last one is the real backstop for any change to the decomposition: a full bu
 documented nondeterminism (`np.random.choice` in the waterfill), so exact comparison fails even on
 unchanged code. `tests/tools/` also holds the profiling harnesses (`benchmark_neuron.py`,
 `wall_profile.py`, `batch_bench.py`).
+
+For paired reader comparisons, set the same `--seed` and numerical thread limits in
+both runs. The gate applies the optional NumPy seed after loading and records it in
+the receipt and run signature. This controls the known waterfill randomness; native
+or decomposition variance still has to pass the existing tolerances and spine checks.
 
 ## Documentation
 
