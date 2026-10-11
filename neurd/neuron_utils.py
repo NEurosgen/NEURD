@@ -2000,23 +2000,34 @@ def soma_centers(neuron_obj,
                  return_int_form=True,
                 return_single=True):
     """
-    Will come up with the centers predicted for each of the somas in the neuron
+    Return soma centers in graph order, optionally converted from nm to voxels.
+
+    Voxel conversion requires an explicit three-value vector of positive finite
+    nm-per-voxel scales. No dataset-specific scale is inferred. Integer output
+    retains the original truncation toward zero.
     """
-    if voxel_adjustment_vector is None:
-        voxel_adjustment_vector = voxel_to_nm_scaling
-    
     if soma_name is None:
-#         current_soma_means = np.array([tu.mesh_center_vertex_average(neuron_obj[s_name].mesh) 
-#                                for s_name in neuron_obj.get_soma_node_names()])
-        current_soma_means = np.array([neuron_obj[soma_name].mesh_center
-                               for s_name in neuron_obj.get_soma_node_names()])
+        current_soma_means = np.array([neuron_obj[s_name].mesh_center
+                               for s_name in neuron_obj.get_soma_node_names()]).reshape(-1,3)
     else:
         current_soma_means = np.array([neuron_obj[soma_name].mesh_center]).reshape(-1,3)
-    
-    if voxel_adjustment and voxel_adjustment_vector is not None:
-        
-        current_soma_means = current_soma_means/voxel_adjustment_vector
-        
+
+    if voxel_adjustment:
+        if voxel_adjustment_vector is None:
+            raise ValueError("Voxel conversion requires an explicit voxel_adjustment_vector "
+                             "with three nm-per-voxel values")
+        try:
+            scale = np.asarray(voxel_adjustment_vector)
+            valid_scale = (scale.shape == (3,) and not np.iscomplexobj(scale)
+                           and np.isfinite(scale).all() and (scale > 0).all())
+        except (TypeError, ValueError) as error:
+            raise ValueError("voxel_adjustment_vector must contain three finite positive "
+                             "nm-per-voxel values") from error
+        if not valid_scale:
+            raise ValueError("voxel_adjustment_vector must contain three finite positive "
+                             "nm-per-voxel values")
+        current_soma_means = current_soma_means/scale
+
     if return_int_form:
         current_soma_means = current_soma_means.astype("int")
         

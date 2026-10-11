@@ -189,8 +189,10 @@ def features_from_skeleton_and_soma_center(
 def centroid_stats_from_neuron_obj(neuron_obj,
                                   voxel_adjustment_vector=None,
                                   include_volume=True):
+    """Return the S0 centroid in nm and voxels using an explicit nm-per-voxel scale."""
     if voxel_adjustment_vector is None:
-        voxel_adjustment_vector=voxel_to_nm_scaling
+        raise ValueError("Centroid voxel coordinates require an explicit voxel_adjustment_vector "
+                         "with three nm-per-voxel values")
         
     soma_x_nm,soma_y_nm,soma_z_nm = nru.soma_centers(neuron_obj,
                                        soma_name="S0",
@@ -225,9 +227,6 @@ def skeleton_stats_from_neuron_obj(neuron_obj,
     """
     Compute all the statistics for a neurons skeleton (should have only one soma)
     """
-    if voxel_adjustment_vector is None:
-        voxel_adjustment_vector = voxel_to_nm_scaling
-    
     sk_dict = stats_dict_over_limb_branch(
         neuron_obj,
         limb_branch_dict=limb_branch_dict,
