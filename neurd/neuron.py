@@ -1364,10 +1364,21 @@ class Neuron:
 
     def calculate_decomposition_products(
         self,
-        store_in_obj = False,):
+        store_in_obj=False,
+        *,
+        include_centroids=True,
+        voxel_adjustment_vector=None,
+        include_upstream_diagnostics=True,
+        verbose=False,
+    ):
+        """Compute stage products with explicit centroid and diagnostic inputs."""
         return nru.calculate_decomposition_products(
             self,
-            store_in_obj = store_in_obj,
+            store_in_obj=store_in_obj,
+            include_centroids=include_centroids,
+            voxel_adjustment_vector=voxel_adjustment_vector,
+            include_upstream_diagnostics=include_upstream_diagnostics,
+            verbose=verbose,
         )
 
     def get_total_n_branches(self):
@@ -1604,6 +1615,11 @@ class Neuron:
     # ---- 11/20 functions that will help compute statistics of the neuron object ----------
 
     # -- skeleton and branch data ---
+
+    @property
+    def n_somas(self):
+        """Count the soma nodes present in this neuron's concept graph."""
+        return nru.n_somas(self)
 
     @property
     def n_limbs(self):

@@ -258,13 +258,17 @@ def neuron_stats(
     include_centroids= False,
     voxel_adjustment_vector = None,
     cell_type_mode = False,
+    *,
+    include_upstream_diagnostics=True,
     **kwargs):
-    
     """
-    Purpose: Will compute a wide range of statistics 
-    on a neurons object
+    Summarize neuron geometry, widths, and computed spines.
+
+    ``stats_to_ignore`` skips each selected getter. Slim objects can omit the
+    four preprocessing diagnostic counts with ``include_upstream_diagnostics``
+    set to False; requested diagnostics require their original metadata.
+    Centroid voxel coordinates require an explicit nm-per-voxel scale.
     """
-    
     if cell_type_mode:
         stats_to_ignore = [
             "n_not_processed_soma_containing_meshes",
@@ -277,61 +281,55 @@ def neuron_stats(
         include_skeletal_stats = False
         include_centroids= True
 
-    stats_dict = dict(
-                    n_vertices = neuron_obj.n_vertices,
-                    n_faces = neuron_obj.n_faces,
-
-                    # axon_length/axon_area dropped: axon labeling removed in Phase 5
-                    # (nru.axon_length/axon_area no longer exist).
-
-                    max_soma_volume = neuron_obj.max_soma_volume,
-                    max_soma_n_faces = neuron_obj.max_soma_n_faces,
-                    max_soma_area = neuron_obj.max_soma_area,
-
-                    n_not_processed_soma_containing_meshes = len(neuron_obj.not_processed_soma_containing_meshes),
-                    n_error_limbs=neuron_obj.n_error_limbs,
-                    n_same_soma_multi_touching_limbs=len(neuron_obj.same_soma_multi_touching_limbs),
-                    n_multi_soma_touching_limbs = len(neuron_obj.multi_soma_touching_limbs),
-                    n_somas=neuron_obj.n_somas,
-                    n_limbs=neuron_obj.n_limbs,
-                    n_branches=neuron_obj.n_branches,
-                    max_limb_n_branches=neuron_obj.max_limb_n_branches,
-
-                    skeletal_length=neuron_obj.skeletal_length,
-                    max_limb_skeletal_length=neuron_obj.max_limb_skeletal_length,
-                    median_branch_length=neuron_obj.median_branch_length,
-
-                    width_median=neuron_obj.width_median, #median width from mesh center without spines removed
-                    width_no_spine_median=neuron_obj.width_no_spine_median, #median width from mesh center with spines removed
-                    width_90_perc=neuron_obj.width_90_perc, # 90th percentile for width without spines removed
-                    width_no_spine_90_perc=neuron_obj.width_no_spine_90_perc,  # 90th percentile for width with spines removed
-
-                    n_spines=neuron_obj.n_spines,
-                    # n_boutons dropped: bouton detection (axon-based) removed in Phase 5.
-
-                    spine_density=neuron_obj.spine_density, # n_spines/ skeletal_length
-                    spines_per_branch=neuron_obj.spines_per_branch,
-
-                    skeletal_length_eligible=neuron_obj.skeletal_length_eligible, # the skeletal length for all branches searched for spines
-                    n_spine_eligible_branches=neuron_obj.n_spine_eligible_branches,
-                    spine_density_eligible = neuron_obj.spine_density_eligible,
-                    spines_per_branch_eligible = neuron_obj.spines_per_branch_eligible,
-
-                    total_spine_volume=neuron_obj.total_spine_volume, # the sum of all spine volume
-                    spine_volume_median = neuron_obj.spine_volume_median,
-                    spine_volume_density=neuron_obj.spine_volume_density, #total_spine_volume/skeletal_length
-                    spine_volume_density_eligible=neuron_obj.spine_volume_density_eligible, #total_spine_volume/skeletal_length_eligible
-                    spine_volume_per_branch_eligible=neuron_obj.spine_volume_per_branch_eligible, #total_spine_volume/n_spine_eligible_branche
-
+    statistic_fields = (
+        "n_vertices", "n_faces",
+        "max_soma_volume", "max_soma_n_faces", "max_soma_area",
+        "n_not_processed_soma_containing_meshes", "n_error_limbs",
+        "n_same_soma_multi_touching_limbs", "n_multi_soma_touching_limbs",
+        "n_somas", "n_limbs", "n_branches", "max_limb_n_branches",
+        "skeletal_length", "max_limb_skeletal_length", "median_branch_length",
+        "width_median", "width_no_spine_median", "width_90_perc", "width_no_spine_90_perc",
+        "n_spines", "spine_density", "spines_per_branch",
+        "skeletal_length_eligible", "n_spine_eligible_branches", "spine_density_eligible",
+        "spines_per_branch_eligible", "total_spine_volume", "spine_volume_median",
+        "spine_volume_density", "spine_volume_density_eligible", "spine_volume_per_branch_eligible",
     )
-
+    diagnostic_count_attributes = {
+        "n_not_processed_soma_containing_meshes": "not_processed_soma_containing_meshes",
+        "n_same_soma_multi_touching_limbs": "same_soma_multi_touching_limbs",
+        "n_multi_soma_touching_limbs": "multi_soma_touching_limbs",
+    }
+    ignored = set()
     if stats_to_ignore is not None:
-        for s in stats_to_ignore:
-            del stats_dict[s]
+        known_fields = set(statistic_fields)
+        for name in stats_to_ignore:
+            if name not in known_fields or name in ignored:
+                raise KeyError(name)
+            ignored.add(name)
+
+    stats_dict = {}
+    for name in statistic_fields:
+        upstream_diagnostic = name in diagnostic_count_attributes or name == "n_error_limbs"
+        if name in ignored or (upstream_diagnostic and not include_upstream_diagnostics):
+            continue
+        if upstream_diagnostic:
+            attribute = diagnostic_count_attributes.get(name, name)
+            try:
+                value = getattr(neuron_obj, attribute)
+            except AttributeError as error:
+                raise AttributeError(
+                    f"Cannot compute {name!r}: missing upstream diagnostic {attribute!r}. "
+                    "Pass include_upstream_diagnostics=False or add the statistic "
+                    "to stats_to_ignore."
+                ) from error
+            if name in diagnostic_count_attributes:
+                value = len(value)
+        else:
+            value = getattr(neuron_obj, name)
+        stats_dict[name] = value
 
     if include_skeletal_stats:
         sk_dict = features_from_neuron_skeleton_and_soma_center(neuron_obj,
-                                              verbose = False,
                                               features_to_exclude=("length","n_branches"),
                                              )
         stats_dict.update(sk_dict)

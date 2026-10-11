@@ -2574,29 +2574,41 @@ def calculate_decomposition_products(
     neuron_obj,
     store_in_obj = False,
     verbose = False,
+    *,
+    include_centroids = True,
+    voxel_adjustment_vector = None,
+    include_upstream_diagnostics = True,
     ):
-    
-    # ---- basic statistics of neuron
-    stats_dict = neuron_obj.neuron_stats(stats_to_ignore = [
+    """Return decomposition statistics and the skeleton as ``StageProducts``.
+
+    Slim neurons can omit upstream preprocessing diagnostics with
+    ``include_upstream_diagnostics=False``. Centroid voxel coordinates require
+    an explicit three-value nm-per-voxel scale; use ``include_centroids=False``
+    to omit them. Skeleton features retain their historical reference to S0.
+
+    Storage merges the completed result into the decomposition stage. A missing
+    pipeline container is created only when storage is explicitly requested,
+    after calculation succeeds. Existing containers and other stages are kept.
+    """
+    stats_kwargs = dict(stats_to_ignore = [
                      # n_boutons/axon_length/axon_area removed from neuron_stats (Phase 5).
                      "max_soma_volume",
                      "max_soma_n_faces",],
         include_skeletal_stats = True,
-        include_centroids= True,
-        #voxel_adjustment_vector=voxel_adjustment_vector,
+        include_centroids= include_centroids,
     )
-    
-    # --- generating the skeleton 
+    if voxel_adjustment_vector is not None:
+        stats_kwargs["voxel_adjustment_vector"] = voxel_adjustment_vector
+    if include_upstream_diagnostics is not True:
+        stats_kwargs["include_upstream_diagnostics"] = include_upstream_diagnostics
+    stats_dict = neuron_obj.neuron_stats(**stats_kwargs)
     skeleton = neuron_obj.skeleton
-    
-    # --- skeleton stats
     from neurd.neuron_statistics import skeleton_stats_from_neuron_obj  # P3: local import breaks neuron_utils<->neuron_statistics cycle
     sk_stats = skeleton_stats_from_neuron_obj(
             neuron_obj,
-            include_centroids=True,
-            verbose = verbose,
+            include_centroids=include_centroids,
+            voxel_adjustment_vector=voxel_adjustment_vector,
     )
-    
     stats_dict.update(sk_stats)
     decomp_products = pipeline.StageProducts(
         skeleton=skeleton,
@@ -2604,11 +2616,20 @@ def calculate_decomposition_products(
     )
 
     if store_in_obj:
-        neuron_obj.pipeline_products.set_stage_attrs(
+        products = getattr(neuron_obj, "pipeline_products", None)
+        create_container = products is None
+        if create_container:
+            products = pipeline.PipelineProducts()
+        writer = getattr(products, "set_stage_attrs", None)
+        if not callable(writer):
+            raise TypeError("store_in_obj=True requires pipeline_products with a callable "
+                            "set_stage_attrs")
+        writer(
             decomp_products,
             stage = "decomposition"
         )
-        
+        if create_container:
+            neuron_obj.pipeline_products = products
     return decomp_products
 
 
