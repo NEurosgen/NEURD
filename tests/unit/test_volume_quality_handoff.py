@@ -18,11 +18,15 @@ from neurd import (h01_batch, spine_refinement as refinement, spine_utils as spu
 def calculate(**overrides):
     """Execute the actual calculation with controlled leaf dependencies."""
     tree = ast.parse(Path(spu.__file__).read_text())
-    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'calculate_spines_on_branch')
+    calculation_names = {'calculate_spines_on_branch', '_refine_branch_spines',
+                         '_apply_final_spine_filters', '_select_spine_results',
+                         '_refresh_refinement_counts'}
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+             and n.name in calculation_names]
     env = dict(spu.__dict__)
     env.update(overrides)
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), '<actual volume calculation>', 'exec'), env)
-    return env[node.name]
+    exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), '<actual volume calculation>', 'exec'), env)
+    return env['calculate_spines_on_branch']
 
 
 def options():
