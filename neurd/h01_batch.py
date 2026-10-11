@@ -360,6 +360,94 @@ def dispatch(rows,job,workers,stop,on_result):
     return results
 
 
+def _record_width_failure(staging, manifest, row, source_inputs, parent,
+                          original, skeleton, auxiliary, skeleton_qc,
+                          distances, width, error=None):
+    """Best-effort evidence, written before unresolved eligibility is raised."""
+    import numpy as np
+    errors, artifacts, axes = [], {}, {}
+    def attempt(label, operation):
+        try:
+            return operation()
+        except Exception as exc:
+            errors.append(dict(artifact=label, error=f'{type(exc).__name__}: {str(exc)[:300]}'))
+            return None
+    def store_array(filename, values):
+        np.save(staging/filename, values, allow_pickle=False)
+        artifacts[filename] = sha(staging/filename)
+        return dict(file=filename, sha256=artifacts[filename], shape=list(np.shape(values)),
+                    dtype=str(np.asarray(values).dtype))
+    def store_json(filename, value):
+        save(staging/filename, value)
+        artifacts[filename] = sha(staging/filename)
+
+    # Prioritize the actual axis passed to the failed width calculation. Each
+    # write is independent, so one unavailable artifact does not hide the rest.
+    axes['width_eligibility'] = attempt('branch_skeleton.npy', lambda:
+        store_array('branch_skeleton.npy', skeleton))
+    axes['original'] = attempt('branch_skeleton_original.npy', lambda:
+        store_array('branch_skeleton_original.npy', original))
+    axes['auxiliary'] = (attempt('segmentation_axis.npy', lambda:
+        store_array('segmentation_axis.npy', auxiliary)) if auxiliary is not None else None)
+    attempt('skeleton_repair.json', lambda: store_json('skeleton_repair.json', skeleton_qc))
+    observed = dict(average_nm=None, average_state='not_returned',
+                    values_source='exact_postprocessed_calculate_new_width_return',
+                    active_backend='owned' if os.environ.get('NEURD_OWNED_SKELETAL_DISTANCE') == '1' else 'mesh_tools')
+    if width is not None:
+        value = float(width)
+        observed.update(average_nm=value if np.isfinite(value) else None,
+                        average_state='nonfinite' if not np.isfinite(value) else
+                                      'zero' if value == 0 else 'nonpositive' if value < 0 else 'positive')
+    if distances is not None:
+        values = np.asarray(distances)
+        observed.update(returned_distance_count=int(values.size),
+                        positive_finite_count=int(np.count_nonzero(np.isfinite(values) & (values > 0))),
+                        zero_count=int(np.count_nonzero(values == 0)),
+                        nonfinite_count=int(np.count_nonzero(~np.isfinite(values))),
+                        returned_distances=attempt('width_distances.npy', lambda:
+                            store_array('width_distances.npy', values)))
+    eligibility = dict(eligible=None, reason='eligibility_unresolved',
+                       threshold_nm=115, comparison='>', median_mesh_center_nm=observed['average_nm'])
+    evidence = dict(schema_version=1, status='unresolved', units='nm',
+                    branch_eligibility=eligibility, observed_width=observed,
+                    axes=axes, width_axis='width_eligibility',
+                    auxiliary_used_for_width=False, skeleton_repair_file='skeleton_repair.json',
+                    width_parameters=dict(no_spines=False, summary_measure='median',
+                                          skeleton_segment_size_nm=1000, distance_by_mesh_center=True,
+                                          distance_threshold_nm=3000),
+                    support_sampler=dict(status='pending', diagnostic_only=True))
+    if error is not None:
+        evidence['calculation_error'] = f'{type(error).__name__}: {str(error)[:300]}'
+    record = dict(status='failed', reason='eligibility_unresolved', key=row['key'],
+                  run_hash=manifest['run_hash'], inputs=source_inputs, units='nm',
+                  skeleton=skeleton_qc, branch_eligibility=eligibility,
+                  width_evidence_file='width_evidence.json')
+    def publish():
+        evidence['diagnostic_errors'] = list(errors)
+        attempt('width_evidence.json', lambda: store_json('width_evidence.json', evidence))
+        record.update(outputs_sha256=dict(artifacts), diagnostic_errors=list(errors))
+        attempt('result.json', lambda: save(staging/'result.json', record))
+    # Persist axes and the actual return before a diagnostic rerun: a timeout
+    # during that rerun still leaves the failed calculation's basic evidence.
+    publish()
+    def support_sample():
+        from neurd.width_diagnostics import sample_width_support
+        return sample_width_support(parent, skeleton)
+    sampler = attempt('support_sampler', support_sample)
+    evidence['support_sampler'] = sampler or dict(status='failed', diagnostic_only=True)
+    publish()
+    for failure in errors:
+        print(f"Width diagnostic unavailable ({failure['artifact']}): {failure['error']}", file=sys.stderr)
+
+
+def _record_width_failure_safely(*args, **kwargs):
+    """Diagnostic serialization must never replace the original width error."""
+    try:
+        _record_width_failure(*args, **kwargs)
+    except Exception as exc:
+        print(f'Width diagnostics failed: {type(exc).__name__}: {str(exc)[:300]}', file=sys.stderr)
+
+
 def branch_worker(output, key, staging):
     import numpy as np
     from types import SimpleNamespace
@@ -408,10 +496,18 @@ def branch_worker(output, key, staging):
             # Retain NEURD's branch-width restriction for previously empty
             # branches, rather than treating every thin axon as a dendrite.
             from neurd import width_utils
-            _,width = width_utils.calculate_new_width(
-                SimpleNamespace(mesh=parent,skeleton=skeleton,width=0),no_spines=False,
-                summary_measure='median',return_average=True)
+            width_distances, width = None, None
+            try:
+                width_distances,width = width_utils.calculate_new_width(
+                    SimpleNamespace(mesh=parent,skeleton=skeleton,width=0),no_spines=False,
+                    summary_measure='median',return_average=True)
+            except Exception as exc:
+                _record_width_failure_safely(staging,manifest,row,source_inputs,parent,
+                    original,skeleton,auxiliary,skeleton_qc,width_distances,width,error=exc)
+                raise
             if not np.isfinite(width) or width <= 0:
+                _record_width_failure_safely(staging,manifest,row,source_inputs,parent,
+                    original,skeleton,auxiliary,skeleton_qc,width_distances,width)
                 raise ValueError('Cannot establish original NEURD branch-width eligibility')
             eligibility = dict(eligible=bool(width>115),median_mesh_center_nm=float(width),
                                reason='neurd_median_mesh_center_gt_115')

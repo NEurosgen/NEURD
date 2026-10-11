@@ -113,11 +113,51 @@ records headers and graph linkage; four raw content hashes are explicitly deferr
 Continue with skeleton-label correspondence and bounded raw membership checks
 before attempting a full reconstruction.
 
-The smallest useful patch is to persist width support and skeleton repair
-diagnostics before raising an eligibility error. Record the original axis,
-any candidate auxiliary axis, coverage, raw positive-distance count and
-selected slice face counts. Preserve `eligibility_unresolved` when the width
-has no reliable support.
+The subsequent October 11 follow-up completed both bounded checks. Exact triangle
+occurrences place all five pilot branch surfaces in their original raw OFF parent,
+with **zero unmatched faces** and the same 16/114 ambiguous target faces as the
+limb audit. It retained all raw vertices, streamed faces in 32,768-record chunks
+and kept no complete raw face array. Maximum observed RSS was **611.1 MiB** and
+the longest worker took **71.6 s**. All five raw inputs now have before/after
+content hashes; this supplements the earlier inventory without changing it.
+The [raw membership receipt](../artifacts/h01_correspondence_followup_20261011/v1/raw_membership/receipt.json)
+and candidate arrays record zero-based original raw OFF face positions. These
+are geometric candidates, not a recovered segmentation ownership map.
+
+The [axis audit](../artifacts/h01_correspondence_followup_20261011/v1/axis_audit/receipt.json)
+finds each pilot axis's exact segments in its limb skeleton and no whole segment
+duplicated in a sibling branch. Graph neighbors share endpoint coordinates.
+The strongest mismatch is `1304599410/limb_002/branch_002`: **all 113 vertices**
+are at least **50.88 µm** from their own axis. Nonadjacent axes 106/21/107 have
+much closer coverage, but proximity cannot establish a correct replacement label.
+Two other cases have 10.45/14.24 nm axes at graph junctions; another has a
+27.8 µm axis with poor reverse coverage of its small surface fragment. These
+observations support investigating partition/export correspondence rather than
+automatically swapping axes. Axis-to-nearest-vertex values in the report are
+upper bounds to surface distance, with explicit sampling limits.
+
+The worker now persists evidence before raising an eligibility error:
+`branch_skeleton_original.npy`, the actual width axis `branch_skeleton.npy`, any
+returned auxiliary `segmentation_axis.npy`, `skeleton_repair.json`, exact
+postprocessed `width_distances.npy` and `width_evidence.json`. Its failure
+`result.json` records `status="failed"` and `eligible=null`. These files survive
+staging publication to `failures/` and are rejected by the completion validator.
+The original width calculation and strict **width > 115 nm** rule are unchanged.
+
+Support observations rerun the owned kernel on at most **16 uniformly selected
+resized edges**, only after a failure. They report axial/radial face support and
+separate raw diagnostic distances; they are not the original kernel's raw values
+or a complete slice census. Diagnostic errors cannot replace the original error.
+Basic axis/width records are written before sampling, so they remain available
+if that extra inspection times out. Rejected repair candidates that were not
+returned are described by repair QC rather than an invented axis file.
+
+A fresh [five-case failure run](../artifacts/h01_correspondence_followup_20261011/v1/pilot_failure_validation.json)
+verified the journal on all pilot keys: five unresolved failures, no accepted
+branches, source/output hashes checked and no completed dataset publication.
+The detached case saved a newly built auxiliary axis while retaining its original
+graph and width axis. This is current-policy validation, not recovery of the
+missing axes from the historical attempts.
 
 A fallback needs a separate, explicit eligibility policy and validation. It
 can use a validated original width if one is recovered, or evaluate a
@@ -138,8 +178,19 @@ any axial slice). Add `neuron_1304599410_limb_002_branch_002` as a clearly
 detached-axis case. These five small cases cover the failure mechanisms
 before proposing a policy for all 46.
 
-Retry the timeout separately after profiling post-CGAL segment assembly and
-filtering. Use one worker, phase timings, the retained 2,700-second budget,
+The timeout review found a concrete redundant operation: installed
+`mesh_segmentation(return_meshes=False)` assembled every label mesh before
+discarding them, then the spine caller assembled them again. The owned spine
+seam now reads labels/SDF without that first assembly and performs the required
+assembly once. Stable grouping also avoids scanning every face for every label.
+Synthetic timings and exact native/Minnie checks are in the
+[timeout review](../artifacts/h01_correspondence_followup_20261011/v1/timeout_review/review.json);
+they do not establish that the historical timeout is solved. Its first `0/22167`
+progress display may have belonged to the discarded assembly, so it cannot
+identify which later filters were reached.
+
+Retry the timeout separately after reviewing the new phase traces. Use one
+worker, `NEURD_CGAL_TIMINGS=1`, the retained 2,700-second budget,
 and the same source hashes and declared segmentation parameters. Loader
 improvements alone do not establish that its later bottleneck is solved.
 Every patched retry requires a new output directory and provenance signature;

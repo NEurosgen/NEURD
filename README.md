@@ -20,7 +20,7 @@ cell typing, axon labelling, SWC export, connectome/motif/proximity analysis, GN
 dataset adapters — **is removed**. The stable geometry refactor reduced the package from
 ~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
 validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**18,350 physical Python lines across 23 core files**; the earlier count describes the
+**18,669 physical Python lines across 25 core files**; the earlier count describes the
 pre-refinement baseline.
 
 ## Why a fork
@@ -123,6 +123,12 @@ the API does not append `.off`. `NEURD_LEGACY_MESH_LOADER=1` selects the previou
 and is included in processing and resume fingerprints. Internal MeshLab index repair
 continues to use its existing reader.
 
+Spine segmentation reads CGAL face labels without constructing meshes that would
+be discarded, then groups those faces once while retaining parent indices and
+face order. `NEURD_LEGACY_CGAL_ASSEMBLY=1` restores the prior two-pass assembly
+for comparison. Failed H01 width eligibility now preserves the actual axes and
+measurement evidence; see [H01_FAILURE_DIAGNOSTICS.md](docs/H01_FAILURE_DIAGNOSTICS.md).
+
 For optional H01 geometric refinement, exported-branch resegmentation, skeleton policies
 and spine-quality checks, see [SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md).
 
@@ -139,13 +145,14 @@ slow original. Nothing needs to be set for normal use.
 | flag | default | effect when set |
 |---|---|---|
 | `NEURD_LEGACY_MESH_LOADER` | bounded triangular ASCII OFF reader at supported entry points | `1` restores the previous reader |
+| `NEURD_LEGACY_CGAL_ASSEMBLY` | labels-only CGAL spine seam and one face assembly | `1` restores the previous two-pass assembly |
 | `NEURD_LEGACY_VERTEX_COMPONENTS` | scipy | restore the networkx vertex graph (+~205 s) |
 | `NEURD_LEGACY_MATCHING_VERTICES` | cKDTree | restore the O(N²) distance matrix |
 | `NEURD_MESHLAB_DECIMATE` | open3d, in-process | restore the meshlab subprocess (+~184 s) |
 | `NEURD_DECIMATE_SINGLE_STAGE` | cascaded halving | decimate in one step |
 | `NEURD_ENABLE_COMPRESSED_PICKLE` | no-op'd | restore the debug pickle dumps (+~98 s) |
 | `NEURD_SDF_RAYS` | low-level compatibility 12 | CGAL SDF ray count; the public API/CLI sets it from the explicit reference25/fast12 configuration |
-| `NEURD_CGAL_TIMINGS` | off | `1` writes OFF-read, SDF, clustering and CSV-write stage timings to stderr |
+| `NEURD_CGAL_TIMINGS` | off | `1` writes native stage timings to stderr and flushed Python preparation/labels/assembly/shaft-filter phase records to stdout |
 | `NEURD_SKIP_SOMA_END_SPLIT` | off | skip `_split_soma_at_end`'s CGAL trim (−~225 s) |
 | `NEURD_OWNED_SKELETAL_DISTANCE` | off | route the correspondence/width kernel through `neurd/skeletal_distance_ops.py` |
 | `NEURD_REAL_POISSON` | off (no-op) | run a real Poisson reconstruction — see PERF.md |

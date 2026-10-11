@@ -10,7 +10,7 @@ investigations + open plans).
 mesh + skeleton + raw spines). Everything downstream — autoproofreading, cell typing, synapses, axon,
 connectome/motif/proximity, GNN, visualization, cloud/dataset adapters — is deleted.
 
-**Size:** the current integration candidate has **23 Python files / 18,350 physical lines**
+**Size:** the current integration candidate has **25 Python files / 18,669 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Counts include comments and blank lines.
@@ -46,20 +46,20 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (23 files)
+## Module map (25 files)
 
 | module | LOC | purpose |
 |---|---|---|
 | [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3174 | mesh → limbs/branches. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
-| [spine_utils.py](neurd/spine_utils.py) | 3424 | ordinary spine detection and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
+| [spine_utils.py](neurd/spine_utils.py) | 3423 | ordinary spine detection and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
 | [neuron_utils.py](neurd/neuron_utils.py) | 2599 | neuron queries/utilities. Most-imported module; an intra-package **sink** |
 | [neuron.py](neurd/neuron.py) | 1829 | the `Neuron`, `Limb`, `Branch`, `Soma` classes |
 | [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
 | [neuron_searching.py](neurd/neuron_searching.py) | 1081 | branch query system (strings → `ns.<fn>` via `@run_options`). Reached by exactly one call, from `spine_utils` |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 903 | soma identification |
 | [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
-| [h01_batch.py](neurd/h01_batch.py) | 710 | isolated exported-branch resegmentation, pinned runtime, topology safeguards and verified resume |
-| [submesh_ops.py](neurd/submesh_ops.py) | 446 | **owned** partition/provenance layer (`SubMesh`) — see MESH_OPS.md |
+| [h01_batch.py](neurd/h01_batch.py) | 806 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
+| [submesh_ops.py](neurd/submesh_ops.py) | 458 | **owned** partition/provenance layer (`SubMesh`); stable label grouping without per-label full scans — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
 | [neuron_statistics.py](neurd/neuron_statistics.py) | 347 | skeleton statistics/distances. Reachable only via `Neuron.neuron_stats` → `calculate_decomposition_products`, which the slim path does not call |
 | [skeletal_distance_ops.py](neurd/skeletal_distance_ops.py) | 281 | owned correspondence/width kernel, behind `NEURD_OWNED_SKELETAL_DISTANCE` (off by default) |
@@ -67,7 +67,9 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
 | [width_utils.py](neurd/width_utils.py) | 183 | branch surface-to-skeleton width measurements |
 | [_mesh_ops.py](neurd/_mesh_ops.py) | 158 | L6 mesh primitives (decimate/poisson/fill_holes, in-process open3d) |
 | [parameters.py](neurd/parameters.py) | 156 | the explicit microns/h01 parameter object (replaced global-config monkey-patching) |
-| [run_config.py](neurd/run_config.py) | 146 | shared dataset/spines/refinement/ray configuration and runtime environment receipts |
+| [run_config.py](neurd/run_config.py) | 147 | shared dataset/spines/refinement/ray configuration and runtime environment receipts |
+| [cgal_labels.py](neurd/cgal_labels.py) | 120 | narrow labels-only CGAL spine seam, exact parent-face assembly and opt-in phase logging |
+| [width_diagnostics.py](neurd/width_diagnostics.py) | 91 | bounded diagnostic support sampling for unresolved width; never establishes eligibility |
 | [_correspondence_backend.py](neurd/_correspondence_backend.py) | 113 | **seam** for the fragile `cu`/`m_sk` calls + the pipeline's only nondeterminism |
 | [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 66 | pure-Python CGAL-segmentation fallback |
 | [spine_volume.py](neurd/spine_volume.py) | 97 | strict centered volume closure, fallback and quality records |

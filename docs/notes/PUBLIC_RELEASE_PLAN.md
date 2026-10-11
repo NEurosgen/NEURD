@@ -6,7 +6,7 @@ the existing experimental continuation, establish the supported processing paths
 checks, then optimize and reduce code. No additional large rewrite is required for a first release.
 
 This plan records the repository state inspected on **2026-10-11**, the first implementation
-package and subsequent mesh-loading and H01 diagnosis work. Branch counts below describe the initial audit and use local Git
+package and subsequent mesh-loading, H01 correspondence and segment-assembly work. Branch counts below describe the initial audit and use local Git
 refs, including the locally recorded `origin/*` refs; they do not assert the current live state
 of GitHub. The implementation uses a new local branch; nothing has been published.
 
@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **23 Python files / 18,350 physical lines**, compared with 21 / 17,859
+The candidate core has **25 Python files / 18,669 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -30,7 +30,8 @@ still requires the production reachability work in Stage 7.
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
 | OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
-| Historical H01 failures | Separate read-only diagnosis of all 47 keys, frozen-source and provider checks, explicit lineage limits | Recover mesh/skeleton correspondence and reliable eligibility support; instrument the timeout before retry |
+| Spine label assembly | Narrow owned labels/SDF seam removes discarded assembly; stable parent-face grouping; legacy comparison switch; flushed opt-in phase traces | One instrumented historical timeout retry, with no resolution or total-speed claim yet |
+| Historical H01 failures | Separate read-only diagnosis of all 47 keys; five-case limb/raw inclusion and axis audits; failed-width axes/measurements/support journal; frozen-source and provider checks | Recover reliable mesh/skeleton branch identity and eligibility support; independent review before changing any measurement policy |
 
 First-package validation on the local Python 3.12 environment:
 
@@ -105,16 +106,54 @@ hashes, index scopes and unavailable/generated-face status. Compose maps to raw 
 indices only when undecimated input identity and exact per-face geometry are verified.
 Existing geometric set maps must not be presented as ordered source ownership.
 
+The third package completed the bounded five-case checks. Every target branch
+surface is an exact multiset subset of its full raw parent, with zero unmatched
+faces and retained 16/114 ambiguous target faces. The raw scan kept vertices and
+32,768-face chunks, not a full face array; maximum observed RSS was **611.1 MiB**
+and maximum worker wall time **71.6 s**. All raw content hashes were checked before
+and after. Each own axis is present in its limb skeleton, with no whole segment
+duplicated by another branch. The detached case's **113 vertices** are all at
+least **50.88 µm** from their own axis. Nearby nonadjacent axes are hypotheses,
+not grounds for an automatic label/axis swap.
+
+Failed eligibility now publishes actual original/used/returned auxiliary axes,
+repair QC and exact postprocessed width values before raising. A separate support
+sampler uses at most 16 resized edges and never determines eligibility. A fresh
+five-pilot run preserved these records in `failures/`, with five failures and no
+completed outputs. The width rule, graph-retention policy and historical run
+remain unchanged; the recorded fresh auxiliary axis does not reconstruct a
+missing historical repaired axis.
+
+The timeout review confirmed one discarded mesh assembly before the required
+spine assembly. That extra construction is removed at the narrow spine call site;
+the installed tuple API is untouched. Stable grouping reduces repeated whole-face
+scans: three fresh interleaved trials on a synthetic 1,564,481-face / 22,167-label
+vector measured **9.569 to 0.155 s**, with exactly equal ordered index groups.
+This is a grouping-only result. Two compiled native cases matched per-face
+labels/SDF; a paired real Minnie65 branch matched all nine spines, masks and volumes.
+The complete raw H01 neuron `2530864375` also matched every metric exactly across
+the old and new assembly paths: **18 spines / 8,145 spine faces**, the same actual
+face-mask digest and zero invalid, ambiguous or overlapping indices/geometry and
+invalid volumes. Input, source, provider, configuration and seed 0 matched; the
+only environment difference was the assembly flag (Numba 4; recorded BLAS/OpenMP/
+NumExpr limits 1). This is a correctness gate, not a repeated performance trial.
+The initial sandboxed MeshLab failure is retained; both successful runs used the
+same elevated execution profile, with unchanged acceptance tolerances.
+The final frozen unit suite passed **547 tests, with 1 expected skip** in 200.70 s
+during concurrent local validation. Phase begin/end logs are available through
+`NEURD_CGAL_TIMINGS=1`; the prior assembly path remains available through
+`NEURD_LEGACY_CGAL_ASSEMBLY=1`. Local evidence is retained in
+`artifacts/h01_correspondence_followup_20261011/v1/`.
+
 Next work should be bounded as follows:
 
-1. Continue the five-case H01 correspondence audit from branch/limb surfaces to skeleton
-   labels and raw-parent membership. The first bounded surface audit is complete:
-   all five branch surfaces occur exactly within their old limb, with zero unmatched
-   faces; two cases retain 16 and 114 ambiguous faces. It validates geometric inclusion,
-   not ordered face ownership or skeleton alignment. Use 32,768-face chunks, a 1.5 GiB
-   RSS guard and a 180-second diagnostic budget; preserve ambiguity and old keys.
-   Persist axis/width-support diagnostics before eligibility failures in a new versioned run.
-   Profile the one timeout's post-CGAL stages before a separate one-worker retry.
+1. Investigate the original partition/export path using the detached-axis case and
+   junction stubs; own-limb/raw inclusion and axis membership are now verified. Require
+   evidence of branch identity before a remap or a new eligibility policy. Keep old labels,
+   graph and ambiguity intact. Retry the one timeout in a separate run with one worker,
+   the original 2,700-second limit, current labels-only assembly and phase traces; compare
+   the same source hashes and parameters. A completed or rejected retry must preserve
+   enough evidence to identify its active post-CGAL phase.
 2. Profile whole-neuron RSS after bounded loading, then evaluate connected-component transients
    and the full non-soma copy. Preserve source-face maps and use matching seeded configurations
    for loader comparisons; do not relax gates to accommodate an unexplained spine-count change.
@@ -320,7 +359,9 @@ the auxiliary axis for head refinement.
   `eligibility_unresolved` status. Do not adjust the 115 nm criterion or silently mark the
   branches non-spiny merely to finish the run.
 - **1 timeout:** `neuron_7052969349_limb_000_branch_000`, 2,700 seconds, 356 archived spines.
-  Retry this key with the unchanged frozen runtime and adequate resource/time diagnostics.
+  Preserve its historical frozen runtime. Retry this key in a separate versioned patch run
+  using the current labels-only assembly, unchanged input hashes and declared parameters,
+  one worker, the same 2,700-second limit and phase/resource diagnostics.
 
 All 21,703 saved success records were inspected for the new anchoring concern:
 

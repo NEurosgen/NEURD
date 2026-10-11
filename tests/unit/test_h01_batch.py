@@ -339,3 +339,176 @@ def test_changing_loader_behavior_flag_prevents_h01_resume(tmp_path, monkeypatch
     monkeypatch.setenv('NEURD_LEGACY_MESH_LOADER', '1')
     with pytest.raises(ValueError, match='Settings or code changed'):
         batch.main(argv)
+
+
+def _width_worker_run(tmp_path, monkeypatch, width, *, faces=320, width_error=None,
+                      sampler_error=None, broken_json=False):
+    """Run the actual worker and parent's failure publication with controlled width."""
+    from contextlib import redirect_stdout, redirect_stderr
+    from types import SimpleNamespace
+    import traceback
+    import trimesh
+    from neurd import mesh_io, parameters, spine_utils, width_utils, width_diagnostics, run_config
+
+    source = tmp_path/'source'
+    branch = source/'neuron_1/limb_000/branch_000'
+    branch.mkdir(parents=True)
+    mesh = trimesh.creation.icosphere(subdivisions=2, radius=200)
+    mesh = trimesh.Trimesh(mesh.vertices, mesh.faces[:faces], process=False)
+    mesh.export(branch/'branch_mesh.off')
+    original = segments([(0,0,0),(1000,0,0)], [(0,1)])
+    effective, auxiliary = original + [0,200,0], original + [0,300,0]
+    np.save(branch/'branch_skeleton.npy', original)
+    source_before = {p.name: (batch.sha(p), p.stat().st_mtime_ns) for p in branch.iterdir()}
+    config = tmp_path/'config.json'
+    config.write_text('{}\n')
+    output = tmp_path/'output'
+    native = tmp_path/'fake_cgal.so'
+    native.write_bytes(b'native guard fixture')
+    monkeypatch.setitem(sys.modules, 'cgal_Segmentation_Module', SimpleNamespace(__file__=str(native)))
+    monkeypatch.setattr(batch, 'dependency_signature', lambda: {'fixture': 'dependencies'})
+    monkeypatch.setattr(run_config, 'runtime_environment', lambda *args, **kwargs: {})
+    monkeypatch.setattr(parameters.params, 'use', lambda *args, **kwargs: None)
+    qc = dict(status='repaired_with_original_connections', topological_replacement=True,
+              before=dict(q95_nm=20000), after=dict(q95_nm=100))
+    monkeypatch.setattr(batch, 'repair_skeleton', lambda *args: (effective, auxiliary, qc))
+    state = dict(width_calls=[], spine_calls=[], sampler_calls=[], worker_errors=[])
+    def calculate(branch, **kwargs):
+        state['width_calls'].append((branch, kwargs))
+        if width_error is not None:
+            raise width_error
+        return np.array([width, width]), width
+    monkeypatch.setattr(width_utils, 'calculate_new_width', calculate)
+    def spines(branch, **kwargs):
+        state['spine_calls'].append(branch)
+        kwargs['geometric_refinement_diagnostics'].update(candidates=[], counts={})
+        return [], np.empty(0)
+    monkeypatch.setattr(spine_utils, 'calculate_spines_on_branch', spines)
+    def sample(mesh, axis):
+        state['sampler_calls'].append(axis.copy())
+        if sampler_error is not None:
+            raise sampler_error
+        return dict(status='sampled', diagnostic_only=True, sampled_edges=16,
+                    full_edge_coverage=False, sampled_positive_raw_distance_count=0)
+    monkeypatch.setattr(width_diagnostics, 'sample_width_support', sample)
+    if broken_json:
+        original_save = batch.save
+        def failing_save(path, data):
+            if Path(path).name in ('skeleton_repair.json', 'width_evidence.json', 'result.json'):
+                raise TypeError('diagnostic serialization failed')
+            original_save(path, data)
+        monkeypatch.setattr(batch, 'save', failing_save)
+    class Worker:
+        pid = 999999999
+        returncode = None
+        def __init__(self, argv, **kwargs):
+            self.output = Path(argv[argv.index('--output') + 1])
+            self.key = argv[argv.index('--worker') + 1]
+            self.staging = Path(argv[argv.index('--staging') + 1])
+            self.log = kwargs['stdout']
+        def wait(self, timeout=None):
+            old_cwd, old_path = Path.cwd(), list(sys.path)
+            try:
+                with redirect_stdout(self.log), redirect_stderr(self.log):
+                    try:
+                        batch.branch_worker(self.output, self.key, self.staging)
+                        self.returncode = 0
+                    except Exception as exc:
+                        state['worker_errors'].append(exc)
+                        traceback.print_exc()
+                        self.returncode = 1
+            finally:
+                os.chdir(old_cwd)
+                sys.path[:] = old_path
+            return self.returncode
+    monkeypatch.setattr(batch.subprocess, 'Popen', Worker)
+    argv = ['--source', str(source), '--output', str(output), '--config', str(config), '--workers', '1']
+    failed = width_error is not None or (faces > 100 and (not np.isfinite(width) or width <= 0))
+    if failed:
+        with pytest.raises(RuntimeError, match='1 branches failed'):
+            batch.main(argv)
+    else:
+        batch.main(argv)
+    assert {p.name: (batch.sha(p), p.stat().st_mtime_ns) for p in branch.iterdir()} == source_before
+    return output, state, original, effective, auxiliary, qc
+
+
+@pytest.mark.parametrize('width,state_name', [(0.,'zero'), (-1.,'nonpositive'),
+                                           (float('nan'),'nonfinite'), (float('inf'),'nonfinite')])
+def test_unresolved_width_publishes_axes_and_failure_evidence(tmp_path, monkeypatch, width, state_name):
+    output, state, original, effective, auxiliary, qc = _width_worker_run(tmp_path, monkeypatch, width)
+    failures = list((output/'failures').iterdir())
+    assert len(failures) == 1 and not list((output/'.work').iterdir())
+    failed = failures[0]
+    assert not (output/'dataset/neuron_1/limb_000/branch_000').exists()
+    np.testing.assert_array_equal(np.load(failed/'branch_skeleton.npy'), effective)
+    np.testing.assert_array_equal(np.load(failed/'branch_skeleton_original.npy'), original)
+    np.testing.assert_array_equal(np.load(failed/'segmentation_axis.npy'), auxiliary)
+    assert json.loads((failed/'skeleton_repair.json').read_text()) == qc
+    evidence = json.loads((failed/'width_evidence.json').read_text())
+    assert evidence['observed_width']['average_state'] == state_name
+    assert evidence['observed_width']['values_source'] == 'exact_postprocessed_calculate_new_width_return'
+    np.testing.assert_array_equal(np.load(failed/'width_distances.npy'), [width, width])
+    assert evidence['branch_eligibility']['eligible'] is None
+    assert evidence['branch_eligibility']['reason'] == 'eligibility_unresolved'
+    assert evidence['axes']['width_eligibility']['sha256'] == batch.sha(failed/'branch_skeleton.npy')
+    assert evidence['support_sampler']['diagnostic_only']
+    assert not evidence['support_sampler']['full_edge_coverage']
+    assert len(state['sampler_calls']) == 1 and not state['spine_calls']
+    np.testing.assert_array_equal(state['sampler_calls'][0], effective)
+    result = json.loads((failed/'result.json').read_text())
+    assert result['status'] == 'failed' and result['reason'] == 'eligibility_unresolved'
+    for relative, expected in result['outputs_sha256'].items():
+        assert batch.sha(failed/relative) == expected
+    with pytest.raises(ValueError):
+        batch.complete_valid(failed, result['run_hash'], result['inputs'])
+    summary = json.loads((output/'last_run_summary.json').read_text())
+    assert summary['failed'] == 1 and summary['completed'] == 0
+
+
+@pytest.mark.parametrize('width,eligible', [(114.9,False), (115.,False),
+                                         (np.nextafter(115., np.inf),True)])
+def test_existing_width_boundary_and_successful_path_remain_unchanged(tmp_path, monkeypatch, width, eligible):
+    output, state, original, effective, _, _ = _width_worker_run(tmp_path, monkeypatch, width)
+    dest = output/'dataset/neuron_1/limb_000/branch_000'
+    result = json.loads((dest/'result.json').read_text())
+    assert result['status'] == 'complete' and result['branch_eligibility']['eligible'] is eligible
+    assert result['branch_eligibility']['median_mesh_center_nm'] == width
+    assert len(state['width_calls']) == 1 and not state['sampler_calls']
+    assert state['width_calls'][0][1] == dict(no_spines=False, summary_measure='median', return_average=True)
+    np.testing.assert_array_equal(state['width_calls'][0][0].skeleton, effective)
+    assert len(state['spine_calls']) == int(eligible)
+    if eligible:
+        np.testing.assert_array_equal(state['spine_calls'][0].skeleton, original)
+    assert not (dest/'width_evidence.json').exists()
+    assert not (dest/'skeleton_repair.json').exists()
+    assert batch.complete_valid(dest, result['run_hash'], result['inputs'])
+
+
+def test_original_width_error_survives_diagnostic_serialization_failure(tmp_path, monkeypatch):
+    original_error = RuntimeError('original width calculation failed')
+    output, state, _, effective, _, _ = _width_worker_run(
+        tmp_path, monkeypatch, 0, width_error=original_error, broken_json=True)
+    assert state['worker_errors'] == [original_error]
+    failed, = (output/'failures').iterdir()
+    np.testing.assert_array_equal(np.load(failed/'branch_skeleton.npy'), effective)
+    assert not (failed/'result.json').exists()
+    assert not batch.complete_valid(failed, 'version', {})
+
+
+def test_diagnostic_sampler_failure_does_not_hide_unresolved_width(tmp_path, monkeypatch):
+    output, state, _, _, _, _ = _width_worker_run(
+        tmp_path, monkeypatch, 0, sampler_error=RuntimeError('support sampler failed'))
+    assert len(state['worker_errors']) == 1
+    assert str(state['worker_errors'][0]) == 'Cannot establish original NEURD branch-width eligibility'
+    failed, = (output/'failures').iterdir()
+    evidence = json.loads((failed/'width_evidence.json').read_text())
+    assert evidence['support_sampler']['status'] == 'failed'
+    assert any('support sampler failed' in item['error'] for item in evidence['diagnostic_errors'])
+
+
+def test_face_minimum_still_bypasses_width_calculation(tmp_path, monkeypatch):
+    output, state, _, _, _, _ = _width_worker_run(tmp_path, monkeypatch, 0, faces=100)
+    result = json.loads((output/'dataset/neuron_1/limb_000/branch_000/result.json').read_text())
+    assert result['branch_eligibility'] == dict(eligible=False, reason='neurd_minimum_branch_faces')
+    assert not state['width_calls'] and not state['sampler_calls'] and not state['spine_calls']
