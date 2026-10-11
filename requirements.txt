@@ -33,6 +33,3 @@ pymeshfix>=0.16
 # --- NEURD-ecosystem author packages ---
 datasci-stdlib-tools>=1.0.1
 machine-learning-tools>=1.0.0
-graph-nx-tools>=1.0.0
-neuron_morphology_tools>=1.0.1
-code_structure_tools>=1.0.2
