@@ -1198,7 +1198,7 @@ def spine_volume_median(neuron_obj):
     
 def spine_volume_density(neuron_obj):
     if neuron_obj.n_spines > 0:
-        if neuron_obj.skeletal_length_eligible > 0:
+        if neuron_obj.skeletal_length > 0:
             spine_volume_density_eligible = neuron_obj.total_spine_volume/neuron_obj.skeletal_length
         else:
             spine_volume_density_eligible = 0
@@ -1211,7 +1211,7 @@ def spine_volume_density(neuron_obj):
 
 def spine_volume_density_eligible(neuron_obj):
     if neuron_obj.n_spines > 0:
-        if neuron_obj.skeletal_length > 0:
+        if neuron_obj.skeletal_length_eligible > 0:
             spine_volume_density = neuron_obj.total_spine_volume/neuron_obj.skeletal_length_eligible
         else:
             spine_volume_density = 0
