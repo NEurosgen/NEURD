@@ -17,7 +17,7 @@ All 15 experimental commits and their stable-base ancestry are preserved. Existi
 work was reconciled by content rather than reapplied, and the four local research scripts remain
 unstaged. The original dirty patch, file copies and checksums are retained in ignored local
 `artifacts/release_candidate_validation_20261011/workspace_backup/`.
-The candidate core has **26 Python files / 18,768 physical lines**, compared with 21 / 17,859
+The candidate core has **27 Python files / 19,275 physical lines**, compared with 21 / 17,859
 at the experiment tip. The parallel raw runner is now a 59-line adapter to the common executor;
 the new configuration/provenance contracts add maintained behavior. Further dead-code removal
 still requires the production reachability work in Stage 7.
@@ -30,9 +30,41 @@ still requires the production reachability work in Stage 7.
 | Geometry gates | Real positive-spine branch gate, mask ownership/surface/volume checks, whole-neuron spine metrics and runtime receipts | Portable downloadable fixtures and required native CI job; a clean installation run |
 | Native I/O and build | Buffered CSV writes, opt-in stage timers, isolated native A/B tool, system/conda header discovery and fail-fast native installation | No consistent native wall-time gain established |
 | OFF loading | Bounded float64/int64 reader at explicit raw/branch/descriptor/gate call sites, legacy fallback and fingerprinted switch; exact large-mesh A/B | Re-profile complete construction on large raw neurons; internal MeshLab reads retain their index-repair reader |
-| Spine label assembly | Narrow labels/SDF seam and stable grouping; phase traces; separate timeout retry strictly complete with 300 spines / 286,839 faces | Instrument post-CGAL remainder, then measure local reuse; no total-speed claim or anatomical validation |
+| Spine label assembly and post-CGAL work | Narrow labels/SDF seam and stable grouping; nested post-CGAL traces; guarded exact shaft paths; accepted-mesh volume-quality handoff; separate timeout retry strictly complete with 300 spines / 286,839 faces | Measure remaining length/refinement/native costs on a bounded workload; no total-speed claim or anatomical validation |
 | Historical H01 failures | Read-only diagnosis of 47 archived keys; five-case surface/axis audits; failed-width journal; one timeout completed in a separate patched run | 46 current width problems remain; recover branch identity/support before changing measurement policy; historical archive unchanged |
-| Export lineage | Selected-MP fallback pairing corrected; graph labels by Branch object identity; ordered maps journaled with vertex bounds; final raw gate passed all 28 supplied maps and exact prior metrics | Log provider origin and MP selections; ordered raw ownership and historical attribution remain unavailable |
+| Export lineage | Selected-MP fallback pairing corrected; graph labels by Branch object identity; ordered maps journaled with vertex bounds; bounded local MAP/MP decisions, axis fingerprints and fallback cause exported separately | Ordered raw ownership and historical attribution remain unavailable |
+
+The fifth package instruments post-CGAL work and integrates two measured local
+changes. On a captured real 1,724-node shaft graph, three fresh interleaved pairs
+preserved all 22,052 ordered paths and measured **10.321 → 0.456 s** for queries
+including CSR preparation (22.63×; JIT warmup recorded separately). On 61 accepted
+meshes, one volume estimate plus protected report handoff measured **3.481 →
+2.232 s**, compared with two estimates (1.56× for that operation). Neither result
+establishes a whole-pipeline gain. Prepared filter KDTrees remain a prototype.
+
+The refined-mask audit exposed sorted IDs paired with retained original meshes.
+The fix retains their original row order. A frozen-baseline real comparison of
+**54 meshes / 42,546 faces** preserves ordered geometry, volumes, RNG, refinement
+decisions and occurrence-ID sets exactly; it corrects 40 previously row-invalid
+masks. All 54 final ordered maps pass. The final unit suite passes **771 tests,
+with 1 expected skip**, in **48.39 s** (10 warnings), with all 69 recorded
+source/test hashes unchanged. Independent review additionally verified optional
+Numba absence and the unchanged scientific estimator.
+
+The final-source native raw H01 gate retains **18 spines / 8,145 faces**, exact
+prior metrics and mask digest, all 28 supplied branch maps and 28 local origin
+journals. A separate native H01 batch completes **52 spines / 42,050 faces**;
+explicit OFF-reload QC verifies ordered masks, owners, disjoint surfaces and
+recomputed positive strict volumes (34 fan closures, 18 hull approximations).
+Its reference-25/full-refinement profile differs from the conditional replay and
+the raw fast-12 gate. Completion/resume validation itself checks hashes/inventory;
+independent scientific QC is a separate check. Eligibility remains
+`previously_spine_positive`, without a recovered width. These are computational
+gates, not anatomical validation or performance comparisons. Evidence is retained
+in `artifacts/post_cgal_followup_20261011/v1/`.
+The final Minnie65 positive-branch native gate also reproduces all prior metrics
+and nine volumes exactly: **9 spines / 2,854 faces**, with nine checked ordered
+maps. Its 8,372-query shaft batch actually uses the new CSR backend.
 
 First-package validation on the local Python 3.12 environment:
 
@@ -182,14 +214,17 @@ is unchanged; **46 current width failures remain**.
 
 Next work should be bounded as follows:
 
-1. Instrument the untagged post-CGAL stages, including raw-group assembly, surface
-   skeleton length, refinement/rechecks, final filters and H01 publication. Then measure
-   one local immutable KDTree/geometry/volume-QC reuse change on fresh-process interleaved
-   real calls. Preserve filter order, masks, threshold ties, RNG state, volume policy and
-   independent growth/ownership decisions; see the [post-CGAL proposal](../../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json).
-2. Journal selected MP IDs, original positions, axis hashes and fallback cause. Record
-   direct map origin where IDs and geometry are produced, independently of supplied-map
-   validation. Compose ordered maps only with exact geometry, parent identity/hashes and
+1. Use the new nested post-CGAL traces to select the next bounded experiment.
+   Ordered shaft paths and accepted-mesh volume handoff are now implemented; their
+   measured gains apply only to the captured stages. Preserve filter order, masks,
+   threshold ties, RNG state, volume policy and independent growth/ownership decisions.
+   Surface-skeleton sampling must retain random-state behavior. The large retry's
+   native SDF remains the largest measured stage; investigate it with per-face gates.
+   Prepared final-filter KDTrees remain a prototype because the tested H01 border
+   filter is disabled and actual survivor filtering was already small.
+2. Extend the new local origin journal at the actual provider seam when available.
+   Current MAP/MP decisions and axis fingerprints do not supply ordered raw ownership
+   or recover missing historical evidence. Compose maps only with exact geometry, parent identity/hashes and
    explicit index domains; generated/missing maps stay unavailable, and decimated input
    remains separate from raw OFF. Preserve old labels and the width policy until identity
    and usable support are established; require anatomical review of axis-assisted repairs

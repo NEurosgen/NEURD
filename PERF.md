@@ -354,9 +354,10 @@ graph was retained, auxiliary geometry served heads, and the inherited
 115 nm width gate. All computational error/overlap counters are zero, but 209
 convex-hull and 91 fan-closed volume estimates still require quality review.
 
-First instrument the remainder, then measure local immutable KDTree/geometry and
-volume-QC reuse from the [post-CGAL proposal](artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json).
-Preserve masks, filter/RNG order, threshold ties and independent ownership state.
+The post-CGAL follow-up below implements observation and two bounded changes
+from the [post-CGAL proposal](artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json).
+Mask order, filter/RNG order, threshold ties and independent ownership checks
+remain acceptance criteria.
 The [non-soma prototype](artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
 has 43 artifact-only cases and no implemented production RSS saving. Its
 [captured real-input A/B](artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json)
@@ -378,6 +379,90 @@ history and full-stage/pipeline peak were not reproduced. This is a measured
 component-level memory/time tradeoff, not a production speedup or whole-pipeline
 peak reduction. Require a controlled full gate before integration. Ordered raw
 ownership remains unavailable.
+
+## Post-CGAL observation and local optimizations
+
+`NEURD_CGAL_TIMINGS=1` now observes adjacency construction, shaft paths,
+size/surface-skeleton length, primary refinement, trim rechecks, fallback and
+remaining-head validation, final-filter subphases and H01 publication. Fields
+include nesting depth, parent phase and inherited call role. Counts are computed
+only when tracing is enabled; tracing defaults to silent. A failed phase closes
+with an error status; a worker killed during a phase leaves an unfinished begin.
+
+Summarize a **single worker, single thread** log with:
+
+```bash
+python tests/tools/aggregate_cgal_phases.py worker.log --output phases.json
+```
+
+Inclusive durations overlap. The tool subtracts timed direct children to report
+self time, rejects malformed nesting/durations and retains unfinished/error
+phases. Untimed work is absent; concatenated or interleaved workers cannot be
+treated as one stack. Native stderr remains a separate timing source.
+
+A checksummed real H01 branch (`1072605926/limb_004/branch_001`, 189,940 faces)
+supplied a captured shaft graph with 1,724 nodes, 3,175 edges and **22,052 ordered
+queries**. Three fresh, interleaved process pairs compared NetworkX 3.6.1 against
+an owned Numba CSR search preserving node/neighbor insertion order and the same
+bidirectional BFS tie policy. Every full ordered path and exception matched.
+
+| Captured shaft query stage | Median seconds |
+|---|---:|
+| NetworkX | 10.321 |
+| Ordered CSR, including preparation | 0.456 |
+
+The **22.63×** ratio applies to this query stage. Common kernel warmup was outside
+both timed regions: first cold compilation took 0.379 s, later fresh-process
+cache loads 0.146–0.292 s. Owned CSR/scratch arrays occupied 147,352 bytes; RSS/HWM
+include common imports/JIT. Production selects this path only for at least 1,024
+queries, an ordinary undirected simple Graph, verified NetworkX 3.6.1 and available
+Numba. Other cases retain NetworkX; `NEURD_LEGACY_SHAFT_PATHS=1` restores it
+explicitly. The runtime fingerprint records that flag. The kernel's executable
+AST matches the measured prototype. See the [query A/B receipt](artifacts/post_cgal_followup_20261011/v1/shaft_path_review/real_stage_ab/receipt.json).
+
+The H01 worker previously estimated the same accepted in-memory volume once in
+the filter and again in export. An optional branch-local collector now carries
+the exact immutable quality report, strong mesh identity and ordered geometry
+digest. Export rejects a changed mesh and copies the report. Rejected candidates
+still undergo the original independent acceptance calculations. Scientific
+validation of saved OFF meshes requires a separate independent reload QC;
+completion/resume validation checks hashes and inventory. Default calls without a collector retain
+the previous scalar volume path and return structure.
+
+Three fresh, interleaved pairs on **61 accepted meshes / 40,455 faces** compared
+two estimates against one estimate plus collection/reuse digests. Reports,
+scalars, input geometry and RNG matched exactly. Median time was **3.481 →
+2.232 s** (1.56×, 1.249 s saved) for this accepted-mesh operation. Collection costs
+for rejected candidates, selection/filtering, OFF writes and reload QC were
+outside that measurement. Concurrent machine activity and trial variance limit
+the comparison; it supplies no whole-pipeline or memory-saving claim. See the
+[volume A/B receipt](artifacts/post_cgal_followup_20261011/v1/volume_reuse_review/real_volume_pairs/receipt.json).
+
+Prepared border/endpoint/soma filter support remains an artifact-only prototype.
+H01's default border filter is disabled; three actual survivor-filter calls totalled
+0.782 s versus 0.725 s in one noisy pair. This does not justify promotion. The
+non-soma prototype above also remains separate pending whole-run memory evidence.
+
+Final production validation passed **771 unit tests / 1 expected skip** in
+48.39 s, with 69 source/test hashes unchanged. A real cached-label refinement
+pair preserved all 54 mesh geometries, volumes, RNG states, decisions and parent-ID
+sets, while correcting the original retained-mesh row order for 40 masks. All
+54 candidate ordered maps pass. The final native raw H01 gate reproduces exact
+prior metrics (18 spines / 8,145 faces), with 28 validated supplied branch maps
+and 28 local origin journals. The separate final reference-25 H01 batch completes
+52 spines / 42,050 faces; an explicit independent OFF-reload audit verifies
+ordered maps, owners, surface disjointness and recomputed strict positive volumes.
+These runs establish correctness for their recorded policies, with no overall
+speed/memory or anatomical claim. Final receipts are in
+`artifacts/post_cgal_followup_20261011/v1/`.
+The final native Minnie65 branch reproduces all nine spines / 2,854 faces, metrics
+and scalar volumes exactly; all nine ordered maps pass. Its 8,372-query batch
+uses the optimized shaft backend, establishing cross-dataset correctness for
+that recorded fixture.
+
+The large retry's 1,233.340-second native SDF is still the largest observed stage.
+The new traces should guide the next CPU change; surface-skeleton length work
+must preserve sampling/RNG behavior, and native changes need per-face gates.
 
 ## GPU — honest assessment
 

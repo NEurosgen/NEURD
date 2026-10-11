@@ -126,19 +126,30 @@ continues to use its existing reader.
 Spine segmentation reads CGAL face labels without constructing meshes that would
 be discarded, then groups those faces once while retaining parent indices and
 face order. `NEURD_LEGACY_CGAL_ASSEMBLY=1` restores the prior two-pass assembly
-for comparison. Failed H01 width eligibility now preserves the actual axes and
+for comparison. Large shaft-path batches use an ordered bidirectional BFS when
+Numba is available and NetworkX is the verified 3.6.1 version; smaller batches and
+other versions retain NetworkX. `NEURD_LEGACY_SHAFT_PATHS=1` selects the previous
+path search and is included in processing fingerprints. H01 batch export reuses
+volume quality from the final filter only for the identical, unchanged in-memory
+mesh. Scientific validation of saved OFF files requires a separate reload check;
+the batch completion/resume check verifies hashes and inventory.
+
+Failed H01 width eligibility now preserves the actual axes and
 measurement evidence; see [H01_FAILURE_DIAGNOSTICS.md](docs/H01_FAILURE_DIAGNOSTICS.md).
 Raw export records validated supplied branch-to-limb face maps and graph labels
 by Branch object identity. Missing maps remain unavailable; direct raw ownership
 and the causes of the historical axis mismatches are still unproved. The
-[final production gate](artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+[final production gate](artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
 passed with all 28 maps available and exact prior H01 metrics: 18 spines /
 8,145 spine faces, identical masks and zero geometry/volume error counters.
+All 28 local origin journals were also checked; they do not recover historical
+or raw-input ownership. The final unit suite passes 771 tests with 1 expected skip.
 
 | Export | Verified scope |
 |---|---|
 | `parent_face_indices.npy` + `face_provenance.json` | Supplied ordered branch-to-limb IDs; exact in-memory triangles before OFF rounding, exported-file hashes; absent maps explicitly unavailable |
 | `branch_index_map.json` | Export position to graph node by Branch object identity; missing/ambiguous identity recorded, contradictory IDs rejected |
+| `branch_origin.json` | Observed local MAP/MP selection, axis fingerprints and fallback cause; actual exported skeleton hash recorded separately; missing origin explicitly unavailable |
 | Original raw OFF face ownership | Unavailable; never inferred from geometric matches or branch numbers |
 
 A separate [patched timeout retry](artifacts/h01_timeout_retry_20261011/v1/receipt.json)
@@ -170,7 +181,8 @@ slow original. Nothing needs to be set for normal use.
 | `NEURD_DECIMATE_SINGLE_STAGE` | cascaded halving | decimate in one step |
 | `NEURD_ENABLE_COMPRESSED_PICKLE` | no-op'd | restore the debug pickle dumps (+~98 s) |
 | `NEURD_SDF_RAYS` | low-level compatibility 12 | CGAL SDF ray count; the public API/CLI sets it from the explicit reference25/fast12 configuration |
-| `NEURD_CGAL_TIMINGS` | off | `1` writes native stage timings to stderr and flushed Python preparation/labels/assembly/shaft-filter phase records to stdout |
+| `NEURD_CGAL_TIMINGS` | off | `1` writes native timings to stderr and nested Python phase records for assembly, shaft paths, lengths, refinement, final filters and H01 publication to stdout |
+| `NEURD_LEGACY_SHAFT_PATHS` | off | `1` retains the previous NetworkX shaft-path search; fingerprinted for resume |
 | `NEURD_SKIP_SOMA_END_SPLIT` | off | skip `_split_soma_at_end`'s CGAL trim (−~225 s) |
 | `NEURD_OWNED_SKELETAL_DISTANCE` | off | route the correspondence/width kernel through `neurd/skeletal_distance_ops.py` |
 | `NEURD_REAL_POISSON` | off (no-op) | run a real Poisson reconstruction — see PERF.md |

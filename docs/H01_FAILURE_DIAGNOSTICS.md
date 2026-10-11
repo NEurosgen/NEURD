@@ -171,6 +171,41 @@ the declared branch-to-limb map, not upstream provider history or raw ownership.
 All journals explicitly say `raw_input_map_available=false`; no geometric
 candidate set is promoted to an ordered source map.
 
+The current additive package records local origin independently of that consistency
+check. Version-1 `mesh_axis_origin` metadata travels from correspondence entries
+through `Branch` and `Limb.limb_correspondence` into a separate `branch_origin.json`.
+Its scope is `local_map_mp_selection_and_axis_pairing`, and
+`raw_input_map_available=false` remains explicit even when a supplied face map passes.
+Producer operations and index domains describe known construction steps; opaque
+internal provider fallback choices are unavailable rather than inferred from a
+function named CGAL.
+
+The latest stitch record includes selected MP IDs and their positions in the
+candidate list, connection list and branch dictionary, original/used ordered axis
+fingerprints, MAP context and the fallback exception type/message when the old
+partition is retained. It keeps at most **64 selected MP summaries** and end-node
+cleaning carries at most **16 flat source summaries**, with explicit total/omitted
+counts and no recursive parent history. Recomputed cleaning axes have unavailable
+exact identity. An `original_axis` fingerprint refers to the correspondence entry
+before that current attempt, not an original raw-neuron axis.
+
+Axis fingerprints bind the observation before `Branch` normalizes axis order or
+later code mutates it. The exporter separately hashes the actual ready
+`branch_skeleton.npy` as `exported_skeleton_file_sha256`; the journal does not assert
+that its earlier ordered fingerprint matches that file. Missing, unsupported or
+non-JSON-safe metadata is explicitly unavailable. The
+[focused origin receipt](../artifacts/post_cgal_followup_20261011/v1/origin_review/receipt.json)
+records this additive implementation. It supplies decisions for future runs, not
+the absent historical runtime or axes: **none of the 46 width failures is restored**.
+The original 47-key archive and the separate successful 300-spine timeout retry
+remain frozen evidence for their recorded source.
+
+The [final fifth-package raw gate](../artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
+verifies all 28 supplied maps and 28 local origin journals on the promoted code,
+including actual exported skeleton hashes and graph identity. It retains exact
+prior 18-spine / 8,145-face metrics and mask digest. This validates the forward
+journal, without resolving historical attribution or supplying raw face ownership.
+
 The earlier [candidate probe](../artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json)
 validated all **28 supplied branch-to-limb maps** for neuron `2530864375` and
 preserved prior exact metrics: **18 spines / 8,145 spine faces**, with the same
@@ -262,10 +297,33 @@ clustering **18.092 s**, explicit label-mesh assembly **9.295 s** and shaft filt
 tagged, so the remaining time cannot be assigned to one function. No speedup
 claim follows from this successful attempt.
 
-Next, add flushed post-CGAL phase traces before testing local immutable geometry,
-KDTree or volume-QC reuse; the [source proposal](../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json)
-preserves filter order, threshold ties, RNG state and independent ownership
-state. The [non-soma prototype](../artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
+The current package adds flushed post-CGAL phase traces under
+`NEURD_CGAL_TIMINGS=1`: group adjacency/assembly, shaft paths, skeletal length,
+refinement and rechecks, final filters, and H01 mask/volume/output publication.
+Parent/depth and call-role fields identify nesting; durations are inclusive, so
+adding parent and child values would double-count work. The earlier retry above
+did not execute these new traces and its untagged remainder remains unassigned.
+
+The shaft-path caller now selects a lazy, serial ordered-bidirectional implementation
+for at least 1,024 queries on supported simple graphs under NetworkX 3.6.1. Its
+snapshot preserves adjacency insertion order and shortest-path ties; unsupported
+or small batches retain NetworkX, as does `NEURD_LEGACY_SHAFT_PATHS=1`. This changes
+the implementation of path queries while preserving filter order and ownership
+decisions; it supplies no recovered width, historical replay or anatomical evidence.
+
+H01 publication now reuses the final filter's immutable volume-quality report
+only for the same unchanged in-memory mesh. Mesh identity and ordered geometry
+digests protect the handoff; independent OFF-reload QC remains required. Three
+fresh-process pairs on 61 accepted meshes measured 3.481 to 2.232 s for that local
+operation, with exact scalars/reports/RNG. Rejected-candidate work and whole-run
+performance are outside this comparison.
+
+Next, use the traces and separately controlled real calls to evaluate the remaining
+geometry and length work. Prepared KDTree support remains an artifact-only prototype:
+H01's border filter is disabled and actual survivor filtering was already small. The
+[source proposal](../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json)
+preserves filter order, threshold ties, RNG state and independent ownership state.
+The [non-soma prototype](../artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
 has 43 artifact-only cases and a completed
 [real component A/B](../artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json):
 three fresh-process pairs preserved all 424 components, ordered face IDs and soma

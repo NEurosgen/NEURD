@@ -10,7 +10,7 @@ investigations + open plans).
 mesh + skeleton + raw spines). Everything downstream — autoproofreading, cell typing, synapses, axon,
 connectome/motif/proximity, GNN, visualization, cloud/dataset adapters — is deleted.
 
-**Size:** the current integration candidate has **26 Python files / 18,768 physical lines**
+**Size:** the current integration candidate has **27 Python files / 19,275 physical lines**
 (2026-10-11). The stable geometry refactor contained 18 files / 15,389 lines, reduced from
 about 55k; refinement, volume QC, configuration, H01 batch and mesh loading add supported
 behavior. Counts include comments and blank lines.
@@ -46,33 +46,34 @@ pytest tests/integration/test_segmentation_pipeline.py -s                   # ~1
   H01 or Minnie65 branch with compiled CGAL, actual parent-face masks and positive-volume checks.
   Configure `NEURD_SPINE_BRANCH_MANIFEST`; anatomical quality still needs independent review.
 
-## Module map (26 files)
+## Module map (27 files)
 
 | module | LOC | purpose |
 |---|---|---|
-| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3174 | mesh → limbs/branches. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
-| [spine_utils.py](neurd/spine_utils.py) | 3423 | ordinary spine detection and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
+| [preprocess_neuron.py](neurd/preprocess_neuron.py) | 3287 | mesh → limbs/branches with local mesh/axis origin observations. `preprocess_neuron`/`preprocess_limb` are decomposed into named phases (PIPELINE.md §2) |
+| [spine_utils.py](neurd/spine_utils.py) | 3550 | ordinary spine detection, scoped shaft-path backend and opt-in refinement; enabled by public `RunConfig(calculate_spines=True)` |
 | [neuron_utils.py](neurd/neuron_utils.py) | 2599 | neuron queries/utilities. Most-imported module; an intra-package **sink** |
-| [neuron.py](neurd/neuron.py) | 1829 | the `Neuron`, `Limb`, `Branch`, `Soma` classes |
+| [neuron.py](neurd/neuron.py) | 1835 | the `Neuron`, `Limb`, `Branch`, `Soma` classes; optional Branch origin metadata |
 | [spine_refinement.py](neurd/spine_refinement.py) | 1498 | experimental parent-face growth, trimming and head completion with diagnostics |
 | [neuron_searching.py](neurd/neuron_searching.py) | 1081 | branch query system (strings → `ns.<fn>` via `@run_options`). Reached by exactly one call, from `spine_utils` |
 | [soma_extraction_utils.py](neurd/soma_extraction_utils.py) | 903 | soma identification |
 | [__init__.py](neurd/__init__.py) | 503 | compat shims + the 8 perf patches + `PATCH_STATUS` — see PIPELINE.md §3 |
-| [h01_batch.py](neurd/h01_batch.py) | 806 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
+| [h01_batch.py](neurd/h01_batch.py) | 819 | isolated exported-branch resegmentation, pinned runtime, topology safeguards, verified resume and failed-width evidence |
 | [submesh_ops.py](neurd/submesh_ops.py) | 458 | **owned** partition/provenance layer (`SubMesh`); stable label grouping without per-label full scans — see MESH_OPS.md |
 | [branch_utils.py](neurd/branch_utils.py) | 355 | branch geometry helpers |
 | [neuron_statistics.py](neurd/neuron_statistics.py) | 347 | skeleton statistics/distances. Reachable only via `Neuron.neuron_stats` → `calculate_decomposition_products`, which the slim path does not call |
 | [skeletal_distance_ops.py](neurd/skeletal_distance_ops.py) | 281 | owned correspondence/width kernel, behind `NEURD_OWNED_SKELETAL_DISTANCE` (off by default) |
 | [mesh_io.py](neurd/mesh_io.py) | 218 | bounded triangular ASCII OFF loading; exact coordinates and ordered faces |
 | [width_utils.py](neurd/width_utils.py) | 183 | branch surface-to-skeleton width measurements |
+| [shaft_paths.py](neurd/shaft_paths.py) | 164 | optional ordered bidirectional shaft-path queries on an immutable graph snapshot; scoped NetworkX tie equivalence |
 | [_mesh_ops.py](neurd/_mesh_ops.py) | 158 | L6 mesh primitives (decimate/poisson/fill_holes, in-process open3d) |
 | [parameters.py](neurd/parameters.py) | 156 | the explicit microns/h01 parameter object (replaced global-config monkey-patching) |
 | [run_config.py](neurd/run_config.py) | 147 | shared dataset/spines/refinement/ray configuration and runtime environment receipts |
-| [cgal_labels.py](neurd/cgal_labels.py) | 120 | narrow labels-only CGAL spine seam, exact parent-face assembly and opt-in phase logging |
+| [cgal_labels.py](neurd/cgal_labels.py) | 139 | narrow labels-only CGAL spine seam, exact parent-face assembly and nested opt-in phase logging |
 | [width_diagnostics.py](neurd/width_diagnostics.py) | 91 | bounded diagnostic support sampling for unresolved width; never establishes eligibility |
 | [_correspondence_backend.py](neurd/_correspondence_backend.py) | 113 | **seam** for the fragile `cu`/`m_sk` calls + the pipeline's only nondeterminism |
 | [_cgal_segmentation.py](neurd/_cgal_segmentation.py) | 66 | pure-Python CGAL-segmentation fallback |
-| [spine_volume.py](neurd/spine_volume.py) | 97 | strict centered volume closure, fallback and quality records |
+| [spine_volume.py](neurd/spine_volume.py) | 162 | strict centered closure; immutable same-mesh quality handoff with mutation checks; separate OFF QC required |
 | [face_provenance.py](neurd/face_provenance.py) | 99 | exact chunked validation and export journal for supplied ordered branch-to-limb maps; raw ownership stays unavailable |
 | [segmentation_pipeline.py](neurd/segmentation_pipeline.py) | 60 | the slim orchestrator |
 | version.py | 3 | — |
@@ -88,6 +89,33 @@ look in.
 `process_all_neurons_parallel.py` is a small adapter to the same executor.
 `scripts/resegment_h01.py` launches the separate exported-branch batch, and
 `scripts/extract_spine_descriptors.py` extracts descriptors from pre-cut spine meshes.
+
+**Local origin records:** correspondence entries carry optional version-1
+`mesh_axis_origin` metadata through `Branch` and `Limb.limb_correspondence` into
+`branch_origin.json`. Its scope is `local_map_mp_selection_and_axis_pairing`, with
+`raw_input_map_available=false`. It records producer operations and local index domains,
+not a recovered raw ownership map. `face_provenance.json` separately checks consistency
+of supplied branch-to-limb indices; availability of that map does not supply missing origin.
+
+The latest stitch decision records MP IDs, positions in the candidate, connection and
+correspondence lists, original/used axis fingerprints, and any retained-partition exception.
+At most 64 selected MP summaries and 16 flat cleaning-source summaries are retained;
+omitted counts are explicit and histories do not nest recursively. End-node cleaning marks
+exact axis identity unavailable because it recomputes the axis. Fingerprints describe the
+ordered axis observed at the decision, before `Branch` normalizes it or later code changes
+it; the ready export has a separate `exported_skeleton_file_sha256`. Missing/unsupported
+metadata and opaque internal provider choices remain unavailable. These records do not
+recover the 46 historical width failures.
+
+**Post-CGAL tracing and shaft paths:** `NEURD_CGAL_TIMINGS=1` emits flushed begin/end
+records for group adjacency/assembly, shaft expansion, skeletal length, refinement,
+rechecks, individual final filters and H01 mask/volume/output publication. Parent/depth and
+call-role fields identify nested work; durations are inclusive and must not be summed.
+The lazy [shaft_paths.py](neurd/shaft_paths.py) module preserves ordered bidirectional
+shortest-path ties in a serial immutable graph snapshot. The caller selects it for supported
+simple graphs under NetworkX 3.6.1 with at least 1,024 queries; other cases retain NetworkX.
+`NEURD_LEGACY_SHAFT_PATHS=1` also selects NetworkX. This is a path-query optimization,
+separate from axis repair, volume policy or anatomical validation.
 
 ### Import-cycle cleanup
 
@@ -109,9 +137,9 @@ workarounds — hoisting them is open work, see [docs/notes/REFACTOR_PLAN.md](do
 - **Face-map scopes and origin are explicit.** Validation of supplied branch-to-limb IDs
   establishes exact row correspondence, not direct raw ownership or provider history.
   Preserve missing/generated maps as unavailable and graph labels by Branch object identity.
-  The [final production gate](artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
-  passed all 28 supplied maps and graph identity with exact prior H01 metrics;
-  its stage-capture RSS/HWM is not a controlled performance measurement.
+  The [final production gate](artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
+  passed all 28 supplied maps, 28 local origin journals and graph identity with exact prior H01 metrics;
+  its observed RSS/HWM is not a controlled performance measurement.
 - **Self-import (`from . import X as X`) is an antipattern** — replace with direct calls, or
   `sys.modules[__name__]` if the module object itself is needed.
 - **Logic changes and cosmetics go in separate commits.** Commit messages say *why*.

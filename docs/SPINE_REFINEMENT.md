@@ -158,7 +158,9 @@ a selected branch produced no final spines, while `None` means provenance is
 unavailable because the branch was not processed. Direct branch callers can
 pass `spine_face_indices=[]` to receive the same masks without changing the
 legacy mesh/volume return value. These IDs retain distinct source occurrences
-when a parent contains geometrically duplicate triangles. Raw-neuron exports
+when a parent contains geometrically duplicate triangles. Within each mask,
+IDs follow the returned mesh's face rows, including when refinement retains an
+original mesh whose rows have nonmonotonic parent IDs. Raw-neuron exports
 include the masks in `spine_faces.npz`; geometry consistency checks also detect
 shared surface across different spines independently of their numeric IDs.
 Raw masks additionally record their schema, branch-face scope, parent face count
@@ -179,6 +181,12 @@ The exporter checks mesh/mask/volume alignment, exact equality to the indicated
 parent triangles and no surface overlap. Spine numbers are reassigned; matching
 an old and new `spine_003` by filename is not reliable. Compare masks or geometry
 on their common parent mesh.
+
+H01 export carries volume quality from the final filter only for the identical,
+unchanged in-memory mesh. The optional `spine_volume_quality=[]` collector leaves
+the mesh/volume return value unchanged; records are process-local and reject
+stale geometry. Scientific QC of saved OFF files must independently reload and
+recompute volumes. Batch completion/resume validation verifies hashes and inventory.
 
 Volumes use `centered_strict_closure_v1`: the estimator centres a copy, attempts
 validated closure and records an explicit convex-hull fallback when needed.
