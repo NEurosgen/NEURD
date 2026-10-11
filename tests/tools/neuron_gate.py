@@ -32,6 +32,7 @@ from pathlib import Path
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
@@ -106,10 +107,9 @@ def _spine_problems(metrics, require_spines=False):
 
 def _provenance(mesh_path, config, elapsed, *, seed=None):
     import cgal_Segmentation_Module as provider
-    from neurd.h01_batch import digest_json, sha
-    from process_all_neurons import _run_signature
+    from neurd.batch_utils import digest_json, sha, raw_run_signature
 
-    signature = _run_signature(config, 0.0, None)
+    signature = raw_run_signature(config, 0.0, None)
     signature["gate_random_seed"] = seed
     for path in (Path(__file__).resolve(), REPO / "tests/tools/neuron_metrics.py"):
         signature["code_sha256"][str(path.relative_to(REPO))] = sha(path)

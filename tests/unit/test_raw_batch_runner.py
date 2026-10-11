@@ -13,6 +13,7 @@ skip_if_datasci_tools_unusable()
 import process_all_neurons as batch
 import process_all_neurons_parallel as parallel
 from neurd.run_config import RunConfig
+from neurd import batch_utils
 
 
 @pytest.fixture
@@ -158,13 +159,13 @@ def test_manifest_cannot_modify_source_or_reserved_outputs(raw_case, location):
 def test_skeletonizer_binary_changes_raw_resume_fingerprint(monkeypatch, tmp_path):
     binary = tmp_path / 'calcification_param_Module.so'
     binary.write_bytes(b'original native skeletonizer')
-    monkeypatch.setattr(batch, 'dependency_signature', lambda: {})
-    original_find_spec = batch.importlib.util.find_spec
+    monkeypatch.setattr(batch_utils, 'dependency_signature', lambda: {})
+    original_find_spec = batch_utils.importlib.util.find_spec
     def find_spec(name):
         if name == 'calcification_param_Module':
             return SimpleNamespace(origin=str(binary))
         return original_find_spec(name)
-    monkeypatch.setattr(batch.importlib.util, 'find_spec', find_spec)
+    monkeypatch.setattr(batch_utils.importlib.util, 'find_spec', find_spec)
     config = RunConfig()
     original = batch._run_hash(config, 0.0, None)
     binary.write_bytes(b'rebuilt native skeletonizer')
@@ -209,7 +210,7 @@ def test_timeout_removes_supervised_scratch_and_staging(raw_case, monkeypatch, n
 @pytest.mark.parametrize('flag', ['NEURD_OWNED_SKELETAL_DISTANCE', 'NEURD_LEGACY_MESH_LOADER',
                                   'NEURD_LEGACY_CGAL_ASSEMBLY'])
 def test_behavior_flags_change_resume_hash_but_ambient_sdf_rays_do_not(monkeypatch, flag):
-    monkeypatch.setattr(batch, 'dependency_signature', lambda: {})
+    monkeypatch.setattr(batch_utils, 'dependency_signature', lambda: {})
     monkeypatch.delenv(flag, raising=False)
     config = RunConfig(sdf_profile='fast')
     monkeypatch.setenv('NEURD_SDF_RAYS', '999')

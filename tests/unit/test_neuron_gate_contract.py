@@ -1,6 +1,9 @@
 """The whole-neuron gate compares matching modes and records raw-run provenance."""
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -14,6 +17,34 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 
+def test_gate_sets_effective_numexpr_default_without_importing_batch_applications(tmp_path):
+    script = '''
+import importlib.util
+import os
+import sys
+sys.modules['process_all_neurons'] = None
+sys.modules['neurd.h01_batch'] = None
+for configured, expected in ((None, '1'), ('3', '3')):
+    if configured is None:
+        os.environ.pop('NUMEXPR_NUM_THREADS', None)
+    else:
+        os.environ['NUMEXPR_NUM_THREADS'] = configured
+    spec = importlib.util.spec_from_file_location('standalone_gate', sys.argv[1])
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    assert os.environ['NUMEXPR_NUM_THREADS'] == expected
+    assert sys.modules['process_all_neurons'] is None
+    assert sys.modules['neurd.h01_batch'] is None
+print('GATE_THREAD_DEFAULT_PASS')
+'''
+    result = subprocess.run(
+        [sys.executable, '-c', script, str(Path(gate.__file__).resolve())],
+        cwd=tmp_path, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'),
+        capture_output=True, text=True, timeout=45)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'GATE_THREAD_DEFAULT_PASS' in result.stdout
+
+
 @pytest.mark.parametrize('baseline_has_spines',[False,True])
 def test_tolerance_rejects_mismatched_spine_modes(baseline_has_spines):
     common = {key:1 for key, (kind,_) in gate._TOL.items() if kind != 'skip'}
@@ -25,15 +56,19 @@ def test_tolerance_rejects_mismatched_spine_modes(baseline_has_spines):
 
 def test_gate_reuses_native_and_environment_provenance_even_without_spines(monkeypatch,tmp_path):
     import copy
-    import process_all_neurons as batch
-    from neurd.h01_batch import digest_json
+    from neurd import batch_utils
+    from neurd.batch_utils import digest_json
     from neurd.run_config import RunConfig
 
     mesh = tmp_path/'neuron.off'
     mesh.write_text('fixture')
     signature = dict(code_sha256={},dependencies=dict(skeletonizer=dict(sha256='native-binary')),
                      runtime_environment=dict(environment={'NEURD_REAL_POISSON':'1'},import_patches={}))
-    monkeypatch.setattr(batch,'_run_signature',lambda *args:copy.deepcopy(signature))
+    monkeypatch.setattr(batch_utils,'raw_run_signature',lambda *args:copy.deepcopy(signature))
+    # Provenance must not activate either batch application or depend on its
+    # private implementation, even when those modules are unavailable.
+    monkeypatch.setitem(gate.sys.modules, 'process_all_neurons', None)
+    monkeypatch.setitem(gate.sys.modules, 'neurd.h01_batch', None)
     monkeypatch.setattr(gate.subprocess,'check_output',lambda args,**kw:'head' if args[1]=='rev-parse' else '')
     receipt = gate._provenance(mesh,RunConfig(),1.0)
     assert receipt['dependencies']['skeletonizer']['sha256'] == 'native-binary'

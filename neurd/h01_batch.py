@@ -9,8 +9,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import fcntl
-import hashlib
-import importlib.metadata
 import importlib.util
 import json
 import os
@@ -23,52 +21,24 @@ import time
 from threading import Event, Lock
 import uuid
 
-def sha(path):
-    digest = hashlib.sha256()
-    with Path(path).open('rb') as stream:
-        for block in iter(lambda: stream.read(4 * 1024 * 1024), b''):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def digest_json(data):
-    return hashlib.sha256(json.dumps(data, sort_keys=True, allow_nan=False).encode()).hexdigest()
-
-
-def dependency_signature():
-    versions = {}
-    for name in ('numpy','scipy','trimesh','networkx','meshparty','mesh-processing-tools','datasci-stdlib-tools'):
-        try:
-            versions[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            versions[name] = None
-    files = {}
-    for name in ('cgal_Segmentation_Module','mesh_tools'):
-        spec = importlib.util.find_spec(name)
-        if spec is None or not spec.origin:
-            raise RuntimeError(f'Missing required dependency: {name}')
-        path = Path(spec.origin)
-        files[str(path)] = sha(path)
-        if name=='mesh_tools':
-            for basename in ('mesh_utils.py','trimesh_utils.py','skeleton_utils.py','meshparty_skeletonize.py'):
-                module = path.parent/basename
-                if module.is_file():
-                    files[str(module)] = sha(module)
-    return dict(python=sys.version,executable=sys.executable,versions=versions,source_files=files)
-
-
-def save(path, data):
-    path = Path(path)
-    temp = path.with_name(path.name + '.tmp')
-    temp.write_text(json.dumps(data, indent=2, allow_nan=False) + '\n')
-    temp.replace(path)
-
-
-def separate_roots(source, output):
-    source, output = Path(source).resolve(), Path(output).resolve()
-    if source == output or source in output.parents or output in source.parents:
-        raise ValueError('Input and output roots must be separate, non-nested directories')
-    return source, output
+if __package__:
+    from .batch_utils import (
+        sha, digest_json, dependency_signature, save, separate_roots,
+        triangle_keys, complete_valid,
+    )
+else:
+    # This file is also a standalone pinned worker. Load its exact sibling
+    # without importing an ambient NEURD package before branch_worker sets up
+    # the pinned package path.
+    _helpers_spec = importlib.util.spec_from_file_location(
+        "_neurd_batch_utils", Path(__file__).with_name("batch_utils.py"))
+    _helpers = importlib.util.module_from_spec(_helpers_spec)
+    _helpers_spec.loader.exec_module(_helpers)
+    sha, digest_json = _helpers.sha, _helpers.digest_json
+    dependency_signature, save = _helpers.dependency_signature, _helpers.save
+    separate_roots, triangle_keys = _helpers.separate_roots, _helpers.triangle_keys
+    complete_valid = _helpers.complete_valid
+    del _helpers_spec, _helpers
 
 
 def inventory(source):
@@ -189,14 +159,6 @@ def _landmark_topology(segments):
                 unlabelled_cycles=unlabelled_cycles)
 
 
-def triangle_keys(mesh):
-    """Exact triangle geometry, independent of face/vertex order and winding."""
-    import numpy as np
-    rows = np.asarray(mesh.triangles,dtype=np.float64).copy().view(np.dtype((np.void,24))).reshape(-1,3)
-    rows.sort(axis=1)
-    return np.sort(rows.copy().view(np.dtype((np.void,72))).reshape(-1))
-
-
 def anchor_skeleton(original, fresh, maximum_connector_nm=2000):
     """Prune a fresh tree to original graph landmarks, retaining exact positions.
 
@@ -309,35 +271,6 @@ def repair_skeleton(parent, original, settings):
         record.update(status='repair_failed',reason=f'{type(exc).__name__}: {str(exc)[:300]}',
                       build_seconds=time.perf_counter()-started)
         return original, None, record
-
-
-def complete_valid(dest, run_hash, source_inputs):
-    result_path = Path(dest) / 'result.json'
-    if not result_path.is_file():
-        return False
-    record = json.loads(result_path.read_text())
-    if not isinstance(record, dict):
-        raise ValueError(f'Malformed completion record: {result_path}')
-    if record.get('status') != 'complete' or record.get('run_hash') != run_hash or record.get('inputs') != source_inputs:
-        raise ValueError(f'Existing result has changed inputs or settings: {dest}')
-    outputs = record.get('outputs_sha256')
-    if not isinstance(outputs, dict) or not outputs:
-        raise ValueError(f'Completion record requires a nonempty output hash map: {result_path}')
-    excluded = {'run.log', 'result.json'}
-    for relative, expected in outputs.items():
-        if (not isinstance(relative, str) or not relative or Path(relative).is_absolute()
-                or '..' in Path(relative).parts or Path(relative).name in excluded
-                or not isinstance(expected, str) or len(expected) != 64
-                or any(character not in '0123456789abcdef' for character in expected)):
-            raise ValueError(f'Malformed completed output hash entry: {result_path}')
-        path = Path(dest)/relative
-        if not path.is_file() or sha(path) != expected:
-            raise ValueError(f'Completed output is missing or changed: {path}')
-    actual = {str(path.relative_to(dest)) for path in Path(dest).rglob('*')
-              if (path.is_file() or path.is_symlink()) and path.name not in excluded}
-    if set(outputs) != actual:
-        raise ValueError(f'Completed output hash inventory is incomplete or changed: {dest}')
-    return True
 
 
 def dispatch(rows,job,workers,stop,on_result):

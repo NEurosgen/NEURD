@@ -269,6 +269,7 @@ def test_fresh_worker_imports_pinned_package_before_external_package(tmp_path):
     pinned.mkdir(parents=True)
     worker = pinned/'h01_batch.py'
     shutil.copyfile(batch.__file__, worker)
+    shutil.copyfile(Path(batch.__file__).with_name('batch_utils.py'), pinned/'batch_utils.py')
     (pinned/'__init__.py').write_text(
         "print('PINNED_RUNTIME_IMPORTED', flush=True)\nraise SystemExit(37)\n")
     external = tmp_path/'external/neurd'
@@ -329,6 +330,15 @@ print('RUNTIME_RESULT ' + json.dumps(runtime_environment(
     marker = 'RUNTIME_RESULT '
     line = next(line for line in result.stdout.splitlines() if line.startswith(marker))
     assert json.loads(line[len(marker):]) == expected
+
+
+def test_branch_plan_pins_shared_helpers_in_code_fingerprint(tmp_path, monkeypatch):
+    output, _ = _plan_for_runtime_test(tmp_path, monkeypatch)
+    manifest = json.loads((output/'manifest.json').read_text())
+    relative = 'neurd/batch_utils.py'
+    expected = batch.sha(Path(batch.__file__).with_name('batch_utils.py'))
+    assert manifest['code_sha256'][relative] == expected
+    assert batch.sha(output/'runtime'/relative) == expected
 
 
 def test_changing_loader_behavior_flag_prevents_h01_resume(tmp_path, monkeypatch):

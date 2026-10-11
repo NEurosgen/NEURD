@@ -20,8 +20,6 @@ import multiprocessing as mp
 import signal
 import shutil
 import tempfile
-import importlib.util
-import importlib.metadata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Set, Any, Dict, List, Optional, Tuple
@@ -37,8 +35,11 @@ import numpy as np
 from neurd import parameters
 from neurd.segmentation_pipeline import segmentation_pipeline
 from neurd.mesh_io import load_mesh
-from neurd.run_config import RunConfig, add_run_arguments, config_from_args, require_compiled_cgal, runtime_environment
-from neurd.h01_batch import sha, digest_json, save, complete_valid, separate_roots, dependency_signature, triangle_keys
+from neurd.run_config import RunConfig, add_run_arguments, config_from_args, require_compiled_cgal
+from neurd.batch_utils import (
+    sha, digest_json, save, complete_valid, separate_roots, dependency_signature,
+    triangle_keys, raw_run_signature as _run_signature,
+)
 
 # Start a fresh interpreter rather than inheriting numerical-library threads.
 mp = mp.get_context("spawn")
@@ -748,31 +749,6 @@ def _drain_result(job):
                 job["result"] = job["conn"].recv()
         except (EOFError, OSError):
             pass
-
-
-def _run_signature(config, decimation_ratio, max_somas):
-    root = Path(__file__).resolve().parent
-    code = [root / "process_all_neurons.py", root / "process_all_neurons_parallel.py"]
-    code.extend(sorted((root / "neurd").glob("*.py")))
-    dependencies = dependency_signature()
-    versions = dependencies.setdefault("versions", {})
-    for name in ("open3d", "numba", "pymeshfix", "pykdtree", "embreex", "pyembree", "rtree"):
-        try:
-            versions[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            versions[name] = None
-    # Raw decomposition uses a separate native skeletonizer; H01 branch
-    # resegmentation may retain stored skeletons and need only segmentation.
-    skeletonizer = importlib.util.find_spec("calcification_param_Module")
-    dependencies["skeletonizer"] = (
-        dict(path=skeletonizer.origin, sha256=sha(skeletonizer.origin))
-        if skeletonizer is not None and skeletonizer.origin else None
-    )
-    return dict(
-        schema_version=1, config=config.as_dict(), decimation_ratio=decimation_ratio,
-        max_somas=max_somas, code_sha256={str(path.relative_to(root)): sha(path) for path in code},
-        dependencies=dependencies, runtime_environment=runtime_environment(config),
-    )
 
 
 def _run_hash(config, decimation_ratio, max_somas):
