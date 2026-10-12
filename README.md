@@ -1,5 +1,10 @@
 # NEURD — slim single-soma segmentation fork
 
+**Research preview: `v0.2.0-preview.1`.** See the
+[release notes](docs/releases/v0.2.0-preview.1.md) for the supported workflow,
+examples and validation limits, and [NOTICE.md](NOTICE.md) for attribution and
+the unresolved inherited-code licensing status.
+
 A fork of [reimerlab/NEURD](https://github.com/reimerlab/NEURD) narrowed to **one job**: turn a
 single-neuron EM mesh into a structured decomposition in a local Python environment.
 
