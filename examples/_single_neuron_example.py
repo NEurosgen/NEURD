@@ -157,51 +157,76 @@ def geometry_metrics(neuron):
     return summary, rows
 
 
-def plot_geometry(neuron):
-    """XY skeleton overview and an actual detected spine with nearby shaft faces."""
+def plot_geometry(neuron, reviewed_spine=None):
+    """Full XY skeleton, optionally beside an explicitly supplied reviewed mesh."""
     import matplotlib.pyplot as plt
     from matplotlib.collections import LineCollection, PolyCollection
+    from matplotlib.lines import Line2D
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     import numpy as np
 
     somas = neuron.get_soma_meshes()
     origin = np.mean(somas[0].vertices, axis=0) if somas else np.zeros(3)
-    figure = plt.figure(figsize=(12, 5), layout="constrained")
-    overview = figure.add_subplot(121)
+    figure = plt.figure(figsize=(12, 5) if reviewed_spine is not None else (7, 5),
+                        layout="constrained")
+    overview = figure.add_subplot(121 if reviewed_spine is not None else 111)
     colors = plt.get_cmap("tab10")
-    candidates = []
+    legend = []
     for limb_id, limb in enumerate(neuron.limbs):
-        for branch_id, branch in enumerate(limb.branches):
-            segments = (np.asarray(branch.skeleton) - origin) / 1000
-            overview.add_collection(LineCollection(segments[:, :, :2], colors=[colors(limb_id % 10)],
-                                                    linewidths=0.8, alpha=0.8))
-            for spine in [] if branch.spines is None else branch.spines:
-                candidates.append((len(spine.faces), limb_id, branch_id, branch, spine))
+        color = colors(limb_id % 10)
+        legend.append(Line2D([], [], color=color, label=f"Limb {limb_id}"))
+        for branch in limb.branches:
+            segments = (np.asarray(branch.skeleton).reshape(-1, 2, 3) - origin) / 1000
+            overview.add_collection(LineCollection(segments[:, :, :2], colors=[color],
+                                                     linewidths=0.8, alpha=0.8))
     for soma in somas:
         triangles = (soma.triangles - origin) / 1000
-        # Display sampling only; processing and export use the full meshes.
-        overview.add_collection(PolyCollection(triangles[::max(1, len(triangles) // 4000), :, :2],
-                                               facecolors="#333333", edgecolors="none", alpha=0.15))
+        center = (np.mean(soma.vertices, axis=0) - origin) / 1000
+        # The complete skeleton is shown; soma sampling changes only the display.
+        triangles = triangles[::max(1, (len(triangles) + 3999) // 4000)]
+        overview.add_collection(PolyCollection(triangles[:, :, :2],
+                                                facecolors="#333333", edgecolors="none", alpha=0.2))
+        overview.scatter(center[0], center[1], color="#333333", s=18, zorder=4)
+    if somas:
+        legend.append(Line2D([], [], color="#333333", marker="o", linestyle="none", label="Soma"))
     overview.autoscale()
     overview.set_aspect("equal")
-    overview.set(title="Whole neuron: XY projection", xlabel="x from soma (µm)", ylabel="y from soma (µm)")
+    overview.set(title="Reconstruction: XY projection", xlabel="x from soma (µm)",
+                 ylabel="y from soma (µm)")
     overview.grid(alpha=0.2)
-    detail = figure.add_subplot(122, projection="3d")
-    if candidates:
-        _, limb_id, branch_id, branch, spine = max(candidates, key=lambda row: row[0])
-        center = np.mean(spine.vertices, axis=0)
-        radius = max(1500.0, float(np.ptp(spine.vertices, axis=0).max()))
-        nearby = np.all(np.abs(branch.mesh.triangles_center - center) < radius, axis=1)
-        shaft = (branch.mesh.triangles[nearby] - center) / 1000
-        detail.add_collection3d(Poly3DCollection(shaft[::max(1, len(shaft) // 3000)],
-                                                facecolor="#aeb8c2", edgecolor="none", alpha=0.2))
-        detail.add_collection3d(Poly3DCollection((spine.triangles - center) / 1000,
-                                                facecolor="#db4437", edgecolor="none", alpha=0.9))
-        bound = radius / 1000
-        detail.set(xlim=(-bound, bound), ylim=(-bound, bound), zlim=(-bound, bound),
-                   title=f"Detected spine: limb {limb_id}, branch {branch_id}",
-                   xlabel="x (µm)", ylabel="y (µm)", zlabel="z (µm)")
+    if legend:
+        overview.legend(handles=legend, loc="upper right", fontsize=8)
+
+    if reviewed_spine is not None:
+        context_mesh = reviewed_spine["context_mesh"]
+        target_mesh = reviewed_spine["target_mesh"]
+        context_mask = np.asarray(reviewed_spine["context_face_mask"])
+        if context_mask.dtype != np.bool_ or context_mask.shape != (len(context_mesh.faces),):
+            raise ValueError("context_face_mask must be one boolean per context mesh face.")
+        provenance = reviewed_spine["provenance"]
+        center = np.mean(target_mesh.vertices, axis=0)
+        target = (target_mesh.triangles - center) / 1000
+        context = (context_mesh.triangles[context_mask] - center) / 1000
+        # Render all target and supplied gray-context triangles without mesh repair or sampling.
+        normals = np.cross(target[:, 1] - target[:, 0], target[:, 2] - target[:, 0])
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-15)
+        light = np.array([0.3, -0.5, 0.8])
+        light /= np.linalg.norm(light)
+        shades = (0.45 + 0.55 * np.abs(normals @ light))[:, None] * np.array([0.94, 0.24, 0.14])
+        detail = figure.add_subplot(122, projection="3d")
+        detail.add_collection3d(Poly3DCollection(context, facecolors="#aab4bf",
+                                                 edgecolors="none", alpha=0.2))
+        detail.add_collection3d(Poly3DCollection(target, facecolors=shades,
+                                                 edgecolors="none", alpha=1.0))
+        points = np.concatenate((target.reshape(-1, 3), context.reshape(-1, 3)))
+        limit = max(0.85, float(np.abs(points).max()) * 1.1)
+        detail.set(xlim=(-limit, limit), ylim=(-limit, limit), zlim=(-limit, limit),
+                   xlabel="x (µm)", ylabel="y (µm)", zlabel="z (µm)",
+                   title=f"Reviewed H01 spine ({provenance['case_id']})\n"
+                         f"Neuron {provenance['neuron_id']} / L{provenance['limb_id']} / B{provenance['branch_id']}")
         detail.set_box_aspect((1, 1, 1))
-    else:
-        detail.text2D(0.2, 0.5, "No spines detected in this run", transform=detail.transAxes)
+        detail.set_proj_type("ortho")
+        view = provenance.get("view", {})
+        detail.view_init(elev=view.get("elev", 20), azim=view.get("azim", 0))
+        detail.grid(False)
     return figure

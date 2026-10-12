@@ -1,0 +1,53 @@
+{
+  "schema": "neurd-reviewed-spine-example/1",
+  "case_id": "C03",
+  "dataset": "h01",
+  "neuron_id": "5319188363",
+  "limb_id": 0,
+  "branch_id": 150,
+  "candidate_filename": "spine_076.off",
+  "raw_input_index": 82,
+  "final_candidate_index": 76,
+  "coordinate_units": "nm",
+  "target_faces": 358,
+  "parent_roi_faces": 2127,
+  "full_parent_branch_sha256": "6c7e2475ef08800f9244778101c27fd4d319362fdc488e2623bd6bc820f31730",
+  "files": {
+    "target_mesh.off": {
+      "sha256": "5366558e1fdefaec9fd2bba6aa238bdcec492d261380e4cfba78277ac3739690",
+      "bytes": 14878
+    },
+    "parent_roi.off": {
+      "sha256": "b14db40b204cb9ea96c79aaecfac8901bbee0618c97cd3e44430969dd76bc961",
+      "bytes": 92206
+    },
+    "parent_face_indices.npy": {
+      "sha256": "6975b839e085ae450e96e93252717498c4ea9a3fe3557e0d4ce92c8021d8cc12",
+      "bytes": 17144
+    },
+    "target_parent_face_membership.npy": {
+      "sha256": "98c65a4d3383cfeb87167cb294440455fe4ffa2fec6246f7e939ad0b1e087147",
+      "bytes": 2992
+    }
+  },
+  "human_review": {
+    "review_date": "2026-10-09",
+    "anatomy": "one_spine",
+    "quality": [
+      "looks_ok"
+    ],
+    "confidence": "high"
+  },
+  "human_review_source_sha256": "cde71a006aef369ed9ba187e5c8fc567860ae7da8abce90b6ab1eb4b4829fe30",
+  "sampling_manifest_sha256": "1e770294cfb4ff6290acff0830a4cd5ed4d02451453fd512c8387e6acd7af845",
+  "parent_face_indices_scope": "One global parent-branch face index for each face of parent_roi.off. Not an ordered map for target_mesh.off.",
+  "example_scope": "Separate manually reviewed H01 spine illustration; not an output of the timed neuron_2530864375 processing run.",
+  "data_credit": "Lichtman laboratory, Harvard University, and Google Connectomics",
+  "data_release": "https://h01-release.storage.googleapis.com/data.html",
+  "data_license": "CC BY 4.0",
+  "target_parent_face_membership_scope": "Unordered membership of the 358 target faces in the full parent branch; not target_mesh.off row correspondence.",
+  "view": {
+    "elev": 20,
+    "azim": 0
+  }
+}

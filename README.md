@@ -1,7 +1,7 @@
 # NEURD — slim single-soma segmentation fork
 
 A fork of [reimerlab/NEURD](https://github.com/reimerlab/NEURD) narrowed to **one job**: turn a
-single-neuron EM mesh into a structured decomposition, as fast and as lean as possible.
+single-neuron EM mesh into a structured decomposition in a local Python environment.
 
 ```
 mesh (.off)  ->  Neuron
@@ -11,7 +11,7 @@ mesh (.off)  ->  Neuron
                         │     ├── mesh, mesh_face_idx  (branch submesh + its faces in the parent)
                         │     ├── skeleton             (centreline)
                         │     ├── width_array          (from SDF)
-                        │     └── spines               (raw spine submeshes)
+                        │     └── spines               (detected candidate submeshes)
                         └── concept_network            (branch graph, rooted at the soma contact)
 ```
 
@@ -23,24 +23,25 @@ including string-dispatched axon queries, remain for historical callers. Their
 are explicit: raw segmentation supplies neither compartment classification nor
 synapse assignment. The four upstream autoproof notebooks remain historical
 examples of the wider framework.
-The stable geometry refactor reduced the package from
-~55k to **15.4k LOC across 18 files**. The integration branch adds opt-in spine refinement,
-validated run configuration, branch-batch tools and bounded OFF loading. The candidate contains
-**19,379 physical Python lines across 30 core files**, including the raw export
-module moved from the batch runner. The runner shrinks from 982 to 500 lines;
-the package and runner together grow by 28 lines for imports, compatibility aliases
-and documentation. The earlier count describes the pre-refinement baseline.
+The package contains 30 core Python modules for geometry processing, validated
+run configuration, mesh input, raw export and compatibility installation. The
+batch runners supervise separate worker processes, verify completed exports and
+resume matching runs. Geometric spine refinement is optional.
+
+The detector returns spine candidates. Mesh defects can be captured as candidates;
+their presence or a positive volume does not establish anatomical quality.
 
 ## Why a fork
 
-Upstream NEURD is a full analysis framework built around its Docker image. This fork answers a
-narrower question — *segment one neuron mesh, quickly, on a plain local env* — which makes tradeoffs
-available that the general framework cannot take: exactly one soma with no glia or nuclei, no
-downstream stages, and permission to replace expensive-but-inconsequential steps with in-process
-equivalents. Historical measurements on a 166 MB / 3.27 M-face H01 neuron found peak RAM **4842 → 3226 MB (−33%)**
-and several independent wall-time levers landed — details and numbers in [PERF.md](PERF.md).
+This fork focuses on a single-soma reconstruction with no glia or nuclei and no
+downstream connectome-analysis stages. Its supported local environment uses
+NumPy 2 and trimesh 4 without Docker.
 
-It also runs without Docker on numpy 2 / trimesh 4, which upstream does not.
+The processing mechanisms include bounded OFF parsing, sparse connected-component
+graphs, cKDTree vertex matching, in-process Open3D decimation and grouped CGAL face
+labels. Configuration exposes the SDF ray count and optional refinement. Worker
+limits and verified resume control batch execution. These choices describe the
+implementation; the publication example records time and memory for one actual run.
 
 Upstream publication: https://www.nature.com/articles/s41586-025-08660-5
 
@@ -144,11 +145,10 @@ save_segmentation(neuron, Path("output/neuron_123"))
 
 The [whole-H01 notebook](examples/h01_single_neuron.ipynb) and its
 [HTML companion](examples/h01_single_neuron.html) demonstrate raw mesh processing,
-export, geometry/spine metrics and a neuron preview. See the
-[viewing and rerun instructions](examples/README.md). The
-[controlled comparison](docs/BENCHMARKING.md) records three before/after pairs:
-loading improves on this case, while the complete workflow is 6.5% slower. It
-compares recent integration changes and keeps earlier historical gains separate.
+export, measured time and memory, a skeleton overview and a separate manually
+reviewed H01 spine with bundled geometry. Candidate counts report detector output;
+the notebook explains the engineering optimizations and the scope of its figures.
+See the [viewing and rerun instructions](examples/README.md).
 
 `import neurd` must come first: it installs the numpy-2 / meshlab / CGAL shims that `datasci_tools`
 and `mesh_tools` need, plus the perf patches.
@@ -207,8 +207,8 @@ continues to use its existing reader.
 
 Spine segmentation reads CGAL face labels without constructing meshes that would
 be discarded, then groups those faces once while retaining parent indices and
-face order. `NEURD_LEGACY_CGAL_ASSEMBLY=1` restores the prior two-pass assembly
-for comparison. Large shaft-path batches use an ordered bidirectional BFS when
+face order. `NEURD_LEGACY_CGAL_ASSEMBLY=1` selects the alternative two-pass assembly.
+Large shaft-path batches use an ordered bidirectional BFS when
 Numba is available and NetworkX is the verified 3.6.1 version; smaller batches and
 other versions retain NetworkX. `NEURD_LEGACY_SHAFT_PATHS=1` selects the previous
 path search and is included in processing fingerprints. H01 batch export reuses
@@ -216,61 +216,23 @@ volume quality from the final filter only for the identical, unchanged in-memory
 mesh. Scientific validation of saved OFF files requires a separate reload check;
 the batch completion/resume check verifies hashes and inventory.
 
-Failed H01 width eligibility now preserves the actual axes and
+Failed H01 width eligibility preserves the actual axes and
 measurement evidence; see [H01_FAILURE_DIAGNOSTICS.md](docs/H01_FAILURE_DIAGNOSTICS.md).
 Raw export records validated supplied branch-to-limb face maps and graph labels
 by Branch object identity. Missing maps remain unavailable; direct raw ownership
-and the causes of the historical axis mismatches are still unproved. The
-[fifth-package production gate](artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
-passed with all 28 maps available and exact prior H01 metrics: 18 spines /
-8,145 spine faces, identical masks and zero geometry/volume error counters.
-All 28 local origin journals were also checked; they do not recover historical
-or raw-input ownership. That package's unit suite passed 771 tests with 1 expected skip.
+and the causes of the historical axis mismatches are still unproved. Local origin
+journals record the observed MAP/MP route without inferring original raw face
+ownership.
 
-The subsequent readability cleanup passes **802 tests with 1 expected skip**.
-It preserves the full raw H01 result, a separately reloaded 52-spine H01 branch
-and all nine Minnie65 spines; conditional plain/refined replays preserve all
-460 ordered arrays. Its checks are recorded in
-`artifacts/readability_cleanup_20261011/v1/`. See the
-[current refactoring plan](docs/notes/REFACTOR_PLAN.md) for remaining work.
+Mesh loading, statistics/decomposition, raw export and compatibility installation
+have separate module boundaries. MAP/MP preprocessing uses named internal stage
+results. Compatibility installation lives in `neurd._bootstrap`; set behavior
+flags before importing and use a fresh process to change them. The eight default
+patches expose their installation status through `neurd.PATCH_STATUS`.
 
-The following query/object API and dependency pass passes **881 tests with one
-expected skip**, with the three removed import roots blocked. Its evidence is in
-`artifacts/legacy_api_cleanup_20261011/v1/`; this is a separate package from the
-802-test readability pass above.
-
-The subsequent statistics/decomposition repair passes **958 tests with one
-expected skip** and preserves the native nine-spine Minnie control. A 66-case
-historical oracle verifies enriched summaries. The explicit API/storage controls
-add 35 core lines; this package establishes correctness, with no measured speed or
-memory gain. Its local evidence is in `artifacts/statistics_api_cleanup_20261011/v1/`.
-The full raw H01 control retains 28 branches and 18 spines with exact prior metrics
-and ordered masks; the new statistics and returned/stored decomposition products
-are also checked on that actual constructed object.
-
-The raw export separation passes **998 tests with one expected skip**, with the
-three removed import roots blocked. A complete raw H01 run retains the same
-28 branches and 18 spines: all **218 exported files** match the frozen prior saver
-and the CLI alias byte for byte. The native Minnie control retains nine spines,
-nine volumes and 27 geometry/mask arrays. Evidence is in
-`artifacts/raw_export_cleanup_20261011/v1/`; this change improves module boundaries
-and does not establish a speed or memory improvement.
-
-The MAP/MP readability pass uses named internal stage results and removes redundant
-aliases; `preprocess_limb` shrinks from 206 to 197 lines. It passes **1,031 tests with
-one expected skip** and a 33-case comparison against frozen prior code. Full raw
-H01 processing retains exact metrics and all 218 exported files; Minnie retains
-nine spines and 27 geometry/mask files. The H01 run exercises native MP; MAP and
-mixed routes are checked with controlled geometry providers. Evidence is in
-`artifacts/map_mp_boundary_cleanup_20261011/v1/`.
-
-Compatibility installation now lives in `neurd._bootstrap`; `__init__.py` shrinks
-from 503 to 48 lines while the core grows by 36 lines. The bootstrap cleanup passes
-**1,053 tests with one expected skip** and 19 initial-import comparisons against
-frozen prior code. The eight patches retain their bodies and installation order;
-set behavior flags before importing, using a fresh process to change them.
-Evidence is in `artifacts/bootstrap_cleanup_20261011/v1/`. This separation
-improves navigation and establishes no measured speed or memory improvement.
+The [validated installation](docs/INSTALLATION.md) records the unit, native-provider
+and raw-mesh correctness checks. See the [refactoring plan](docs/notes/REFACTOR_PLAN.md)
+for remaining work.
 
 | Export | Verified scope |
 |---|---|
@@ -278,12 +240,6 @@ improves navigation and establishes no measured speed or memory improvement.
 | `branch_index_map.json` | Export position to graph node by Branch object identity; missing/ambiguous identity recorded, contradictory IDs rejected |
 | `branch_origin.json` | Observed local MAP/MP selection, axis fingerprints and fallback cause; actual exported skeleton hash recorded separately; missing origin explicitly unavailable |
 | Original raw OFF face ownership | Unavailable; never inferred from geometric matches or branch numbers |
-
-A separate [patched timeout retry](artifacts/h01_timeout_retry_20261011/v1/receipt.json)
-completed with 300 spines and strict computational QC. It retained the original
-graph and used the inherited `previously_spine_positive` exception, without a
-recovered positive width or applying the 115 nm width gate. The historical archive
-is unchanged; 46 width failures remain.
 
 For optional H01 geometric refinement, exported-branch resegmentation, skeleton policies
 and spine-quality checks, see [SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md).
@@ -295,24 +251,24 @@ refinement guide. A portable dataset-download recipe remains part of release pre
 
 ## Environment flags
 
-Most of these are **inverted kill-switches** — the fast path is the default and the flag restores the
-slow original. Nothing needs to be set for normal use.
+Most flags select an alternative compatibility path. The supported defaults are
+active without setting them.
 
 | flag | default | effect when set |
 |---|---|---|
 | `NEURD_LEGACY_MESH_LOADER` | bounded triangular ASCII OFF reader at supported entry points | `1` restores the previous reader |
 | `NEURD_LEGACY_CGAL_ASSEMBLY` | labels-only CGAL spine seam and one face assembly | `1` restores the previous two-pass assembly |
-| `NEURD_LEGACY_VERTEX_COMPONENTS` | scipy | restore the networkx vertex graph (+~205 s) |
+| `NEURD_LEGACY_VERTEX_COMPONENTS` | scipy | use the NetworkX vertex graph |
 | `NEURD_LEGACY_MATCHING_VERTICES` | cKDTree | restore the O(N²) distance matrix |
-| `NEURD_MESHLAB_DECIMATE` | open3d, in-process | restore the meshlab subprocess (+~184 s) |
+| `NEURD_MESHLAB_DECIMATE` | open3d, in-process | use the MeshLab subprocess |
 | `NEURD_DECIMATE_SINGLE_STAGE` | cascaded halving | decimate in one step |
-| `NEURD_ENABLE_COMPRESSED_PICKLE` | no-op'd | restore the debug pickle dumps (+~98 s) |
+| `NEURD_ENABLE_COMPRESSED_PICKLE` | no-op'd | enable the debug pickle dumps |
 | `NEURD_SDF_RAYS` | low-level compatibility 12 | CGAL SDF ray count; the public API/CLI sets it from the explicit reference25/fast12 configuration |
 | `NEURD_CGAL_TIMINGS` | off | `1` writes native timings to stderr and nested Python phase records for assembly, shaft paths, lengths, refinement, final filters and H01 publication to stdout |
 | `NEURD_LEGACY_SHAFT_PATHS` | off | `1` retains the previous NetworkX shaft-path search; fingerprinted for resume |
-| `NEURD_SKIP_SOMA_END_SPLIT` | off | skip `_split_soma_at_end`'s CGAL trim (−~225 s) |
+| `NEURD_SKIP_SOMA_END_SPLIT` | off | skip `_split_soma_at_end`'s CGAL trim |
 | `NEURD_OWNED_SKELETAL_DISTANCE` | off | route the correspondence/width kernel through `neurd/skeletal_distance_ops.py` |
-| `NEURD_REAL_POISSON` | off (no-op) | run a real Poisson reconstruction — see PERF.md |
+| `NEURD_REAL_POISSON` | off (no-op) | run a real Poisson reconstruction |
 | `NEURD_POISSON_DEPTH` / `_BACKEND` / `_ITERS` | 11 / meshlab / 8 | sub-flags of the above |
 | `NEURD_SOMA_OUTER_DECIM` / `_INNER_DECIM` | from `parameters.py` | override the soma decimation ratios |
 
@@ -320,10 +276,10 @@ The batch runners also read `SEG_RSS_LIMIT_MB` and `SEG_TIMEOUT_SEC` (per-mesh k
 `SEG_MAX_WORKERS` and `SEG_INPUT_SIZE_BUDGET_MB` (defaults for the parallel runner's flags;
 `SEG_MEM_BUDGET_MB` remains a legacy alias for input-file bytes).
 
-Every perf patch registers itself in `neurd.PATCH_STATUS` and warns loudly if it fails to install.
-These patches rewrite functions inside `mesh_tools`/`datasci_tools`, so an upstream rename would
-otherwise silently revert the perf work — the build would still succeed, just ~15 min slower.
-`tests/unit/test_perf_patches.py` guards that.
+Every performance patch registers itself in `neurd.PATCH_STATUS` and reports an
+installation failure. These patches replace functions inside
+`mesh_tools`/`datasci_tools`; dependency changes therefore need import and patch
+checks. `tests/unit/test_perf_patches.py` verifies the supported installation.
 
 ## Tests
 
@@ -357,7 +313,7 @@ or decomposition variance still has to pass the existing tolerances and spine ch
 |---|---|
 | [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md) | module map, LOC, import DAG, working conventions |
 | [PIPELINE.md](PIPELINE.md) | the geometry of `mesh → Neuron`, the compat patches, known failure modes |
-| [PERF.md](PERF.md) | measured time + RAM state, shipped levers, what's next, measurement methodology |
+| [PERF.md](PERF.md) | historical measurements, investigations and measurement methodology |
 | [MESH_OPS.md](MESH_OPS.md) | the NEURD-owned mesh-operations layer (`submesh_ops`) and its seams |
 | [docs/SPINE_REFINEMENT.md](docs/SPINE_REFINEMENT.md) | opt-in policies, branch batch, skeleton safeguards and spine gates |
 | [docs/notes/](docs/notes/) | finished investigations and open refactor plans |
@@ -366,5 +322,5 @@ or decomposition variance still has to pass the existing tolerances and spine ch
 
 Upstream NEURD is by Brendan Celii and the Reimer lab
 ([reimerlab/NEURD](https://github.com/reimerlab/NEURD)) — the science, the algorithms and the original
-implementation are theirs. This fork narrows the pipeline, improves runtime and adds
+implementation are theirs. This fork narrows the pipeline, streamlines local processing and adds
 experimental spine-geometry postprocessing.

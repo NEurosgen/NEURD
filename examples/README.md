@@ -2,7 +2,10 @@
 
 [The H01 notebook](h01_single_neuron.ipynb) demonstrates the public API from a
 raw neuron mesh through decomposition, spine detection and export. It includes
-saved tables, measured time and memory, and a geometry figure from an actual run.
+saved tables, measured time and memory, and a skeleton overview from an actual
+run. The figure also shows a separate manually reviewed H01 spine with its
+parent-branch context. Detected candidates can include mesh defects; their
+counts do not establish anatomical quality.
 
 ## View the saved example
 
@@ -29,21 +32,42 @@ The accompanying files have different roles:
 | [`h01_single_neuron.ipynb`](h01_single_neuron.ipynb) | Explanation, runnable public API calls and saved outputs |
 | [`_single_neuron_example.py`](_single_neuron_example.py) | Measurement, environment fingerprints and plotting helpers |
 | [`h01_reference_run.json`](h01_reference_run.json) | The saved observation shown in this notebook edition: input checksum, configuration, geometry, measurements and environment |
-| [`h01_benchmark_summary.json`](h01_benchmark_summary.json) | A separate repeated before/after experiment, including source versions, individual trials and measurement scope |
+| [`data/h01_reviewed_spine/`](data/h01_reviewed_spine/README.md) | Small, manually reviewed C03 spine and parent crop, face membership and source/review fingerprints |
 
-The reference-run JSON records one notebook observation. The benchmark JSON
-records the separate comparison described in the final notebook section;
-their cache and memory scopes differ.
+The reference-run JSON records one notebook observation. It retains the measured
+stages and their memory scope, configuration and input/environment fingerprints.
 
-## Run the notebook on your mesh
+## Run the notebook
 
 Use the [validated installation](../docs/INSTALLATION.md) with its constrained
 scientific environment, compiled CGAL providers, MeshLab and Xvfb. Follow the
-[notebook-tool instructions](../docs/BENCHMARKING.md#run-the-notebook) and select
-that scientific environment as the kernel in Jupyter or your editor.
+notebook-tool setup below and select that scientific environment as the kernel
+in Jupyter or your editor.
 
-Keep the notebook, `_single_neuron_example.py` and `h01_benchmark_summary.json`
-together in `examples/`. Launch your notebook application from the repository
+Notebook tooling was checked in a separate seven-package overlay, preserving
+the scientific environment. Activate the validated environment, run from the
+repository root, and choose an overlay directory outside the checkout. The
+`--no-deps` option relies on support packages already in the validated profile.
+Registration below creates a named user kernel for Jupyter or your IDE:
+
+```bash
+NEURD_NOTEBOOK_TOOLS=/path/to/neurd-notebook-tools
+PIP_CONSTRAINT="$PWD/constraints/linux-py312-20261012.txt" \
+python -m pip install --no-deps --target "$NEURD_NOTEBOOK_TOOLS" \
+  ipykernel==7.4.0 nbclient==0.11.0 jupyter-client==8.10.0 \
+  tornado==6.5.10 pyzmq==27.2.0 debugpy==1.8.22 nest-asyncio2==1.7.4
+PYTHONPATH="$NEURD_NOTEBOOK_TOOLS" python -m ipykernel install --user \
+  --name neurd-h01-example --display-name "NEURD H01 example" \
+  --env PYTHONPATH "$NEURD_NOTEBOOK_TOOLS" --env PYTHONHASHSEED 0 \
+  --env NEURD_EXAMPLE_MESH /path/to/neuron_2530864375.off
+```
+
+Select the `NEURD H01 example` kernel. Jupyter startup contributes to kernel
+lifetime RSS, and first-use Numba compilation contributes to processing time.
+The saved observation records both scopes.
+
+Keep the notebook, `_single_neuron_example.py` and `data/` together in `examples/`.
+Launch your notebook application from the repository
 or its `examples/` directory. Set the input before starting a fresh kernel, for
 example through the application's environment:
 
@@ -70,4 +94,7 @@ released reconstructions, but the release layer and conversion procedure for
 this particular local OFF were not recovered. Its checksum identifies the
 measured input; the portal does not provide a verified recipe for retrieving
 a byte-identical copy. The notebook states the input units and the limits of
-the geometry and performance observations.
+the geometry and performance observations. The bundled spine illustration comes
+from neuron `5319188363`, limb `000`, branch `150`; the timed input is neuron
+`2530864375`. The notebook identifies these two sources separately and describes
+the engineering optimizations without a version-to-version comparison.

@@ -84,21 +84,23 @@ Fresh native SDF runs cover the unset, reference-25 and fast-12 ray profiles.
 Unset and reference-25 arrays match; reference SDF matches the local golden SDF,
 and fast/reference correlation is 0.99595. A generated closed 1,280-face prolate
 mesh exercises native MAP skeletonization and produces 54 positive edges.
-The Minnie gate processes one 29,495-face branch: nine spines / 2,854 spine faces,
+The Minnie gate processes one 29,495-face branch: nine candidates / 2,854 candidate faces,
 nine scalar volumes and 27 saved arrays match the prior native result exactly.
 
 The complete raw H01 gate processes `neuron_2530864375.off` (507,737 faces,
 253,307 vertices), with seed 0, H01 parameters, spines enabled, refinement off
 and fast-12 SDF rays. It retains one soma, five limbs, 28 branches and
-18 spines / 8,145 spine faces. All 218 exported files and 239 NumPy arrays match
+18 spine candidates / 8,145 candidate faces. All 218 exported files and 239 NumPy arrays match
 the prior reference exactly. A separate reload verifies all 28 ordered branch
 maps and 18 spine masks. This raw case takes the MP route (22 calls); the separate
 generated-mesh smoke exercises native MAP.
+These are detector outputs and computational checks. Candidates can include
+mesh defects; their counts and volumes do not establish anatomical accuracy.
 
 Observed raw processing took 389.67 seconds with a process peak RSS of
 1,269,178,368 bytes (1.18 GiB). Unit and other gates ran concurrently, so these
 numbers are recorded observations for this correctness run. They do not support
-a comparison with the earlier 160.55-second run or a speed/memory improvement claim.
+a speed/memory improvement claim.
 
 The NEURD wheel was also built, inspected and installed with `--no-deps --target`
 into a separate directory. All 30 module files import from that installation with
@@ -108,7 +110,7 @@ wheel installation with native providers or batch console commands.
 
 The first unconstrained fresh installation passed imports, unit tests, native SDF/MAP
 checks and the Minnie branch comparison, but failed the full raw H01 equivalence
-check: 28 spines instead of 18, with eight branch-local face counts already changed
+check: 28 candidates instead of 18, with eight branch-local face counts already changed
 before spine detection. Native provider A/Bs agreed exactly; a trimesh-only A/B
 also agreed on two identical archived branch inputs. These bounded diagnostics
 do not identify the particular dependency responsible for the earlier geometry
@@ -126,8 +128,11 @@ installed package or runtime source, and separate resolver checks verify the pro
 Constrained-install evidence is under `artifacts/clean_install_validation_20261012/v2/`.
 These artifacts and dataset paths are local. In particular, the SDF oracle files
 `tests/990_mesh*` are ignored by Git, and the real branch/raw meshes are not a
-downloadable reproduction bundle. A [controlled whole-neuron comparison](BENCHMARKING.md)
-and an [executed publication example](../examples/README.md) are now available.
+downloadable reproduction bundle. The [executed publication example](../examples/README.md)
+shows the supported API, time and memory for one actual run, a skeleton overview
+and a separate manually reviewed spine with its parent context. Its
+[notebook-tool instructions](../examples/README.md#run-the-notebook)
+register a kernel without changing the scientific package environment.
 Portable fixtures and required native CI remain release work. The installation
 checks establish computational behavior; anatomical accuracy and performance
 claims require their own evidence and measurement scope.
