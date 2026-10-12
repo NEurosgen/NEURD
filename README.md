@@ -142,8 +142,10 @@ for limb in neuron.limbs:
 save_segmentation(neuron, Path("output/neuron_123"))
 ```
 
-The [whole-H01 notebook](examples/h01_single_neuron.ipynb) demonstrates raw mesh
-processing, export, geometry/spine metrics and a neuron preview. The
+The [whole-H01 notebook](examples/h01_single_neuron.ipynb) and its
+[HTML companion](examples/h01_single_neuron.html) demonstrate raw mesh processing,
+export, geometry/spine metrics and a neuron preview. See the
+[viewing and rerun instructions](examples/README.md). The
 [controlled comparison](docs/BENCHMARKING.md) records three before/after pairs:
 loading improves on this case, while the complete workflow is 6.5% slower. It
 compares recent integration changes and keeps earlier historical gains separate.

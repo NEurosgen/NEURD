@@ -25,9 +25,9 @@ spine masks and new provenance records.
 | Sampled worker + descendants peak, median | 1.302 GiB | 1.331 GiB |
 
 Loading is **34.6% faster** in this experiment. The full workflow is **6.5% slower**,
-and median worker peak RSS is **1.4% higher**. The additional export files account
-for a small export-time difference; the larger measured difference is in
-construction. Its cause has not been isolated. Three pairs on one neuron, with
+and median worker peak RSS is **1.4% higher**. The candidate exports 84 additional
+provenance records; their individual cost was not measured. The larger measured
+difference is in construction. Its cause has not been isolated. Three pairs on one neuron, with
 overlapping timing ranges and an unchanged dynamic CPU governor, do not establish
 a general performance change. These results do not support advertising a new
 whole-pipeline speed or memory improvement.

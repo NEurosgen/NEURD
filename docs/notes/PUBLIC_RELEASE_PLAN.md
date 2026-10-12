@@ -62,8 +62,9 @@ bodies are AST-identical; 404 untouched core functions were checked mechanically
 Current-source validation and baseline copies are retained separately in
 `artifacts/readability_cleanup_20261011/v1/`; earlier archives remain unchanged.
 See [the current readability plan](REFACTOR_PLAN.md) for remaining legacy API,
-query-dispatch and dependency work. The release notebook with a checksummed raw
-neuron and recorded metrics is scheduled for the publication preparation stage.
+query-dispatch and dependency work. The publication edition of the release
+notebook now provides a checksummed raw neuron, saved metrics, an HTML companion
+and [viewing and rerun instructions](../../examples/README.md).
 
 The following query/object pass reduces the core further to **18,800 lines**,
 retaining all query signatures and scientific features. Ordered pair/empty outputs,

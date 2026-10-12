@@ -126,7 +126,8 @@ installed package or runtime source, and separate resolver checks verify the pro
 Constrained-install evidence is under `artifacts/clean_install_validation_20261012/v2/`.
 These artifacts and dataset paths are local. In particular, the SDF oracle files
 `tests/990_mesh*` are ignored by Git, and the real branch/raw meshes are not a
-downloadable reproduction bundle. Portable fixtures, required native CI, a
-controlled whole-neuron benchmark and an executed publication notebook remain
-release work. These checks establish computational behavior, not anatomical
-accuracy or a before/after speed or memory improvement.
+downloadable reproduction bundle. A [controlled whole-neuron comparison](BENCHMARKING.md)
+and an [executed publication example](../examples/README.md) are now available.
+Portable fixtures and required native CI remain release work. The installation
+checks establish computational behavior; anatomical accuracy and performance
+claims require their own evidence and measurement scope.
