@@ -8,10 +8,10 @@ The diagnostic audits create no accepted segmentation results. A separate curren
 timeout retry, described below, produced one strictly validated completion.
 
 The local evidence is in
-[`report.json`](../artifacts/h01_failure_diagnostics_20261011/v1/report.json) and
-[`branches.csv`](../artifacts/h01_failure_diagnostics_20261011/v1/branches.csv).
+`report.json` (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/report.json`) and
+`branches.csv` (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/branches.csv`).
 These ignored artifacts contain local source paths and hashes. The reusable
-tool is [`diagnose_h01_failures.py`](../scripts/diagnose_h01_failures.py).
+tool is [`diagnose_h01_failures.py`](../../scripts/diagnose_h01_failures.py).
 
 ## What the 47 failures mean
 
@@ -96,7 +96,7 @@ multiset subsets of their own exported limb. No target face is unmatched.
 | `2047644309/limb_001/branch_000` | 243 | 243 | 0 |
 | `1304599410/limb_002/branch_002` | 165 | 165 | 0 |
 
-The [audit receipt](../artifacts/h01_failure_diagnostics_20261011/v1/pilot_correspondence/receipt.json)
+The audit receipt (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/pilot_correspondence/receipt.json`)
 links the reproducible one-off code and all candidate occurrence arrays. Duplicate
 candidates are retained without assigning owners. Peak observed worker RSS was
 586.1 MiB and the longest worker took 21.3 s, below the 1.5 GiB / 180 s limits.
@@ -108,7 +108,7 @@ validate their skeleton labels or recover ordered raw face ownership. The old
 graph/index JSON files contain topology labels, not face maps. The user confirmed
 that no original Neuron pickles remain; five full raw parent OFF files are available,
 with approximately 6.9–12.1 million faces each. Their
-[inventory](../artifacts/h01_failure_diagnostics_20261011/v1/raw_pilot_inventory.json)
+inventory (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/raw_pilot_inventory.json`)
 records headers and graph linkage; four raw content hashes are explicitly deferred.
 Continue with skeleton-label correspondence and bounded raw membership checks
 before attempting a full reconstruction.
@@ -120,11 +120,11 @@ limb audit. It retained all raw vertices, streamed faces in 32,768-record chunks
 and kept no complete raw face array. Maximum observed RSS was **611.1 MiB** and
 the longest worker took **71.6 s**. All five raw inputs now have before/after
 content hashes; this supplements the earlier inventory without changing it.
-The [raw membership receipt](../artifacts/h01_correspondence_followup_20261011/v1/raw_membership/receipt.json)
+The raw membership receipt (local evidence: `artifacts/h01_correspondence_followup_20261011/v1/raw_membership/receipt.json`)
 and candidate arrays record zero-based original raw OFF face positions. These
 are geometric candidates, not a recovered segmentation ownership map.
 
-The [axis audit](../artifacts/h01_correspondence_followup_20261011/v1/axis_audit/receipt.json)
+The axis audit (local evidence: `artifacts/h01_correspondence_followup_20261011/v1/axis_audit/receipt.json`)
 finds each pilot axis's exact segments in its limb skeleton and no whole segment
 duplicated in a sibling branch. Graph neighbors share endpoint coordinates.
 The strongest mismatch is `1304599410/limb_002/branch_002`: **all 113 vertices**
@@ -136,20 +136,20 @@ observations support investigating partition/export correspondence rather than
 automatically swapping axes. Axis-to-nearest-vertex values in the report are
 upper bounds to surface distance, with explicit sampling limits.
 
-The bounded [export-source audit](../artifacts/h01_export_lineage_20261011/v1/findings.json)
+The bounded export-source audit (local evidence: `artifacts/h01_export_lineage_20261011/v1/findings.json`)
 confirms a pairing defect in `_recorrespond_stitch`: its exception fallback
 previously indexed the full MP axis list after selecting a subset. Nonprefix or
 reordered selections could retain a branch mesh with another modified axis.
 The one-line fix uses `curr_MP_sk_for_correspondence[mp_idx]`, preserving retained
 meshes, face indices, widths and fallback aliases. Five whole-helper regressions
 cover nonprefix/reordered selection, successful correspondence and prefix
-fallback; the [isolated witness](../artifacts/h01_export_lineage_20261011/v1/candidate_validation.json)
+fallback; the isolated witness (local evidence: `artifacts/h01_export_lineage_20261011/v1/candidate_validation.json`)
 records two failures on the previous source and five passes on the correction.
 
 The graph exporter also previously guessed node IDs from enumeration when counts
 matched, which is unsafe for sparse labels. It now resolves the actual Branch
 object's graph identity, records unavailable identity and rejects contradictions.
-The [17 isolated graph cases](../artifacts/h01_export_lineage_20261011/v1/api_audit/candidate/validation.json)
+The 17 isolated graph cases (local evidence: `artifacts/h01_export_lineage_20261011/v1/api_audit/candidate/validation.json`)
 cover that contract. The three inspected old limb maps have consecutive identity
 labels; this sparse-ID defect was not observed in their saved metadata.
 
@@ -194,25 +194,25 @@ later code mutates it. The exporter separately hashes the actual ready
 `branch_skeleton.npy` as `exported_skeleton_file_sha256`; the journal does not assert
 that its earlier ordered fingerprint matches that file. Missing, unsupported or
 non-JSON-safe metadata is explicitly unavailable. The
-[focused origin receipt](../artifacts/post_cgal_followup_20261011/v1/origin_review/receipt.json)
+focused origin receipt (local evidence: `artifacts/post_cgal_followup_20261011/v1/origin_review/receipt.json`)
 records this additive implementation. It supplies decisions for future runs, not
 the absent historical runtime or axes: **none of the 46 width failures is restored**.
 The original 47-key archive and the separate successful 300-spine timeout retry
 remain frozen evidence for their recorded source.
 
-The [final fifth-package raw gate](../artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json)
+The final fifth-package raw gate (local evidence: `artifacts/post_cgal_followup_20261011/v1/native_raw_final_gate/receipt.json`)
 verifies all 28 supplied maps and 28 local origin journals on the promoted code,
 including actual exported skeleton hashes and graph identity. It retains exact
 prior 18-spine / 8,145-face metrics and mask digest. This validates the forward
 journal, without resolving historical attribution or supplying raw face ownership.
 
-The earlier [candidate probe](../artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json)
+The earlier candidate probe (local evidence: `artifacts/h01_export_lineage_20261011/v1/raw_candidate_gate/receipt.json`)
 validated all **28 supplied branch-to-limb maps** for neuron `2530864375` and
 preserved prior exact metrics: **18 spines / 8,145 spine faces**, with the same
 actual-mask digest. Independent review then added parent/child vertex-bounds
 checks and four regressions; the isolated validator/export suite passed 29 cases.
 That earlier probe remains evidence for its recorded source and phase profile.
-The [final production gate](../artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json)
+The final production gate (local evidence: `artifacts/h01_export_lineage_20261011/v1/raw_final_gate/receipt.json`)
 now passes on the promoted source, including the bounds checks: all 28 supplied
 maps are available, graph identity is verified, every prior metric and the mask
 digest match exactly, and geometry/volume error and overlap counters are zero.
@@ -236,7 +236,7 @@ Basic axis/width records are written before sampling, so they remain available
 if that extra inspection times out. Rejected repair candidates that were not
 returned are described by repair QC rather than an invented axis file.
 
-A fresh [five-case failure run](../artifacts/h01_correspondence_followup_20261011/v1/pilot_failure_validation.json)
+A fresh five-case failure run (local evidence: `artifacts/h01_correspondence_followup_20261011/v1/pilot_failure_validation.json`)
 verified the journal on all pilot keys: five unresolved failures, no accepted
 branches, source/output hashes checked and no completed dataset publication.
 The detached case saved a newly built auxiliary axis while retaining its original
@@ -268,12 +268,12 @@ discarding them, then the spine caller assembled them again. The owned spine
 seam now reads labels/SDF without that first assembly and performs the required
 assembly once. Stable grouping also avoids scanning every face for every label.
 Synthetic timings and exact native/Minnie checks are in the
-[timeout review](../artifacts/h01_correspondence_followup_20261011/v1/timeout_review/review.json);
+timeout review (local evidence: `artifacts/h01_correspondence_followup_20261011/v1/timeout_review/review.json`);
 they do not establish that the historical timeout is solved. Its first `0/22167`
 progress display may have belonged to the discarded assembly, so it cannot
 identify which later filters were reached.
 
-The separate [timeout retry receipt](../artifacts/h01_timeout_retry_20261011/v1/receipt.json)
+The separate timeout retry receipt (local evidence: `artifacts/h01_timeout_retry_20261011/v1/receipt.json`)
 now records **1 complete / 0 failed** within the retained 2,700-second budget:
 **300 spines / 286,839 faces**, with strict completion validation and zero
 invalid, ambiguous or overlapping masks/surfaces or invalid volumes. Segmentation
@@ -321,11 +321,11 @@ performance are outside this comparison.
 Next, use the traces and separately controlled real calls to evaluate the remaining
 geometry and length work. Prepared KDTree support remains an artifact-only prototype:
 H01's border filter is disabled and actual survivor filtering was already small. The
-[source proposal](../artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json)
+source proposal (local evidence: `artifacts/h01_export_lineage_20261011/v1/post_cgal_review/proposal.json`)
 preserves filter order, threshold ties, RNG state and independent ownership state.
-The [non-soma prototype](../artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json)
+The non-soma prototype (local evidence: `artifacts/h01_export_lineage_20261011/v1/memory_review/proposal.json`)
 has 43 artifact-only cases and a completed
-[real component A/B](../artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json):
+real component A/B (local evidence: `artifacts/h01_export_lineage_20261011/v1/memory_review/real_stage_ab/receipt.json`):
 three fresh-process pairs preserved all 424 components, ordered face IDs and soma
 connectivity. Sampled component-end HWM fell 54.07 MiB, with 0.320 s additional
 median extraction time, under common geometry-cache warmup. This bounded tradeoff
@@ -335,10 +335,10 @@ retries require separate outputs and signatures; do not resume into the frozen
 historical directory.
 
 The full unresolved sets are recorded in
-[`eligibility_unresolved_keys.json`](../artifacts/h01_failure_diagnostics_20261011/v1/eligibility_unresolved_keys.json)
-and [`timeout_keys.json`](../artifacts/h01_failure_diagnostics_20261011/v1/timeout_keys.json).
+`eligibility_unresolved_keys.json` (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/eligibility_unresolved_keys.json`)
+and `timeout_keys.json` (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/timeout_keys.json`).
 The prioritized five-key diagnostic follow-up is
-[`pilot_keys.json`](../artifacts/h01_failure_diagnostics_20261011/v1/pilot_keys.json).
+`pilot_keys.json` (local evidence: `artifacts/h01_failure_diagnostics_20261011/v1/pilot_keys.json`).
 None of these lists implies a branch is already eligible or complete.
 
 For a fresh diagnosis, use a new, separate output directory:

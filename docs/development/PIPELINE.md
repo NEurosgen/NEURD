@@ -2,7 +2,8 @@
 
 What happens geometrically on the path `mesh → Neuron`, where it lives in the code, what may and may
 not be touched, and which compat patches keep it running on numpy 2 / trimesh 4 without Docker.
-Module map: [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md). Performance: [PERF.md](PERF.md).
+Module map: [NEURD_STRUCTURE.md](NEURD_STRUCTURE.md). Validation and measurement
+scope: [developer guide](README.md).
 
 > ⚠️ The downstream stages (multi-soma split, cell typing, axon, autoproofreading, after-proof stats)
 > and their modules are **deleted** from the fork. Only the live slim path is described here.
@@ -18,14 +19,14 @@ decompose the processes into a **skeleton** (centrelines) and **branches**, buil
 graph (concept network)**, and extract raw spines. Three primitives carry everything: **SDF**, the
 **skeleton**, and the **concept network**.
 
-The canonical path is [segmentation_pipeline.py](neurd/segmentation_pipeline.py) → `neuron.Neuron(mesh=)`
+The canonical path is [segmentation_pipeline.py](../../neurd/segmentation_pipeline.py) → `neuron.Neuron(mesh=)`
 → `preprocess_neuron` (soma identification, skeletonization, branches, raw spines, concept network).
 Soma identification is not a separate stage: it runs inline inside the decomposition, which is where
 `max_somas` and `verbose` are honoured.
 
-`process_all_neurons.py` (the user's entry point) is shorter still — `neuron.Neuron(mesh=...)` directly
-in a worker process per OFF mesh. The stats step `calculate_decomposition_products` is **off** the slim
-path (its only caller was removed).
+`process_all_neurons.py` supervises a separate worker process per input mesh. Each
+worker calls the public segmentation API. The stats step
+`calculate_decomposition_products` is optional and outside this raw path.
 
 ---
 
@@ -43,7 +44,7 @@ path (its only caller was removed).
   `mesh_tools.skeleton_utils`).
 - **Mesh segmentation by SDF.** Clustering faces by SDF via a CGAL MRF graph cut. The real C++
   `cgal_Segmentation_Module` (.so) is **restored** (`cgal/cgal_segmentation/`, see
-  [cgal/README.md](cgal/README.md)); the KMeans stand-in `neurd/_cgal_segmentation.py` remains only as
+  [cgal/README.md](../../cgal/README.md)); the KMeans stand-in `neurd/_cgal_segmentation.py` remains only as
   a **fallback** when the .so is not built (`_bootstrap.py` registers the stub only if the real module is
   absent). KMeans gave a coarse segmentation — acceptable for the soma, but **0 spines** — which is why
   real CGAL was brought back. **Code:** `tu.mesh_segmentation(mesh, clusters, smoothness)` → submeshes
@@ -100,12 +101,12 @@ warning.
 
 `preprocess_neuron` is rewritten for **exactly one soma with no glia or nuclei**, and decomposed into a
 thin orchestrator over named phases (each a separate function in
-[neurd/preprocess_neuron.py](neurd/preprocess_neuron.py)):
+[neurd/preprocess_neuron.py](../../neurd/preprocess_neuron.py)):
 
 1. `_extract_single_soma(mesh, segment_id, max_somas)` — finds exactly one soma (raises if none).
-2. `_reclaim_memory()` — `gc.collect()` + `malloc_trim(0)` at the stage boundary. Not cosmetic: the
-   soma stage leaves ~1.9 GB resident of which ~92% is reclaimable garbage, and the peak-bearing stage
-   would otherwise stack on top of it (−33% peak RAM, see PERF.md).
+2. `_reclaim_memory()` — `gc.collect()` and, where available, `malloc_trim(0)` at the stage boundary.
+   This releases unused allocations before later geometry stages; its effect depends on the
+   input and allocator.
 3. `_segment_limbs_from_soma(mesh, soma, params)` — cuts the soma out; the remainder falls apart into
    **limbs** (connected components touching the soma) plus floating pieces. Returns
    `soma_to_piece_connectivity` with **positional** limb indices `0..N-1`. This matters: the concept
@@ -155,7 +156,7 @@ RAM, but risky to change. Skeletonization (meshparty) is a separate dependency, 
 
 **Symptom (widespread).** Many H01 neurons crashed with `IndexError: index N is out of bounds for axis
 0 with size N` in `nru.apply_adaptive_mesh_correspondence_to_neuron`
-([neuron_utils.py](neurd/neuron_utils.py), at `ex_limb.mesh.submesh([surround_mesh_faces])`).
+([neuron_utils.py](../../neurd/neuron_utils.py), at `ex_limb.mesh.submesh([surround_mesh_faces])`).
 
 **Root cause.** The invariant is that every branch's `branch_face_idx` must address the **stored limb
 mesh** (`limb_meshes[limb_idx]`) as a clean partition. **Decomposition (`_decompose_limbs`) holds that
@@ -220,7 +221,7 @@ found, so the error stays late until the substantial fix lands.
 ## 3. The compat patches (numpy 2 / trimesh 4 / a dead meshlabserver)
 
 All of them live in `neurd/` (never upstream). Most are monkeypatches in
-[neurd/_bootstrap.py](neurd/_bootstrap.py), installed on the first `import neurd`.
+[neurd/_bootstrap.py](../../neurd/_bootstrap.py), installed on the first `import neurd`.
 The order is NumPy aliases, `datasci_tools` compatibility, optional import stubs,
 CGAL fallback selection, Neo4j stub, then the registry and eight provider patches.
 CGAL selection precedes importing `mesh_tools`. Installed wrappers keep their
@@ -241,38 +242,38 @@ none of them silently regressed.
 | 4 | `scipy ValueError: axis 0 index ... exceeds` | the MeshLabServer 2020.09 OFF exporter writes compacted vertices but leaves faces in the original numbering | `_bootstrap.py`: patch `Meshlab.fetch_mesh_from_off` (searchsorted renumbering) |
 | 5 | `ValueError: data_pts ... 2 dimensions` | newer pykdtree requires 2-D data, upstream builds trees from 1-D arrays | `_bootstrap.py`: wrap `skeleton_utils.KDTree` (1-D → (N,1)) |
 | 6 | `numpy_dep has no attribute 'in1d'` | `np.in1d` was removed in numpy 2 | `_bootstrap.py`: `numpy.in1d = isin` + `numpy_dep.in1d = isin` |
-| 7 | `NameError: calcification_param` (MAP path, thick branches) | the CGAL teasar skeletonizer (`calcification_param_Module`) was built inside Docker and vanished with it; `mesh_tools.skeleton_utils` imports it in a `try/except`, so the name is simply unbound | **not a stub but a real rebuild:** [cgal/cgal_skeleton_param/](cgal/cgal_skeleton_param/), sources from git, ported to CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Built best-effort by `install_local.sh`. Without it, only neurons with thick branches fail |
+| 7 | `NameError: calcification_param` (MAP path, thick branches) | the CGAL teasar skeletonizer (`calcification_param_Module`) was built inside Docker and vanished with it; `mesh_tools.skeleton_utils` imports it in a `try/except`, so the name is simply unbound | **not a stub but a real rebuild:** [cgal/cgal_skeleton_param/](../../cgal/cgal_skeleton_param/), sources from git, ported to CGAL 6 (C++17, `IO/OFF.h`, `CGAL::IO::read_OFF`). Built and import-checked by `install_local.sh`; incomplete development installation needs an explicit opt-out. Thick branches need this provider |
 
 There was also a historical guard for `IndexError ... size 1` in the multi-soma split
 (`proofreading_utils.py`), in a module that has since been deleted.
 
-**Perf patches** (not bug fixes — in-process replacements of expensive `mesh_tools` nodes; numbers and
-rationale in [PERF.md](PERF.md)):
+**Provider patches** replace selected `mesh_tools` operations inside the current process:
 
 | node | was | now (`_bootstrap.py`) | effect |
 |---|---|---|---|
-| `meshlab.Poisson` | xvfb+meshlabserver subprocess (filter was a no-op) | in-process no-op; real behind `NEURD_REAL_POISSON=1` | −536 s |
+| `meshlab.Poisson` | xvfb+meshlabserver subprocess (filter was a no-op on the validated build) | in-process no-op; real behind `NEURD_REAL_POISSON=1` | avoids a subprocess and temporary mesh round-trip |
 | `meshlab.FillHoles` | subprocess (also broken → no-op) | in-process pass-through | one less fork |
-| `meshlab.Decimator` | subprocess + OFF round-trip | open3d in-process (`_mesh_ops.decimate`), cascaded halving | −184 s (−14%) |
-| `tu.vertex_components` | networkx vertex-adjacency graph | owned scipy union-find (`submesh_ops`) | −205 s (−10%) |
-| `nu.get_matching_vertices` | full N×N distance matrix | `cKDTree.query_pairs` | −~250 s, ~25 GB less churn |
-| `su.compressed_pickle` | bz2 dump before a swallowed raise | no-op (`NEURD_ENABLE_COMPRESSED_PICKLE=1` restores) | −98 s |
+| `meshlab.Decimator` | subprocess + OFF round-trip | open3d in-process (`_mesh_ops.decimate`), cascaded halving | avoids subprocess and ASCII mesh serialization |
+| `tu.vertex_components` | networkx vertex-adjacency graph | owned scipy union-find (`submesh_ops`) | uses sparse numeric graph storage |
+| `nu.get_matching_vertices` | full N×N distance matrix | `cKDTree.query_pairs` | avoids a dense pairwise distance array |
+| `su.compressed_pickle` | bz2 dump before a swallowed raise | no-op (`NEURD_ENABLE_COMPRESSED_PICKLE=1` restores) | omits legacy debug serialization |
 | trimesh `mesh._cache` | accumulates | `_drop_trimesh_caches` after segmentation + `_clear_mesh_caches` on branches | lowers the plateau |
-| soma→segment boundary | ~1.9 GB of garbage left resident | `_reclaim_memory` (`gc.collect` + `malloc_trim`) | **peak −33%** |
+| soma→segment boundary | unused allocations may remain resident | `_reclaim_memory` (`gc.collect` + `malloc_trim`) | releases eligible allocations between stages |
 
 > Bug roots are in `git log` for the relevant commits; this table describes each patch's purpose
 > and location. Patch #7 (the CGAL skeletonizer) is a separate C++ extension, not a monkeypatch — see
-> [cgal/README.md](cgal/README.md).
+> [cgal/README.md](../../cgal/README.md).
 > **Why perf fixes are monkeypatches rather than edits to mesh_tools:** `mesh_tools` is plain
 > site-packages, so edits are lost on reinstall (this already happened to the `.so` and to
 > skeleton_utils patches); and it is 116 functions / 16.7k lines of core algorithms — replacing it means
 > rewriting NEURD. Intercepting nodes in-process is durable, reversible via an env flag, and
-> fidelity-neutral. Full rationale in [PERF.md](PERF.md).
+> preserves the intended compatibility behavior. Dependency changes still require native geometry
+> checks as well as import and patch-status checks; see the [developer guide](README.md).
 
 ## 4. Optional external annotations
 
 Raw construction leaves compartment maps and synapse assignment unavailable.
-The [enrichment input contract](docs/ENRICHMENT_CONTRACT.md) documents the retained
+The [enrichment input contract](ENRICHMENT_CONTRACT.md) documents the retained
 hooks, required external maps/distance records, units and historical notebook
 migration. Empty branch labels or default synapse containers do not establish
 anatomical labels or inspected-empty populations. Mesh/length/area compartment

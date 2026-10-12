@@ -5,8 +5,7 @@ peripheral API. This layer rebuilds the primitives as clean NEURD-owned code and
 is also how the "minimize `mesh_tools`" goal is met: an owned layer replaces scattered `tu.*` calls and
 isolates the fragile dependency behind one seam.
 
-Merges what were three separate docs (`MESH_OPERATIONS_LAYER`, `MESH_OPS_REBUILD_PLAN`,
-`MESH_OPS_PHASE_B_PLAN`). Companion: [PIPELINE.md](PIPELINE.md).
+Companion: [PIPELINE.md](PIPELINE.md).
 
 ## The linchpin
 
@@ -31,7 +30,7 @@ in defensive cruft, reducing to ~3 primitives:
 most-fragile op largely disappears, because provenance is carried by construction rather than
 re-derived.
 
-## What exists — `neurd/submesh_ops.py` (446 L)
+## What exists — `neurd/submesh_ops.py`
 
 Named `submesh_ops` because `neurd/_mesh_ops.py` already holds the L6 decimate/poisson/fill_holes
 layer. The primitives are reimplemented **directly on trimesh**, not as thin `tu.*` wrappers.
@@ -115,11 +114,12 @@ The seam is `correspondence_1_to_1(..., input_sub=...)` in `preprocess_neuron.py
 
 ### Dropped after probing (don't revive without a new driver)
 
-`original_mesh_faces_map`, `subtract_mesh` and `compare_meshes_by_face_midpoints` have **zero callers
-during `segmentation_pipeline`**. They are still live on the *spine* path (`spine_utils`,
-`neuron_utils`, `branch_utils`), which is a different entry point — so this is "not on the segmentation
-path", not "dead". Note `submesh_ops` has **no `subtract_mesh` equivalent**, contrary to an earlier
-claim; that would-be drop-in swap does not exist.
+An earlier audit without spines observed no callers of `original_mesh_faces_map`,
+`subtract_mesh` or `compare_meshes_by_face_midpoints`. These operations remain live
+when spine processing is enabled (`spine_utils`, `neuron_utils`, `branch_utils`),
+including through the public segmentation API. An absent call in one configuration
+does not establish dead code. `submesh_ops` has **no `subtract_mesh` equivalent**;
+a drop-in replacement requires its own design and gate.
 
 The geometric matching that *does* still run is one level down inside `mesh_tools`
 (`remove_mesh_interior`, `mesh_list_connectivity`) and is not reachable by handing in provenance — they
@@ -127,7 +127,9 @@ remap internally, or operate on Poisson-SDF soma candidates that have no provena
 
 ## The remaining `tu` surface
 
-**59 distinct `tu.*` functions**, and the distribution is the whole story:
+The earlier call-site inventory counted **59 distinct `tu.*` functions**.
+Its distribution below is a historical snapshot; recount actual callers before
+using it to scope another migration:
 
 | module | `tu.*` call sites |
 |---|---|
@@ -140,16 +142,15 @@ remap internally, or operate on Poisson-SDF soma candidates that have no provena
 | `neuron.py` | 6 |
 | others | ≤3 each |
 
-`spine_utils` is the largest holdout and has its own plan
-([docs/notes/SPINE_UTILS_PLAN.md](docs/notes/SPINE_UTILS_PLAN.md)) — with an honest caveat: the surface
-is a long thin tail (~1–2 calls per function, mostly L1 trivia), so the call count overstates the
-structural payoff, and spines are not part of the segmentation pipeline the rest of this work
-optimizes. Confirm the priority before starting.
+`spine_utils` retains the largest provider surface. Many functions have only one
+or two call sites, so call count alone does not establish the value of a rewrite.
+Measure the spine-enabled path before choosing another replacement, and preserve
+face ownership, ordering and final-filter behavior.
 
 ## Invariants
 
 - The layer lives in **`neurd/`** and wraps or replaces `tu.*` usage. It does **not** edit the sibling
-  `mesh_tools` — see the rationale in [PERF.md](PERF.md).
+  `mesh_tools` — see the provider-boundary rationale in [PIPELINE.md](PIPELINE.md).
 - Migrations are **one call site per commit, golden-gated**, never bulk: `neuron.py`, `spine_utils` and
   `soma_extraction_utils` are consumed pipeline-wide.
 - Keep cosmetic/structural commits separate from logic changes.

@@ -45,7 +45,10 @@ from neurd.mesh_io import load_mesh  # noqa: E402
 
 from neuron_metrics import extract_metrics  # noqa: E402
 
-_ANCHOR = REPO / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
+_ANCHOR = Path(
+    os.environ.get("NEURD_H01_MESH")
+    or REPO / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
+).expanduser().resolve()
 
 # metric -> (kind, tol) used only with --tolerance. "exact" | "abs" | "rel"
 _TOL = {

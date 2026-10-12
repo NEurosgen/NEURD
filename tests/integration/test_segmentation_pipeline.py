@@ -38,10 +38,11 @@ from process_all_neurons import save_segmentation  # noqa: E402
 
 # h01 single-neuron fixture: preprocess_neuron forces params.use('h01'), so the
 # segmentation path is now specialised for one soma with no glia/nuclei.
-_FIXTURE = (
-    Path(__file__).resolve().parents[2]
+_FIXTURE = Path(
+    os.environ.get("NEURD_H01_MESH")
+    or Path(__file__).resolve().parents[2]
     / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
-)
+).expanduser().resolve()
 
 _MESH_TOOLS = all(shutil.which(b) for b in ("xvfb-run", "meshlabserver"))
 _requires_mesh_tools = pytest.mark.skipif(

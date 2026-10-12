@@ -70,14 +70,16 @@ reduction measurement.
 
 ## Validation and publication boundary
 
-The complete unit suite in the populated local checkout passes
+The complete unit suite in the populated validation checkout passed
 **1,063 tests / 1 expected skip**. Some real-mesh cases read the ignored
-`tests/990_mesh*` files and local `Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off`.
-These inputs were copied and fingerprinted in the fresh checkout; the count does
-not establish that an unpopulated Git clone can run every case. The skip
+`tests/990_mesh*` files and an externally supplied `neuron_2530864375.off`.
+The historical validation checkout stored that raw mesh below the former
+`Applications/Tutorials/Auto_Proof_Pipeline/` directory; those tutorials are no
+longer bundled. These inputs were copied and fingerprinted for that validation;
+the count does not establish that an unpopulated Git clone can run every case. The skip
 exercises an optional stub only when real ipyvolume is unavailable; real ipyvolume
-is installed here. The three removed import roots remain blocked during validation.
-All 30 NEURD modules import with all eight default compatibility patches active.
+was installed in that environment. The three removed import roots remained blocked during validation.
+All 30 NEURD modules imported with all eight default compatibility patches active.
 Actual patched Open3D decimation and Embree ray intersections pass.
 
 Fresh native SDF runs cover the unset, reference-25 and fast-12 ray profiles.
@@ -136,3 +138,17 @@ register a kernel without changing the scientific package environment.
 Portable fixtures and required native CI remain release work. The installation
 checks establish computational behavior; anatomical accuracy and performance
 claims require their own evidence and measurement scope.
+
+For current real-H01 checks, supply your mesh explicitly from the repository root:
+
+```bash
+NEURD_H01_MESH=/path/to/neuron_2530864375.off \
+    pytest tests/unit/test_submesh_ops.py tests/integration/test_segmentation_pipeline.py
+python tests/tools/neuron_gate.py --neuron /path/to/neuron_2530864375.off \
+    --baseline tests/fixtures/neuron_baseline_2530864375.json --tolerance
+```
+
+The baseline belongs to the named neuron; another mesh needs its own reference.
+See the [developer guide](development/README.md) for the separate native and
+spine-positive branch gates. The publication notebook uses its own
+`NEURD_EXAMPLE_MESH` setting, described in [the example instructions](../examples/README.md).

@@ -45,7 +45,10 @@ from neurd import neuron_utils as nru  # noqa: E402
 from neurd import parameters  # noqa: E402
 
 OUT = REPO / "tests" / "fixtures" / "concept_network"
-_ANCHOR = REPO / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
+_ANCHOR = Path(
+    os.environ.get("NEURD_H01_MESH")
+    or REPO / "Applications" / "Tutorials" / "Auto_Proof_Pipeline" / "neuron_2530864375.off"
+).expanduser().resolve()
 
 
 # --------------------------------------------------------------------------- signature

@@ -30,7 +30,10 @@ for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OM
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-ANCHOR = REPO / "Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off"
+ANCHOR = Path(
+    os.environ.get("NEURD_H01_MESH")
+    or REPO / "Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off"
+).expanduser().resolve()
 OUT = REPO / "tests" / "fixtures" / "skeletal_distance_cases.pbz2"
 
 

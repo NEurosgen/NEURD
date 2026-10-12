@@ -133,25 +133,8 @@ dmypy.json
 
 
 
-# Applications
-Applications/**/*.off
-Applications/**/*.mls
-Applications/**/*.cgal
-Applications/**/*.pbz2
-
-!Applications/Tutorials/Auto_Proof_Pipeline/Double_Soma/864691135510518224.off
-!Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Exc/864691134917511946.off
-!Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Inh/864691135567721964.off
-
-!Applications/Tutorials/Auto_Proof_Pipeline/Double_Soma/864691135510518224_auto_proof.pbz2
-!Applications/Tutorials/Auto_Proof_Pipeline/Double_Soma/864691135510518224_split_0.pbz2
-
-!Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Exc/864691134917511946_auto_proof.pbz2
-!Applications/Tutorials/Auto_Proof_Pipeline/Single_Soma_Inh/864691135567721964_auto_proof.pbz2
-!Applications/**/*_auto_proof.pbz2
-
-
-
+# Legacy local datasets and upstream tutorials are outside the supported example.
+/Applications/
 .DS_Store
 
 # Editor scratch

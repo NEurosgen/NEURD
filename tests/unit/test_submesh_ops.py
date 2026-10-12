@@ -10,6 +10,7 @@ largest-first order is unambiguous); on the real mesh (where tiny fragments can 
 we assert the partition/kept-set and that the largest piece matches -- which is what downstream
 `[0]` consumers rely on.
 """
+import os
 from pathlib import Path
 
 import neurd  # noqa: F401  -- activates numpy/mesh shims before trimesh
@@ -24,7 +25,10 @@ skip_if_datasci_tools_unusable()
 from mesh_tools import trimesh_utils as tu  # noqa: E402  (after the skip guard)
 from neurd import submesh_ops as so  # noqa: E402
 
-FIXTURE = Path(__file__).resolve().parents[2] / "Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off"
+FIXTURE = Path(
+    os.environ.get("NEURD_H01_MESH")
+    or Path(__file__).resolve().parents[2] / "Applications/Tutorials/Auto_Proof_Pipeline/neuron_2530864375.off"
+).expanduser().resolve()
 
 
 def _fsets(arrays):

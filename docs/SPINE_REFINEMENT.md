@@ -193,7 +193,7 @@ validated closure and records an explicit convex-hull fallback when needed.
 The input surface stays unchanged. Convex-hull volume is a geometric
 approximation and can overestimate concave anatomy. Unavailable estimates are
 missing values, not unlabelled zeros. See the
-[volume investigation and migration notes](notes/SPINE_VOLUME_QC.md).
+[volume investigation and migration notes](development/SPINE_VOLUME_QC.md).
 
 Descriptor extraction preserves the 35-column order and adds a versioned
 `*_volume_qc.json` completion record. Resume verifies its algorithm, dataset,

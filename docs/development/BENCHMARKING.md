@@ -1,4 +1,8 @@
-# Whole-neuron benchmark and notebook
+# Historical whole-neuron benchmark
+
+This is a developer record of a comparison between two historical fork snapshots.
+It does not compare upstream NEURD. The current [publication example](../../examples/README.md)
+presents one saved observation without this intermediate-version comparison.
 
 The controlled comparison processes the complete raw H01 mesh
 `neuron_2530864375.off`: **253,307 vertices / 507,737 faces**, SHA256
@@ -44,7 +48,7 @@ The baseline is `e2fb110263d1707089f44dbdc08d6eb9d9fc6521`, the integration
 candidate before the owned OFF loader, label grouping/assembly and subsequent
 post-CGAL optimizations and readability work. The runtime candidate is
 `4b7fa78d993444530444b3c440d0e451823a5b58`. Both use the same
-[constrained Python environment](INSTALLATION.md), with 198 installed distributions,
+[constrained Python environment](../INSTALLATION.md), with 198 installed distributions,
 and the same compiled segmentation and skeletonization providers. Neither source
 snapshot is installed over that environment.
 
@@ -90,7 +94,7 @@ export obligations. The separate release gates validate the new ownership and
 provenance records.
 
 Recorded results and scope are in
-[the public summary](../examples/h01_benchmark_summary.json). This comparison
+[the public summary](../../examples/h01_benchmark_summary.json). This comparison
 excludes earlier optimizations of the original framework and the buffered native
 CSV change already present in the baseline. Computational equivalence does not
 establish anatomical accuracy. This H01 anchor exercises MP processing; native
@@ -101,19 +105,16 @@ MAP is covered separately by the generated-mesh installation smoke check.
 Activate the validated Python environment, provide the checksummed mesh, and use
 separate source/output directories. Run from the current repository checkout:
 
+The source IDs above identify the original measured snapshots. The published
+history was later sanitized; do not assume those original IDs resolve in a fresh
+clone. Supply complete frozen source directories whose payloads match the
+recorded source fingerprints, rather than substituting the current branch:
+
 ```bash
-BENCH_ROOT=$(mktemp -d)
-mkdir -p "$BENCH_ROOT/baseline" "$BENCH_ROOT/candidate"
-git archive e2fb110263d1707089f44dbdc08d6eb9d9fc6521 \
-  neurd process_all_neurons.py tests/tools/neuron_metrics.py configs \
-  requirements.txt setup.py README.md | tar -xf - -C "$BENCH_ROOT/baseline"
-git archive 4b7fa78d993444530444b3c440d0e451823a5b58 \
-  neurd process_all_neurons.py tests/tools/neuron_metrics.py configs \
-  requirements.txt setup.py README.md constraints | tar -xf - -C "$BENCH_ROOT/candidate"
 python tests/tools/benchmark_pipeline.py \
-  --baseline-source "$BENCH_ROOT/baseline" \
-  --candidate-source "$BENCH_ROOT/candidate" \
-  --neuron /path/to/neuron_2530864375.off --out "$BENCH_ROOT/results" \
+  --baseline-source /path/to/frozen-baseline-source \
+  --candidate-source /path/to/frozen-candidate-source \
+  --neuron /path/to/neuron_2530864375.off --out /path/to/new-results \
   --dataset h01 --sdf-profile fast --seed 0 --segment-id 2530864375 \
   --cpu 2 --repeat 3 --timeout 1200
 ```
@@ -123,33 +124,13 @@ The result directory contains `report.json`, guards, per-run logs, sampled RSS,
 exports and per-run receipts. Use the summary's source/provider/input
 fingerprints when comparing another machine or installation.
 
-## Run the notebook
+## Publication example
 
-[The H01 example](../examples/h01_single_neuron.ipynb) uses the public API and
-[`_single_neuron_example.py`](../examples/_single_neuron_example.py). Keep the
-helper beside the notebook, select the constrained environment's kernel and set
-`NEURD_EXAMPLE_MESH` to your input. The notebook creates a new output directory,
-records metrics and fingerprints, and renders the neuron and a detected spine.
-Its observation uses a fresh Jupyter kernel and a new Numba cache. Jupyter startup
-contributes to kernel lifetime RSS; first-use compilation contributes to
-processing time. That observation is separate from the repeated benchmark.
+The [executed notebook](../../examples/h01_single_neuron.ipynb) uses the public
+API and [measurement helper](../../examples/_single_neuron_example.py). Its
+saved timing is separate from this repeated benchmark. It shows the timed raw
+neuron and a separate manually reviewed C03 spine with bundled geometry.
 
-Notebook tooling was checked in a separate seven-package overlay, preserving the
-scientific environment. To reproduce that overlay, choose a directory outside the
-checkout; `--no-deps` relies on support packages already in the validated profile:
-
-```bash
-NEURD_NOTEBOOK_TOOLS=/path/to/neurd-notebook-tools
-PIP_CONSTRAINT="$PWD/constraints/linux-py312-20261012.txt" \
-python -m pip install --no-deps --target "$NEURD_NOTEBOOK_TOOLS" \
-  ipykernel==7.4.0 nbclient==0.11.0 jupyter-client==8.10.0 \
-  tornado==6.5.10 pyzmq==27.2.0 debugpy==1.8.22 nest-asyncio2==1.7.4
-PYTHONPATH="$NEURD_NOTEBOOK_TOOLS" python -m ipykernel install --user \
-  --name neurd-h01-example --display-name "NEURD H01 example" \
-  --env PYTHONPATH "$NEURD_NOTEBOOK_TOOLS" --env PYTHONHASHSEED 0 \
-  --env NEURD_EXAMPLE_MESH /path/to/neuron_2530864375.off
-```
-
-Select that kernel in Jupyter or your IDE. Optional `NEURD_EXAMPLE_CPU` selects
-an allowed Linux CPU; the measurement used 2. The saved notebook and accompanying
-summary contain basename/hash identifiers, rather than local absolute data paths.
+Follow the [viewing and rerun instructions](../../examples/README.md) for the
+scientific kernel, input configuration and notebook tooling. The frozen
+reference JSON records that observation's measurements and environment.

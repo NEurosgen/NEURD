@@ -6,10 +6,14 @@ endpoint distances. This document defines the external inputs needed by retained
 hooks and the boundary for a future annotation loader. It adds no loader,
 classifier or runtime validation; historical behavior remains unchanged.
 
-The audit covers [neuron.py](../neurd/neuron.py),
-[neuron_utils.py](../neurd/neuron_utils.py),
-[branch_utils.py](../neurd/branch_utils.py) and string feature dispatch in
-[neuron_searching.py](../neurd/neuron_searching.py).
+This is a compatibility reference for contributors. The supported workflow is
+described in the [user README](../../README.md) and
+[executed single-neuron example](../../examples/README.md).
+
+The audit covers [neuron.py](../../neurd/neuron.py),
+[neuron_utils.py](../../neurd/neuron_utils.py),
+[branch_utils.py](../../neurd/branch_utils.py) and string feature dispatch in
+[neuron_searching.py](../../neurd/neuron_searching.py).
 
 ## Available data and retained hooks
 
@@ -137,55 +141,25 @@ the same branch identities. Existing raw origin journals and parent-face maps
 check their recorded local scope; they do not recover historical annotation
 assignment or ordered raw ownership.
 
-The shipped synapse CSVs contain `segment_id`, `synapse_id`, `prepost`
-(`presyn`/`postsyn`), `synapse_x/y/z` and `synapse_size`; some also contain
-`segment_id_secondary`. Their headers declare neither coordinate nor size units.
-Stored notebook centroid pairs suggest a historical `[4, 4, 40]` nm-per-voxel
-conversion, which does not verify these CSV coordinate or size semantics.
-Do not infer H01 conversion or interpret `synapse_size` as a physical volume.
-The H01 EM-review localizer uses a different source with `post_x/y/z_nm` and an
-incomplete contact subset; it does not establish spine assignment.
+## Historical upstream workflows
 
-## Historical notebook migration
+The wider autoproof, multi-soma and synapse tutorials belong to
+[upstream NEURD](https://github.com/reimerlab/NEURD). Their notebooks, synapse
+CSVs and serialized enriched objects are not bundled in this fork. They depend
+on removed stages and are not examples of the current raw API.
 
-All four shipped autoproof notebooks require a broader workflow migration.
-Their sources and stored outputs remain archival; none was executed or rewritten
-in this documentation pass. Cell references below are **1-based JSON cell indices**.
-Paths are relative to `Applications/Tutorials/Auto_Proof_Pipeline/`.
-
-| Notebook | Legacy constructor cell | Later unsupported stages |
-|---|---:|---|
-| `Single_Soma_Exc/neuron_pipeline_vp5_single_demo_exc.ipynb` | 32 | Multi-soma split, classification, autoproof, synapse visualization |
-| `Single_Soma_Exc/Old_notebooks/neuron_pipeline_vp5_single_demo_exc.ipynb` | 30 | Same enriched workflow |
-| `Single_Soma_Inh/neuron_pipeline_vp5_single_demo_inh.ipynb` | 29 | Same enriched workflow |
-| `Double_Soma/neuron_pipeline_vp5_double_soma.ipynb` | 31 | Multi-soma processing plus the enriched workflow |
-
-They pass `pipeline_products`, `suppress_preprocessing_print` and `suppress_output`
-to `Neuron`; the current constructor does not accept those keywords. They also
-import removed dataset, pipeline, visualization and synapse modules. Updating
-only the constructor call cannot preserve their recorded analysis.
-
-| Historical step | Supported migration / remaining work |
-|---|---|
-| Dataset adapter and enriched construction | Load a verified local OFF mesh; call `segmentation_pipeline(..., config=RunConfig(...))` for fresh raw processing |
-| Implicit stage products | Explicit `calculate_decomposition_products(include_upstream_diagnostics=False, include_centroids=False)` |
-| Voxel centroid statistics | Supply a verified `voxel_adjustment_vector` explicitly |
-| `.pbz2` object recovery | `save_segmentation` exports geometry, arrays and provenance; it does not recreate an enriched object |
-| Compartment/synapse assignment | Supply verified external inputs as described above; no slim classification/assignment pipeline exists |
-| Multi-soma splitting, autoproof and legacy plots | No replacement in the supported raw API; retain historical notebooks as archives |
-
-Before publication, create a separate executed raw-neuron notebook with input
-hash, explicit configuration, complete processing, export checks, timings and
-peak memory. Do not carry historical enriched outputs into it as new results.
+An upstream CSV header or saved notebook output does not verify the coordinate,
+size or distance units of a new annotation source. A source-specific conversion,
+assignment method and geometry mapping remain necessary before using these hooks.
 
 ## Evidence and next decisions
 
 Local audit/probe receipts are retained in
 `artifacts/enrichment_contract_cleanup_20261011/v1/`. They describe existing
 consumers, supplied tiny fixtures and archived notebook/CSV inputs; they do not
-validate anatomical classification or synapse assignment. No whole-neuron
-processing or before/after performance comparison was run for this documentation
-pass; runtime source bytes are unchanged from the bootstrap package.
+validate anatomical classification or synapse assignment. The original contract audit did not run whole-neuron processing or a performance
+comparison. Its findings describe retained consumers rather than a restored
+enrichment pipeline.
 
 The input requirements are now explicit. A future enrichment change must choose
 an annotation source, verify units and current geometry identity, define missing
